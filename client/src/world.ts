@@ -948,6 +948,8 @@ export class World {
   charging = false;
   charge = 0; // 0..1
   private aimBlend = 0;
+  private arc?: THREE.Line;
+  private arcEnd?: THREE.Mesh;
   private ripples?: Ripples;
   private rippleTimer = 0;
   private stepAccum = 0; // metres walked since the last footstep
@@ -1322,6 +1324,35 @@ export class World {
     }
   }
 
+  /** While aiming, draw where the throw will go at the power you have charged so far. */
+  private updateArc() {
+    if (!this.arc) {
+      const MAX = 320;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 3), 3));
+      geo.setDrawRange(0, 0);
+      this.arc = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xd6ff3a, depthTest: false }));
+      this.arc.frustumCulled = false;
+      this.arc.renderOrder = 10;
+      this.arcEnd = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.3, 14), new THREE.MeshBasicMaterial({ color: 0xd6ff3a, depthTest: false, side: THREE.DoubleSide }));
+      this.arcEnd.rotation.x = -Math.PI / 2;
+      this.arcEnd.renderOrder = 10;
+      this.scene.add(this.arc, this.arcEnd);
+    }
+    const arc = this.arc;
+    const end = this.arcEnd!;
+    arc.visible = end.visible = this.aiming;
+    if (!this.aiming) return;
+    const path = throwPath(this.throwFlight(Math.max(0.08, this.charge)));
+    const pos = arc.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const n = Math.min(path.length, pos.count);
+    for (let i = 0; i < n; i++) pos.setXYZ(i, path[i][0], path[i][1], path[i][2]);
+    pos.needsUpdate = true;
+    arc.geometry.setDrawRange(0, n);
+    const last = path[n - 1];
+    end.position.set(last[0], last[1] + 0.05, last[2]);
+  }
+
   private updateItems(dt: number) {
     const k = 1 - Math.exp(-18 * dt);
     for (const it of this.items.values()) {
@@ -1583,6 +1614,7 @@ export class World {
     if (this.aiming && this.charging) this.charge = Math.min(1, this.charge + dt / 1.1);
     this.aimBlend += ((this.aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-9 * dt));
     this.updateItems(dt);
+    this.updateArc();
     this.ledgeMat.color.setHSL(0.19, 1, 0.55 + 0.1 * Math.sin(this.clock * 3));
     this.updateLedgeHint();
 
