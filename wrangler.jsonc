@@ -5,10 +5,11 @@
   "compatibility_date": "2025-09-01",
   "assets": { "directory": "./dist/client", "binding": "ASSETS" },
   "durable_objects": { "bindings": [{ "name": "LOBBY", "class_name": "LobbyDO" }] },
-  // Public by design (publishable key). Never put a service_role key here.
+  // NBFC's Supabase project: the game shares NBFC accounts. Public URL + anon key only;
+  // never put a service_role key here.
   "vars": {
-    "SUPABASE_URL": "https://ufmoyhmjqlfugnxkeqfs.supabase.co",
-    "SUPABASE_ANON_KEY": "sb_publishable_rD0HvmtxW6yVKjnolD_XnQ_mYQII0cL"
+    "SUPABASE_URL": "https://owbctzwdxqbfttzvrsos.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93YmN0endkeHFiZnR0enZyc29zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDE0MDYsImV4cCI6MjA4Njk3NzQwNn0.F5n8RHSp756p3L8nPYmfSqmOiGyhQl4npbNBvC3r81A"
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LobbyDO"] }]
 }

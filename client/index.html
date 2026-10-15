@@ -19,6 +19,7 @@
     input, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #2c3550; }
     input { background: #0d1120; color: #fff; }
     button { background: #4f7cff; border-color: #4f7cff; color: #fff; cursor: pointer; font-weight: 600; }
+    button.link { background: none; border: none; padding: 2px; color: #8fa8ff; font-weight: 400; font-size: 14px; text-decoration: underline; }
     button.secondary { background: transparent; border-color: #2c3550; color: #9aa3b8; font-weight: 400; }
     button:disabled { opacity: .5; cursor: default; }
     #who { color: #fff; }
@@ -58,14 +59,20 @@
   <div id="crosshair" hidden></div>
 
   <div id="join" class="overlay">
-    <form id="join-form" class="card">
+    <form id="join-form" class="card" autocomplete="on">
       <h1>Proximity Lobby</h1>
-      <p>Walk around, talk to people near you, and chat with everyone. Your browser will ask for microphone access.</p>
       <p id="join-note">Your username is the part of your email before the @, and other players will see it. Your email itself is never sent to the server.</p>
       <p id="who" hidden></p>
+      <input id="auth-username" type="text" placeholder="Username (3-16 characters)" autocomplete="username" minlength="3" maxlength="16" hidden />
       <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" minlength="6" hidden />
+      <input id="auth-password2" type="password" placeholder="Repeat new password" autocomplete="new-password" minlength="6" hidden />
+      <input id="auth-code" type="text" inputmode="numeric" placeholder="Code from the email" autocomplete="one-time-code" hidden />
       <button id="join-btn" type="submit">Join</button>
-      <button id="signout-btn" type="button" class="secondary" hidden>Use a different email</button>
+      <button id="resend-btn" type="button" class="secondary" hidden>Resend the email</button>
+      <button id="forgot-btn" type="button" class="link" hidden>Forgot password?</button>
+      <button id="toggle-btn" type="button" class="link" hidden></button>
+      <button id="signout-btn" type="button" class="secondary" hidden>Use a different account</button>
       <p id="status"></p>
     </form>
   </div>

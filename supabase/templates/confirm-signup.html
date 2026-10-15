@@ -1,3 +1,13 @@
+{{/*
+  Paste this whole file into the Supabase dashboard of the NBFC project:
+  Authentication > Emails > Templates > Confirm signup.
+
+  How it works: when the sign-in comes from the game, the first block (game branding, says it is
+  from Proximity Lobby) is used. Everything else falls through to the {{ else }} block, which is a
+  plain fallback so NBFC emails are never blank. Replace the fallback with NBFC's own existing
+  template if it is styled; keep the {{ else }} and {{ end }} lines.
+*/}}
+{{ if or (eq .RedirectTo "https://proximity-lobby.proxchat.workers.dev/") (eq .RedirectTo "http://localhost:3000/") }}
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,45 +17,38 @@
   <title>Proximity Lobby</title>
 </head>
 <body style="margin:0;padding:0;background:#0d1120;">
-  <!-- Preview text shown in the inbox list -->
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Confirm your email to get your username and join the lobby.</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Confirm your email to join Proximity Lobby.</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0d1120;padding:32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#151a28;border-radius:14px;">
-          <tr>
-            <td style="padding:32px 32px 8px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-              <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#7f8aa8;">Proximity Lobby</div>
-              <h1 style="margin:10px 0 0 0;font-size:24px;line-height:1.25;color:#ffffff;">Confirm your email to join the lobby.</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:12px 32px 8px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#c5cce0;">
-              Thanks for signing up. Click the button to confirm your email. You'll get a username that other players see, and you can walk in and start talking.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 32px 12px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-              <a href="{{ .ConfirmationURL }}"
-                 style="display:inline-block;background:#4f7cff;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:13px 26px;border-radius:8px;">
-                Confirm and join the lobby
-              </a>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 32px 28px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.55;color:#7f8aa8;">
-              The link works once and expires soon. Open it in the same browser you started signing in from.<br /><br />
-              Button not working? Copy this address into your browser:<br />
-              <span style="word-break:break-all;color:#9aa3b8;">{{ .ConfirmationURL }}</span><br /><br />
-              Didn't ask for this? Ignore this email and nothing happens. Nobody can join as you without this link.
-            </td>
-          </tr>
-        </table>
-        <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#5d6785;padding-top:16px;">
-          Sent to {{ .Email }}
-        </div>
-      </td>
-    </tr>
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#151a28;border-radius:14px;">
+        <tr><td style="padding:32px 32px 8px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+          <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#7f8aa8;">Proximity Lobby</div>
+          <h1 style="margin:10px 0 0 0;font-size:24px;line-height:1.25;color:#ffffff;">Confirm your email to join the lobby.</h1>
+        </td></tr>
+        <tr><td style="padding:12px 32px 8px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#c5cce0;">
+          Thanks for signing up for <b>Proximity Lobby</b>. Click the button to confirm your email. Then you can walk in and start talking.
+        </td></tr>
+        <tr><td style="padding:20px 32px 12px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#4f7cff;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:13px 26px;border-radius:8px;">Confirm and join the lobby</a>
+        </td></tr>
+        <tr><td style="padding:0 32px 8px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#c5cce0;">
+          Or type this code into the game:
+          <div style="margin-top:8px;font-size:28px;letter-spacing:.3em;font-weight:700;color:#ffffff;">{{ .Token }}</div>
+        </td></tr>
+        <tr><td style="padding:8px 32px 28px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.55;color:#7f8aa8;">
+          This email was sent because someone used this address in <b>Proximity Lobby</b>, the 3D proximity-chat game. Your account is shared with NBFC.<br /><br />
+          Button not working? Copy this address into your browser:<br />
+          <span style="word-break:break-all;color:#9aa3b8;">{{ .ConfirmationURL }}</span><br /><br />
+          Didn't ask for this? Ignore this email and nothing happens.
+        </td></tr>
+      </table>
+      <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#5d6785;padding-top:16px;">Sent to {{ .Email }}</div>
+    </td></tr>
   </table>
 </body>
 </html>
+{{ else }}
+<h2>Confirm your email</h2>
+<p><a href="{{ .ConfirmationURL }}">Confirm your email address</a></p>
+<p>Or enter this code: <b>{{ .Token }}</b></p>
+{{ end }}

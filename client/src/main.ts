@@ -414,14 +414,26 @@ export function usernameFromEmail(email: string): string {
   return local.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 16);
 }
 
-// With Supabase configured the player signs in with an emailed magic link and joins under the
-// username in their verified profile. Without it, the old unverified email flow is used.
+// With Supabase configured, players log in with email + password (the same accounts as NBFC),
+// with email confirmation, forgot-password and a new-password form. The server verifies the
+// login token and uses the account's username. Without Supabase, the old email-only join is used.
 const supabase = getSupabase();
-const emailInput = $<HTMLInputElement>('email');
+type Mode = 'legacy' | 'login' | 'signup' | 'confirm' | 'recovery' | 'in';
+let mode: Mode = supabase ? 'login' : 'legacy';
+let profileName = ''; // set while signed in
+let confirmEmail = ''; // the address a confirmation code was sent to
+
 const joinBtn = $<HTMLButtonElement>('join-btn');
+const usernameInput = $<HTMLInputElement>('auth-username');
+const emailInput = $<HTMLInputElement>('email');
+const pwInput = $<HTMLInputElement>('auth-password');
+const pw2Input = $<HTMLInputElement>('auth-password2');
+const codeInput = $<HTMLInputElement>('auth-code');
+const resendBtn = $<HTMLButtonElement>('resend-btn');
+const forgotBtn = $<HTMLButtonElement>('forgot-btn');
+const toggleBtn = $<HTMLButtonElement>('toggle-btn');
 const signoutBtn = $<HTMLButtonElement>('signout-btn');
 const status = $('status');
-let profileName = ''; // set while signed in
 
 try {
   emailInput.value = localStorage.getItem('email') ?? '';
@@ -434,45 +446,103 @@ function setStatus(text: string, ok = false) {
   status.classList.toggle('ok', ok);
 }
 
+const NOTES: Record<Mode, string> = {
+  legacy: 'Your username is the part of your email before the @, and other players will see it. Your email itself is never sent to the server.',
+  login: 'Log in with your account. It is the same email and password as NBFC.',
+  signup: 'Create an account. It also works on NBFC. Other players will see your username.',
+  confirm: 'We emailed you a confirmation. Tap the link in it, or type the code here.',
+  recovery: 'Choose a new password for your account.',
+  in: '',
+};
+
+/** Show only the fields that belong to the current step. */
+function render() {
+  const show = (el: HTMLElement, on: boolean) => (el.hidden = !on);
+  const need = (el: HTMLInputElement, on: boolean) => {
+    show(el, on);
+    el.required = on;
+  };
+  need(usernameInput, mode === 'signup');
+  need(emailInput, mode === 'legacy' || mode === 'login' || mode === 'signup');
+  need(pwInput, mode === 'login' || mode === 'signup' || mode === 'recovery');
+  need(pw2Input, mode === 'recovery');
+  need(codeInput, mode === 'confirm');
+  pwInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  pwInput.placeholder = mode === 'recovery' ? 'New password' : 'Password';
+  show(forgotBtn, mode === 'login');
+  show(resendBtn, mode === 'confirm');
+  show(signoutBtn, mode === 'in');
+  show(toggleBtn, mode === 'login' || mode === 'signup' || mode === 'confirm');
+  toggleBtn.textContent =
+    mode === 'login' ? 'Need an account? Sign up' : mode === 'signup' ? 'Already have an account? Log in' : 'Back to log in';
+  joinBtn.textContent =
+    { legacy: 'Join', login: 'Log in', signup: 'Sign up', confirm: 'Confirm email', recovery: 'Save new password', in: 'Join' }[mode];
+  $('join-note').textContent = NOTES[mode];
+  show($('join-note'), mode !== 'in');
+  show($('who'), mode === 'in');
+  if (mode === 'in') $('who').textContent = `Signed in. You will appear as “${profileName}”.`;
+  joinBtn.disabled = false;
+}
+
+function go(next: Mode, message = '', ok = false) {
+  mode = next;
+  render();
+  setStatus(message, ok);
+}
+
+const friendly = (message: string) =>
+  /rate limit|only request this after/i.test(message)
+    ? 'An email was sent very recently. Please wait a minute and try again.'
+    : message;
+
 async function showSignedIn(userId: string) {
   const { data, error } = await supabase!.from('profiles').select('username').eq('id', userId).maybeSingle();
-  if (error || !data) {
-    setStatus('Signed in, but your profile could not be loaded. Please reload.');
+  if (error || !data?.username) {
+    await supabase!.auth.signOut();
+    go('login', 'Signed in, but your account has no username yet. Please sign up again or contact the admin.');
     return;
   }
   profileName = data.username;
-  $('who').textContent = `Signed in. You will appear as “${profileName}”.`;
-  $('who').hidden = false;
-  $('join-note').hidden = true;
-  emailInput.hidden = true;
-  emailInput.required = false;
-  signoutBtn.hidden = false;
-  joinBtn.textContent = 'Join';
-  joinBtn.disabled = false;
-  setStatus('');
-}
-
-function showSignedOut() {
-  profileName = '';
-  $('who').hidden = true;
-  $('join-note').hidden = false;
-  $('join-note').textContent =
-    'Sign in with your email to get a username other players will see. We send you a one-time link; no password needed.';
-  emailInput.hidden = false;
-  emailInput.required = true;
-  signoutBtn.hidden = true;
-  joinBtn.textContent = 'Email me a sign-in link';
-  joinBtn.disabled = false;
+  go('in');
 }
 
 if (supabase) {
-  showSignedOut();
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
     // Defer: calling supabase inside this callback can deadlock.
-    setTimeout(() => (session ? void showSignedIn(session.user.id) : showSignedOut()), 0);
+    setTimeout(() => {
+      if (event === 'PASSWORD_RECOVERY') go('recovery');
+      else if (session && mode !== 'recovery' && mode !== 'in') void showSignedIn(session.user.id);
+      else if (!session && (mode === 'in' || mode === 'recovery')) go('login');
+    }, 0);
   });
-  signoutBtn.addEventListener('click', () => void supabase.auth.signOut());
 }
+
+toggleBtn.addEventListener('click', () => go(mode === 'login' ? 'signup' : 'login'));
+forgotBtn.addEventListener('click', async () => {
+  const email = emailInput.value.trim();
+  if (!email) {
+    setStatus('Enter your email above, then tap Forgot password.');
+    return;
+  }
+  const { error } = await supabase!.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/` });
+  if (error) setStatus(friendly(error.message));
+  else setStatus('Check your email for a link to reset your password.', true);
+});
+resendBtn.addEventListener('click', async () => {
+  const email = confirmEmail || emailInput.value.trim();
+  if (!email) {
+    setStatus('Enter your email first.');
+    return;
+  }
+  const { error } = await supabase!.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: `${location.origin}/` },
+  });
+  if (error) setStatus(friendly(error.message));
+  else setStatus('Sent again. Check your inbox (and spam).', true);
+});
+signoutBtn.addEventListener('click', () => void supabase!.auth.signOut());
 
 async function enterLobby(name: string, token?: string) {
   joinBtn.disabled = true;
@@ -492,10 +562,8 @@ async function enterLobby(name: string, token?: string) {
   net.send({ t: 'join', name, token });
 }
 
-$<HTMLFormElement>('join-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  if (!supabase) {
+async function submit() {
+  if (mode === 'legacy') {
     try {
       localStorage.setItem('email', emailInput.value);
     } catch {
@@ -504,30 +572,97 @@ $<HTMLFormElement>('join-form').addEventListener('submit', async (e) => {
     await enterLobby(usernameFromEmail(emailInput.value));
     return;
   }
+  const sb = supabase!;
+  const email = emailInput.value.trim();
 
-  if (!profileName) {
-    joinBtn.disabled = true;
-    const email = emailInput.value.trim();
-    try {
-      localStorage.setItem('email', email);
-    } catch {
-      /* storage unavailable */
+  if (mode === 'in') {
+    const { data } = await sb.auth.getSession(); // refreshes an expired token
+    if (!data.session) {
+      go('login', 'Your session expired. Please log in again.');
+      return;
     }
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${location.origin}/` },
-    });
-    joinBtn.disabled = false;
-    if (error) setStatus(`Could not send the link: ${error.message}`);
-    else setStatus('Check your inbox and click the link. This page will update when you are signed in.', true);
+    await enterLobby(profileName, data.session.access_token);
     return;
   }
 
-  const { data } = await supabase.auth.getSession(); // refreshes an expired token
-  if (!data.session) {
-    showSignedOut();
-    setStatus('Your session expired. Please sign in again.');
-    return;
+  joinBtn.disabled = true;
+  try {
+    if (mode === 'login') {
+      try {
+        localStorage.setItem('email', email);
+      } catch {
+        /* storage unavailable */
+      }
+      const { error } = await sb.auth.signInWithPassword({ email, password: pwInput.value });
+      if (error) {
+        if (/not confirmed/i.test(error.message)) {
+          confirmEmail = email;
+          go('confirm', "Your email isn't confirmed yet. Tap the link in the email, enter its code, or resend it.");
+        } else {
+          setStatus(error.message);
+        }
+      }
+      // success: onAuthStateChange moves us to the signed-in step
+    } else if (mode === 'signup') {
+      const username = usernameInput.value.trim();
+      if (username.length < 3 || username.length > 16) {
+        setStatus('Username must be 3 to 16 characters.');
+        return;
+      }
+      if (pwInput.value.length < 6) {
+        setStatus('Password must be 6+ characters.');
+        return;
+      }
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password: pwInput.value,
+        options: { data: { username }, emailRedirectTo: `${location.origin}/` },
+      });
+      if (error) setStatus(friendly(error.message));
+      else if (data.user && !data.session) {
+        confirmEmail = email;
+        go('confirm', 'Check your email: tap the link, or enter the code from it here.', true);
+      }
+    } else if (mode === 'confirm') {
+      const code = codeInput.value.replace(/\s/g, '');
+      if (!code) {
+        setStatus('Enter the code from the email.');
+        return;
+      }
+      const { error } = await sb.auth.verifyOtp({ email: confirmEmail || email, token: code, type: 'signup' });
+      if (error) {
+        setStatus(
+          /expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Resend the email for a new one.' : error.message,
+        );
+      }
+    } else if (mode === 'recovery') {
+      if (pwInput.value.length < 6) {
+        setStatus('Password must be 6+ characters.');
+        return;
+      }
+      if (pwInput.value !== pw2Input.value) {
+        setStatus("Passwords don't match.");
+        return;
+      }
+      const { error } = await sb.auth.updateUser({ password: pwInput.value });
+      if (error) setStatus(error.message);
+      else {
+        pwInput.value = pw2Input.value = '';
+        const { data } = await sb.auth.getSession();
+        if (data.session) {
+          mode = 'login'; // lets showSignedIn proceed
+          await showSignedIn(data.session.user.id);
+          setStatus('Password updated.', true);
+        } else go('login', 'Password updated. Please log in.', true);
+      }
+    }
+  } finally {
+    joinBtn.disabled = false;
   }
-  await enterLobby(profileName, data.session.access_token);
+}
+
+$<HTMLFormElement>('join-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  void submit();
 });
+render();
