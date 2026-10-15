@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { Lobby, type Peer, type Session } from './lobby';
-import { MAP_HALF, MAX_PLAYERS, type ServerMsg } from './protocol';
+import { JUMP_MAX_Y, MAP_RADIUS, MAX_PLAYERS, type ServerMsg } from './protocol';
+import { clampToArena } from './map';
 
 function client(lobby: Lobby) {
   const inbox: ServerMsg[] = [];
@@ -25,13 +26,30 @@ b.tx({ t: 'join', name: 'JANE DOE' });
 assert.equal(b.s.name, 'JANE DOE'.slice(0, 13) + '_2');
 assert.ok(a.inbox.some((m) => m.t === 'joined'));
 
-// positions are clamped to the map and only sent to others
+// positions are clamped to the circular arena and only sent to others
 b.tx({ t: 'pos', x: 9999, z: -9999, ry: 1 });
 assert.equal(lobby.flush(), true);
 assert.equal(lobby.flush(), false);
 const st = a.inbox.find((m) => m.t === 'state');
-assert.deepEqual(st && st.t === 'state' ? st.p : null, [[b.s.id, MAP_HALF, -MAP_HALF, 1]]);
+const sp = st && st.t === 'state' ? st.p[0] : null;
+assert.ok(sp && sp[0] === b.s.id && sp[3] === 1 && sp[4] === 0 && sp[5] === 0);
+assert.ok(sp && Math.abs(Math.hypot(sp[1], sp[2]) - MAP_RADIUS) < 1e-9);
+assert.ok(sp && sp[1] > 0 && sp[2] < 0); // pulled toward the centre along the same direction
 assert.ok(!b.inbox.some((m) => m.t === 'state'));
+
+// height and crouch are relayed; bad values are sanitised
+b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: 1.2, crouch: true });
+b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: 99, crouch: 'yes' });
+assert.equal(b.s.y, JUMP_MAX_Y);
+assert.equal(b.s.crouch, false);
+b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: -5 });
+assert.equal(b.s.y, 0);
+lobby.flush();
+
+// arena clamp helper
+assert.deepEqual(clampToArena(3, 4), { x: 3, z: 4 });
+const edge = clampToArena(300, 400);
+assert.ok(Math.abs(edge.x - 30) < 1e-9 && Math.abs(edge.z - 40) < 1e-9);
 
 // chat rate limit: 5 per 5 s
 for (let i = 0; i < 8; i++) a.tx({ t: 'chat', text: `hi ${i}` });

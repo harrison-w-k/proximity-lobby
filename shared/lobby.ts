@@ -1,7 +1,7 @@
 // Lobby rules shared by the Node server and the Cloudflare Worker.
 // It knows nothing about sockets: each host wraps its WebSocket in a Peer.
 import {
-  MAP_HALF,
+  JUMP_MAX_Y,
   MAX_CHAT,
   MAX_NAME,
   MAX_PLAYERS,
@@ -9,6 +9,7 @@ import {
   type PlayerState,
   type ServerMsg,
 } from './protocol';
+import { clampToArena } from './map';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
 
@@ -32,8 +33,15 @@ export interface Session extends Saved {
 /** token -> username, null if the login is invalid. May throw if the auth service is down. */
 export type Verifier = (token: string) => Promise<string | null>;
 
-const publicState = (c: Session): PlayerState => ({ id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry });
-const clampMap = (v: number) => Math.max(-MAP_HALF, Math.min(MAP_HALF, v));
+const publicState = (c: Session): PlayerState => ({
+  id: c.id,
+  name: c.name,
+  x: c.x,
+  z: c.z,
+  ry: c.ry,
+  y: c.y,
+  crouch: c.crouch,
+});
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 export class Lobby {
@@ -47,18 +55,30 @@ export class Lobby {
 
   /** A new socket connected; it is not a player until it sends `join`. */
   open(peer: Peer): Session {
-    return { peer, id: crypto.randomUUID().slice(0, 8), name: '', x: 0, z: 0, ry: 0, joined: false, chatTimes: [] };
+    return {
+      peer,
+      id: crypto.randomUUID().slice(0, 8),
+      name: '',
+      x: 0,
+      z: 0,
+      ry: 0,
+      y: 0,
+      crouch: false,
+      joined: false,
+      chatTimes: [],
+    };
   }
 
   /** Rebuild a session from saved state (Worker woke from hibernation). */
   restore(peer: Peer, saved: Saved): Session {
-    const c: Session = { ...saved, peer, chatTimes: [] };
+    // older attachments predate y / crouch, so default them
+    const c: Session = { ...saved, y: saved.y ?? 0, crouch: saved.crouch ?? false, peer, chatTimes: [] };
     if (c.joined) this.conns.set(c.id, c);
     return c;
   }
 
   save(c: Session): Saved {
-    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, joined: c.joined };
+    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined };
   }
 
   /**
@@ -131,9 +151,12 @@ export class Lobby {
       }
       case 'pos': {
         if (!c.joined || !finite(msg.x) || !finite(msg.z) || !finite(msg.ry)) return;
-        c.x = clampMap(msg.x);
-        c.z = clampMap(msg.z);
+        const at = clampToArena(msg.x, msg.z);
+        c.x = at.x;
+        c.z = at.z;
         c.ry = msg.ry;
+        c.y = finite(msg.y) ? Math.max(0, Math.min(JUMP_MAX_Y, msg.y)) : 0;
+        c.crouch = msg.crouch === true;
         this.dirty.add(c.id);
         break;
       }
@@ -168,10 +191,10 @@ export class Lobby {
   /** Send changed positions to everyone except their owner. Returns false if nothing was pending. */
   flush(): boolean {
     if (this.dirty.size === 0) return false;
-    const p: [string, number, number, number][] = [];
+    const p: [string, number, number, number, number, 0 | 1][] = [];
     for (const id of this.dirty) {
       const c = this.conns.get(id);
-      if (c) p.push([c.id, c.x, c.z, c.ry]);
+      if (c) p.push([c.id, c.x, c.z, c.ry, c.y, c.crouch ? 1 : 0]);
     }
     this.dirty.clear();
     for (const c of this.conns.values()) {

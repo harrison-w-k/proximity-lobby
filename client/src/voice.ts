@@ -5,6 +5,7 @@ interface Peer {
   pending: RTCIceCandidateInit[];
   nodes: AudioNode[];
   panner?: PannerNode;
+  gain?: GainNode; // per-player volume, set by the listener
   analyser?: AnalyserNode;
   el?: HTMLAudioElement;
   lastLoud: number;
@@ -27,6 +28,7 @@ export class Voice {
   private localAnalyser: AnalyserNode | null = null;
   private lastLocalLoud = 0;
   private peers = new Map<string, Peer>();
+  private volumes = new Map<string, number>(); // peer id -> volume multiplier (1 = normal)
   private ice: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
   private buf = new Uint8Array(512);
 
@@ -133,6 +135,13 @@ export class Voice {
     l.forwardZ.value = fz;
   }
 
+  /** Listener-side volume for one player: 0 = silent, 1 = normal, 2 = double. Applies to future connections too. */
+  setPeerVolume(id: string, v: number) {
+    this.volumes.set(id, v);
+    const g = this.peers.get(id)?.gain;
+    if (g) g.gain.value = v;
+  }
+
   setPeerPosition(id: string, x: number, y: number, z: number) {
     const p = this.peers.get(id)?.panner;
     if (!p) return;
@@ -174,14 +183,14 @@ export class Voice {
     pc.onicecandidate = (e) => {
       if (e.candidate) this.signal(id, { candidate: e.candidate.toJSON() });
     };
-    pc.ontrack = (e) => this.attach(peer, e.streams[0] ?? new MediaStream([e.track]));
+    pc.ontrack = (e) => this.attach(peer, id, e.streams[0] ?? new MediaStream([e.track]));
 
     if (this.local) this.local.getTracks().forEach((t) => pc.addTrack(t, this.local!));
     else pc.addTransceiver('audio', { direction: 'recvonly' });
     return peer;
   }
 
-  private attach(peer: Peer, stream: MediaStream) {
+  private attach(peer: Peer, id: string, stream: MediaStream) {
     // Chrome only delivers remote WebRTC audio to Web Audio if the stream is also attached to a media element.
     const el = new Audio();
     el.srcObject = stream;
@@ -199,11 +208,15 @@ export class Voice {
     panner.maxDistance = VOICE_MAX;
     panner.rolloffFactor = 1;
     panner.positionX.value = 1e5; // silent until the first position update
-    src.connect(analyser);
+    const gain = this.ctx.createGain();
+    gain.gain.value = this.volumes.get(id) ?? 1;
+    src.connect(analyser); // analyser taps the raw voice, so the speaking glow ignores your volume setting
     src.connect(panner);
-    panner.connect(this.ctx.destination);
-    peer.nodes = [src, analyser, panner];
+    panner.connect(gain);
+    gain.connect(this.ctx.destination);
+    peer.nodes = [src, analyser, panner, gain];
     peer.panner = panner;
+    peer.gain = gain;
     peer.analyser = analyser;
   }
 }

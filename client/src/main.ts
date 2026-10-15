@@ -1,5 +1,5 @@
 import { Net } from './net';
-import { EYE_HEIGHT, World } from './world';
+import { DEFAULT_FOV, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
 import type { ServerMsg } from '../../shared/protocol';
@@ -75,6 +75,7 @@ function openMenu() {
   world.clearKeys();
   settings.hidden = false;
   refreshMenu();
+  renderPlayerList();
   updatePaused();
 }
 
@@ -95,6 +96,122 @@ try {
 }
 setSensitivity(Number(sensInput.value), false);
 sensInput.addEventListener('input', () => setSensitivity(Number(sensInput.value), true));
+$('sens-reset').addEventListener('click', () => {
+  sensInput.value = '1';
+  setSensitivity(1, true);
+});
+
+// Field of view
+const fovInput = $<HTMLInputElement>('fov');
+function setFov(v: number, save: boolean) {
+  world.setFov(v);
+  $('fov-val').textContent = `${Math.round(v)}°`;
+  if (!save) return;
+  try {
+    localStorage.setItem('fov', String(v));
+  } catch {
+    /* storage unavailable */
+  }
+}
+try {
+  const saved = Number(localStorage.getItem('fov'));
+  fovInput.value = String(saved >= 60 && saved <= 110 ? saved : DEFAULT_FOV);
+} catch {
+  fovInput.value = String(DEFAULT_FOV);
+}
+setFov(Number(fovInput.value), false);
+fovInput.addEventListener('input', () => setFov(Number(fovInput.value), true));
+
+// Per-player volume: what *you* hear from each player, remembered by their username.
+const VOL_KEY = 'voiceVolumes';
+let savedVolumes: Record<string, number> = {};
+try {
+  const raw = JSON.parse(localStorage.getItem(VOL_KEY) ?? '{}');
+  if (raw && typeof raw === 'object') savedVolumes = raw;
+} catch {
+  /* storage unavailable or corrupt */
+}
+const volumes = new Map<string, number>(); // player id -> volume multiplier
+
+function applySavedVolume(id: string, name: string) {
+  const v = savedVolumes[name];
+  const vol = typeof v === 'number' && v >= 0 && v <= 2 ? v : 1;
+  volumes.set(id, vol);
+  voice?.setPeerVolume(id, vol);
+}
+
+function setPlayerVolume(id: string, v: number) {
+  v = Math.max(0, Math.min(2, v));
+  volumes.set(id, v);
+  voice?.setPeerVolume(id, v);
+  const name = names.get(id);
+  if (!name) return;
+  if (Math.abs(v - 1) < 0.005) delete savedVolumes[name];
+  else savedVolumes[name] = Math.round(v * 100) / 100;
+  try {
+    localStorage.setItem(VOL_KEY, JSON.stringify(savedVolumes));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const playersList = $('players-list');
+
+function renderPlayerList() {
+  playersList.replaceChildren();
+  $('players-note').hidden = names.size === 0;
+  for (const [id, name] of names) {
+    const row = document.createElement('div');
+    row.className = 'pl-row';
+    const label = document.createElement('span');
+    label.textContent = name; // textContent only: names are other players' input
+    const val = document.createElement('span');
+    val.className = 'pl-val';
+    val.textContent = pct(volumes.get(id) ?? 1);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '200';
+    slider.step = '5';
+    slider.value = String(Math.round((volumes.get(id) ?? 1) * 100));
+    slider.setAttribute('aria-label', `Volume for ${name}`);
+    slider.addEventListener('input', () => {
+      setPlayerVolume(id, Number(slider.value) / 100);
+      val.textContent = pct(volumes.get(id) ?? 1);
+    });
+    row.append(label, val, slider);
+    playersList.append(row);
+  }
+}
+
+// While looking at a player (and not in a menu), the scroll wheel adjusts their volume.
+const targetBox = $('target');
+let lookId: string | null = null;
+
+function showTarget() {
+  if (!lookId) {
+    targetBox.hidden = true;
+    return;
+  }
+  targetBox.hidden = false;
+  targetBox.replaceChildren(
+    document.createTextNode(`${names.get(lookId) ?? 'Player'} · 🔊 ${pct(volumes.get(lookId) ?? 1)} `),
+    Object.assign(document.createElement('small'), { textContent: '(scroll to adjust)' }),
+  );
+}
+
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!lookId || typing || menuOpen) return;
+    e.preventDefault();
+    setPlayerVolume(lookId, (volumes.get(lookId) ?? 1) - e.deltaY * 0.0005);
+    showTarget();
+  },
+  { passive: false },
+);
+
 $('resume-btn').addEventListener('click', () => closeMenu(true));
 micBtn.addEventListener('click', () => {
   if (!voice?.hasMic) return;
@@ -102,7 +219,19 @@ micBtn.addEventListener('click', () => {
   refreshMenu();
   updateHud();
 });
-$('leave-btn').addEventListener('click', () => location.reload());
+$('leave-btn').addEventListener('click', () => {
+  leaving = true;
+  location.reload();
+});
+
+// Ctrl is sprint, and Ctrl+W closes the tab: ask first so one slip doesn't drop you from the lobby.
+let leaving = false;
+window.addEventListener('beforeunload', (e) => {
+  if (joined && !leaving && $('dead').hidden) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 // ---------- chat ----------
 const chatBox = $('chat');
@@ -167,6 +296,8 @@ let lastSent = 0;
 let sx = NaN;
 let sz = NaN;
 let sry = NaN;
+let sy = NaN;
+let scrouch = false;
 const fwd = { x: 0, y: 0, z: 0 };
 
 world.onFrame = () => {
@@ -176,11 +307,19 @@ world.onFrame = () => {
   if (now - lastSent > 66) {
     lastSent = now;
     const { x, z } = world.pos;
-    if (Math.abs(x - sx) > 1e-3 || Math.abs(z - sz) > 1e-3 || Math.abs(world.yaw - sry) > 1e-3) {
+    const changed =
+      Math.abs(x - sx) > 1e-3 ||
+      Math.abs(z - sz) > 1e-3 ||
+      Math.abs(world.yaw - sry) > 1e-3 ||
+      Math.abs(world.feetY - sy) > 1e-3 ||
+      world.crouching !== scrouch;
+    if (changed) {
       sx = x;
       sz = z;
       sry = world.yaw;
-      net.send({ t: 'pos', x, z, ry: world.yaw });
+      sy = world.feetY;
+      scrouch = world.crouching;
+      net.send({ t: 'pos', x, z, ry: world.yaw, y: sy, crouch: scrouch });
     }
   }
 
@@ -190,10 +329,18 @@ world.onFrame = () => {
     fwd.y = -e[9];
     fwd.z = -e[10];
     voice.updateListener(world.pos.x, world.pos.y, world.pos.z, fwd.x, fwd.y, fwd.z);
-    for (const [id, a] of world.avatars) voice.setPeerPosition(id, a.group.position.x, EYE_HEIGHT, a.group.position.z);
+    for (const [id, a] of world.avatars) voice.setPeerPosition(id, a.group.position.x, a.group.position.y + EYE_HEIGHT, a.group.position.z);
     voice.tick(now);
     for (const id of world.avatars.keys()) world.setSpeaking(id, voice.speaking.has(id));
     $('mic').classList.toggle('speaking', voice.speaking.has('me'));
+  }
+
+  // Who is under the crosshair (for the volume prompt)? Only while actually playing.
+  const playing = !menuOpen && !typing && document.pointerLockElement === canvas;
+  const id = playing ? world.playerUnderCrosshair(20) : null;
+  if (id !== lookId || id) {
+    lookId = id;
+    showTarget();
   }
 };
 
@@ -206,10 +353,12 @@ net.onMessage = (m: ServerMsg) => {
   switch (m.t) {
     case 'welcome':
       joined = true;
+      world.setSelfId(m.id);
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
       for (const p of m.players) {
         names.set(p.id, p.name);
+        applySavedVolume(p.id, p.name);
         world.addPlayer(p);
         void voice?.connect(p.id); // we're the newcomer, so we make the offers
       }
@@ -231,19 +380,23 @@ net.onMessage = (m: ServerMsg) => {
       break;
     case 'joined':
       names.set(m.player.id, m.player.name);
+      applySavedVolume(m.player.id, m.player.name);
       world.addPlayer(m.player);
       addChat('•', `${m.player.name} joined`);
       updateHud();
+      if (menuOpen) renderPlayerList();
       break;
     case 'left':
       addChat('•', `${names.get(m.id) ?? 'Someone'} left`);
       names.delete(m.id);
+      volumes.delete(m.id);
       world.removePlayer(m.id);
       voice?.removePeer(m.id);
       updateHud();
+      if (menuOpen) renderPlayerList();
       break;
     case 'state':
-      for (const [id, x, z, ry] of m.p) world.applyState(id, x, z, ry);
+      for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);
       break;
     case 'chat':
       addChat(m.name, m.text);
