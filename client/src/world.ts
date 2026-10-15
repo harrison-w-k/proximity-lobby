@@ -1241,6 +1241,11 @@ export class World {
     return best;
   }
 
+  /** Letting go of an item in mid-air: it just falls from your hands. */
+  releaseFlight(): Flight {
+    return [this.pos.x, this.feetY + 0.9, this.pos.z, 0, 0, 0];
+  }
+
   /** The launch of a throw: out of your hands, along where you are facing and a little upward. */
   throwFlight(): Flight {
     const sy = Math.sin(this.yaw);

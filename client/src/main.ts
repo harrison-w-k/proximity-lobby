@@ -604,8 +604,10 @@ window.addEventListener('keydown', (e) => {
     if (held !== null) {
       if (e.code === 'KeyR') net.send({ t: 'throw', id: held, f: world.throwFlight() });
       else {
+        // set down in front of you; in mid-air just let go and it falls
         const spot = world.dropSpot();
         if (spot) net.send({ t: 'drop', id: held, ...spot });
+        else net.send({ t: 'throw', id: held, f: world.releaseFlight() });
       }
     } else if (e.code === 'KeyF') {
       const id = world.nearestItem();
