@@ -503,7 +503,11 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     const w = wallAhead(blocks, p.x, p.z, aimX, aimZ, p.y, STAND_H);
     if (w) {
       const rise = blockTop(w.block) - p.y;
-      if (rise >= GRAB_MIN && rise <= GRAB_MAX) {
+      if (rise >= GRAB_MIN && rise <= HANG_DROP) {
+        // already about level with the ledge: hop over it instead of dropping down to hang from it
+        startMantle(p, w.block, w.nx, w.nz, VAULT_TIME + 0.08 * rise);
+        p.jumpBuffer = 0;
+      } else if (rise > HANG_DROP && rise <= GRAB_MAX) {
         p.hanging = true;
         p.hangTime = 0;
         p.hangNx = w.nx;
