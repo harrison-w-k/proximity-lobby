@@ -119,6 +119,7 @@ export class World {
   yaw = 0;
   pitch = 0;
   inputEnabled = true;
+  lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
   onFrame?: (dt: number) => void;
 
   private keys = new Set<string>();
@@ -157,8 +158,9 @@ export class World {
     window.addEventListener('blur', () => this.keys.clear());
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== this.canvas || !this.inputEnabled) return;
-      this.yaw -= e.movementX * 0.0022;
-      this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - e.movementY * 0.0022));
+      const k = 0.0022 * this.lookSensitivity;
+      this.yaw -= e.movementX * k;
+      this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - e.movementY * k));
     });
 
     this.renderer.setAnimationLoop(this.tick);

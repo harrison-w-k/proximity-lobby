@@ -29,10 +29,80 @@ function updateHud() {
 setInterval(() => joined && updateHud(), 500);
 
 function updatePaused() {
-  $('paused').hidden = !joined || typing || document.pointerLockElement === canvas;
+  $('paused').hidden = !joined || typing || menuOpen || document.pointerLockElement === canvas;
 }
-document.addEventListener('pointerlockchange', updatePaused);
+// Losing the mouse (Esc, alt-tab) opens settings so the mouse can be used. Opening chat also
+// releases it, but that sets `typing` first so the menu stays closed.
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== canvas) openMenu();
+  updatePaused();
+});
 canvas.addEventListener('click', () => joined && !typing && world.lock());
+
+// ---------- settings menu ----------
+const settings = $('settings');
+const sensInput = $<HTMLInputElement>('sens');
+const micBtn = $<HTMLButtonElement>('mic-btn');
+let menuOpen = false;
+let menuOpenedAt = 0;
+
+function setSensitivity(v: number, save: boolean) {
+  world.lookSensitivity = v;
+  $('sens-val').textContent = `${v.toFixed(1)}×`;
+  if (!save) return;
+  try {
+    localStorage.setItem('sensitivity', String(v));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function refreshMenu() {
+  if (!voice?.hasMic) {
+    micBtn.textContent = '🎤 No microphone detected';
+    micBtn.disabled = true;
+  } else {
+    micBtn.textContent = voice.muted ? '🔇 Unmute microphone' : '🎤 Mute microphone';
+    micBtn.disabled = false;
+  }
+}
+
+function openMenu() {
+  if (menuOpen || !joined || typing) return;
+  menuOpen = true;
+  menuOpenedAt = performance.now();
+  world.inputEnabled = false;
+  world.clearKeys();
+  settings.hidden = false;
+  refreshMenu();
+  updatePaused();
+}
+
+function closeMenu(relock: boolean) {
+  if (!menuOpen) return;
+  menuOpen = false;
+  settings.hidden = true;
+  world.inputEnabled = true;
+  if (relock) world.lock();
+  updatePaused();
+}
+
+try {
+  const saved = Number(localStorage.getItem('sensitivity'));
+  if (saved >= 0.3 && saved <= 2.5) sensInput.value = String(saved);
+} catch {
+  /* storage unavailable */
+}
+setSensitivity(Number(sensInput.value), false);
+sensInput.addEventListener('input', () => setSensitivity(Number(sensInput.value), true));
+$('resume-btn').addEventListener('click', () => closeMenu(true));
+micBtn.addEventListener('click', () => {
+  if (!voice?.hasMic) return;
+  voice.setMuted(!voice.muted);
+  refreshMenu();
+  updateHud();
+});
+$('leave-btn').addEventListener('click', () => location.reload());
 
 // ---------- chat ----------
 const chatBox = $('chat');
@@ -51,6 +121,7 @@ function addChat(name: string, text: string) {
 }
 
 function openChat() {
+  closeMenu(false);
   typing = true;
   world.inputEnabled = false;
   world.clearKeys();
@@ -81,8 +152,12 @@ window.addEventListener('keydown', (e) => {
     typing ? closeChat(true) : openChat();
   } else if (e.code === 'Escape' && typing) {
     closeChat(false);
+  } else if (e.code === 'Escape' && menuOpen) {
+    // Ignore the Esc that opened the menu, in case the browser also delivers it as a keydown.
+    if (performance.now() - menuOpenedAt > 250) closeMenu(true);
   } else if (e.code === 'KeyM' && !typing && voice) {
     voice.setMuted(!voice.muted);
+    refreshMenu();
     updateHud();
   }
 });
