@@ -14,7 +14,7 @@ interface Env {
   TURN_CREDENTIAL?: string;
 }
 
-const TICK_MS = 66; // ~15 Hz position broadcast
+const TICK_MS = 33; // ~30 Hz position broadcast
 const MAX_PAYLOAD = 16 * 1024;
 
 function iceServersFrom(env: Env): IceServers {

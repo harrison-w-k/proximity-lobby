@@ -21,7 +21,11 @@ export type SoundEvent =
   | { kind: 'slideEnd' }
   | { kind: 'grab' }
   | { kind: 'mantle' }
-  | { kind: 'splash'; strength: number };
+  | { kind: 'splash'; strength: number }
+  | { kind: 'pickup' }
+  | { kind: 'drop' }
+  | { kind: 'throw'; power: number }
+  | { kind: 'hit' };
 
 export const DEFAULT_FOV = 75;
 export const DEFAULT_RENDER_HEIGHT = 480;
@@ -448,6 +452,7 @@ interface AnimState {
   hanging: boolean;
   mantle: boolean;
   ragdoll?: number; // 0..1: knocked down and limp
+  carrying?: boolean; // holding something out in front
 }
 
 interface Character {
@@ -769,6 +774,13 @@ function makeCharacter(id: string): Character {
     P.tilt = lerp(P.tilt, tilt, k);
     P.bob = lerp(P.bob, bob, k);
 
+    // carrying something: both arms out in front, elbows bent, and a steadier body
+    if (a.carrying && !a.hanging && !a.mantle && !a.sliding) {
+      P.armL = lerp(P.armL, 1.15, 0.5);
+      P.armR = lerp(P.armR, 1.15, 0.5);
+      P.elbow = lerp(P.elbow, 1.0, 0.5);
+    }
+
     // knocked down: the whole body topples and the limbs go limp and flail
     const rag = a.ragdoll ?? 0;
     if (rag > 0.01) {
@@ -816,6 +828,77 @@ function makeCharacter(id: string): Character {
     setLook,
     animate,
   };
+}
+
+/** Little puffs of dust and sparks: one pooled point cloud, so effects cost almost nothing. */
+class Puffs {
+  private readonly N = 160;
+  private pos: Float32Array;
+  private col: Float32Array;
+  private vel: Float32Array;
+  private life: Float32Array;
+  private max: Float32Array;
+  private head = 0;
+  private geo = new THREE.BufferGeometry();
+  readonly points: THREE.Points;
+
+  constructor() {
+    this.pos = new Float32Array(this.N * 3).fill(0);
+    this.col = new Float32Array(this.N * 3).fill(0);
+    this.vel = new Float32Array(this.N * 3);
+    this.life = new Float32Array(this.N);
+    this.max = new Float32Array(this.N).fill(1);
+    for (let i = 0; i < this.N; i++) this.pos[i * 3 + 1] = -999; // parked below the world
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.points = new THREE.Points(
+      this.geo,
+      new THREE.PointsMaterial({ size: 0.22, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }),
+    );
+    this.points.frustumCulled = false;
+  }
+
+  /** `speed` is the sideways burst, `lift` the upward one. */
+  emit(x: number, y: number, z: number, count: number, color: number, speed = 1.5, lift = 1.2) {
+    const c = new THREE.Color(color);
+    for (let n = 0; n < count; n++) {
+      const i = this.head;
+      this.head = (this.head + 1) % this.N;
+      const a = Math.random() * Math.PI * 2;
+      const sp = speed * (0.4 + Math.random() * 0.8);
+      this.pos[i * 3] = x;
+      this.pos[i * 3 + 1] = y;
+      this.pos[i * 3 + 2] = z;
+      this.vel[i * 3] = Math.cos(a) * sp;
+      this.vel[i * 3 + 1] = lift * (0.4 + Math.random());
+      this.vel[i * 3 + 2] = Math.sin(a) * sp;
+      this.col[i * 3] = c.r;
+      this.col[i * 3 + 1] = c.g;
+      this.col[i * 3 + 2] = c.b;
+      this.max[i] = this.life[i] = 0.35 + Math.random() * 0.4;
+    }
+  }
+
+  update(dt: number) {
+    for (let i = 0; i < this.N; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) {
+        this.pos[i * 3 + 1] = -999;
+        continue;
+      }
+      this.vel[i * 3 + 1] -= 6 * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt;
+      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
+      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const f = this.life[i] / this.max[i]; // fade by dimming towards the background
+      this.col[i * 3] *= 1 - dt * 1.5 * (1 - f);
+      this.col[i * 3 + 1] *= 1 - dt * 1.5 * (1 - f);
+      this.col[i * 3 + 2] *= 1 - dt * 1.5 * (1 - f);
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.color.needsUpdate = true;
+  }
 }
 
 /** A pick-up-able object, sitting with its base at y = 0 and about 0.4 m across. */
@@ -881,6 +964,7 @@ class Avatar {
   private speed = 0; // smoothed, derived from how far they actually move
   private vy = 0;
   private ragdollLeft = 0;
+  carrying = false;
   stepAccum = 0; // metres this player has walked since their last audible footstep
 
   constructor(p: PlayerState) {
@@ -939,7 +1023,7 @@ class Avatar {
   }
 
   update(dt: number, t: number) {
-    const k = 1 - Math.exp(-15 * dt);
+    const k = 1 - Math.exp(-22 * dt); // 30 Hz updates: follow them tightly but still smoothly
     const g = this.group;
     g.position.x += (this.tx - g.position.x) * k;
     g.position.z += (this.tz - g.position.z) * k;
@@ -972,6 +1056,7 @@ class Avatar {
         hanging: false,
         mantle: false,
         ragdoll: ragdollAmount(this.ragdollLeft),
+        carrying: this.carrying,
       },
       dt,
       t,
@@ -1045,6 +1130,7 @@ export class World {
   private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string }; changedAt: number }>();
   private selfId = '';
   private selfLook: Look | null = null;
+  private puffs = new Puffs();
   private ragdollT = 0; // seconds of being knocked down left
   onHit?: (vx: number, vz: number) => void; // a thrown item hit you
   // throw aiming: R zooms the camera in over the shoulder, holding the mouse charges the power
@@ -1090,6 +1176,7 @@ export class World {
     this.water = makeWater(this.scene, tex().glints);
     this.ripples = new Ripples(this.scene);
     this.buildIsland();
+    this.scene.add(this.puffs.points);
     this.buildSelfBody();
 
     window.addEventListener('resize', this.resize);
@@ -1332,7 +1419,12 @@ export class World {
 
   /** Someone else got hit: tumble them. */
   ragdollPlayer(id: string) {
-    this.avatars.get(id)?.ragdoll();
+    const a = this.avatars.get(id);
+    if (!a) return;
+    a.ragdoll();
+    this.puffs.emit(a.group.position.x, a.group.position.y + 1.2, a.group.position.z, 14, 0xffe27a, 2.6, 2.2);
+    const d = Math.hypot(a.group.position.x - this.pos.x, a.group.position.z - this.pos.z);
+    if (d < 25) this.onSound?.({ kind: 'hit' });
   }
 
   /** You were hit: knocked back, and no control for a moment. */
@@ -1345,6 +1437,8 @@ export class World {
     if (s.onGround) s.vy = 4;
     s.sliding = false;
     s.hanging = false;
+    this.onSound?.({ kind: 'hit' });
+    this.puffs.emit(this.pos.x, this.feetY + 1.2, this.pos.z, 14, 0xffe27a, 2.6, 2.2);
     this.onHit?.(vx, vz);
   }
 
@@ -1364,9 +1458,19 @@ export class World {
       it = { state, group, changedAt: performance.now() };
       this.items.set(state.id, it);
     }
+    const before = it.state.holder;
     it.state = state;
     it.changedAt = performance.now();
     it.flight = fly ? { path: throwPath(fly), t: 0, by } : undefined;
+    // sounds and a puff for what you did yourself
+    if (state.holder === this.selfId && before !== this.selfId) this.onSound?.({ kind: 'pickup' });
+    else if (before === this.selfId && !state.holder) {
+      if (fly) this.onSound?.({ kind: 'throw', power: Math.min(1, Math.hypot(fly[3], fly[5]) / 17) });
+      else {
+        this.onSound?.({ kind: 'drop' });
+        this.puffs.emit(state.x, state.y + 0.05, state.z, 3, 0xe8dcb0, 0.8, 0.5);
+      }
+    }
   }
 
   /** The item you are carrying, if any. */
@@ -1532,6 +1636,7 @@ export class World {
           continue;
         }
         it.flight = undefined;
+        this.puffs.emit(state.x, state.y + 0.05, state.z, 5, 0xe8dcb0, 1.1, 0.8);
       }
       let x = state.x;
       let y = state.y;
@@ -1667,7 +1772,11 @@ export class World {
     if (!emit || this.orbit) return;
     const s = this.sim;
     if (was.vy <= 0.5 && s.vy > 5 && !s.mantle) emit({ kind: 'jump' });
-    if (!was.ground && s.onGround && was.vy < -4) emit({ kind: 'land', strength: Math.min(1, -was.vy / 14) });
+    if (!was.ground && s.onGround && was.vy < -4) {
+      emit({ kind: 'land', strength: Math.min(1, -was.vy / 14) });
+      this.puffs.emit(s.x, s.y + 0.05, s.z, 6 + Math.round(-was.vy), 0xe8dcb0, 1.6, 1.0);
+    }
+    if (s.sliding && s.onGround && Math.random() < dt * 22) this.puffs.emit(s.x, s.y + 0.05, s.z, 1, 0xe8dcb0, 0.8, 0.8);
     if (!was.sliding && s.sliding) emit({ kind: 'slideStart' });
     if (was.sliding && !s.sliding) emit({ kind: 'slideEnd' });
     if (!was.hanging && s.hanging) emit({ kind: 'grab' });
@@ -1728,7 +1837,13 @@ export class World {
       const mix = 0.6 * along;
       this.onShove?.(id, (dx / d) * push * (1 - mix) + this.sim.vx * mix, (dz / d) * push * (1 - mix) + this.sim.vz * mix);
     }
-    const p2 = p;
+    // ...and while they are being pushed away you cannot stand inside them
+    const solid: { x: number; z: number }[] = [];
+    for (const it of this.items.values()) {
+      if (it.state.holder || it.flight) continue;
+      if (Math.abs(it.group.position.y - this.feetY) < 1.0) solid.push(it.group.position);
+    }
+    const p2 = pushOut(p.x, p.z, solid, BODY_RADIUS + 0.2);
     const q = clampToArena(p2.x, p2.z, SWIM_LIMIT);
     this.pos.x = q.x;
     this.pos.z = q.z;
@@ -1785,12 +1900,18 @@ export class World {
     this.move(dt);
     this.water?.update(this.clock);
     if (this.clouds) this.clouds.rotation.y += dt * 0.004; // a very slow drift
+    const carriers = new Set<string>();
+    for (const it of this.items.values()) if (it.state.holder) carriers.add(it.state.holder);
+    for (const [id, a] of this.avatars) {
+      a.carrying = carriers.has(id);
+    }
     for (const a of this.avatars.values()) {
       const px = a.group.position.x;
       const pz = a.group.position.z;
       a.update(dt, this.clock);
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
+    this.puffs.update(dt);
     this.collide();
     if (this.aiming && this.holding === null) this.cancelAim(); // dropped it, or it was taken
     if (this.aiming && this.charging) this.charge = Math.min(1, this.charge + dt / 1.1);
@@ -1823,6 +1944,7 @@ export class World {
       hanging: sim.hanging,
       mantle: sim.mantle !== null,
       ragdoll: ragdollAmount(this.ragdollT),
+      carrying: this.holding !== null,
     };
     this.ragdollT = Math.max(0, this.ragdollT - dt);
     for (const c of this.selfChars) c.animate(state, dt, this.clock);

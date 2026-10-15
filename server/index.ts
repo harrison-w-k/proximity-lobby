@@ -8,7 +8,7 @@ import { supabaseAuth } from '../shared/auth';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = resolve(import.meta.dirname, '../dist/client');
-const TICK_MS = 66; // ~15 Hz position broadcast
+const TICK_MS = 33; // ~30 Hz position broadcast
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

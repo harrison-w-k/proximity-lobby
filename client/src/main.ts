@@ -711,7 +711,7 @@ world.onFrame = () => {
   if (!joined) return;
   const now = performance.now();
 
-  if (now - lastSent > 66) {
+  if (now - lastSent > 33) {
     lastSent = now;
     const { x, z } = world.pos;
     // NaN compares false with everything, so the very first report must be forced

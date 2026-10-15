@@ -172,6 +172,29 @@ export class Sfx {
     }
   }
 
+  pickup() {
+    this.tone(420, 640, 0.07, 0.07, 'triangle');
+    this.burst('bandpass', 1800, 2600, 0.05, 0.07, 1.2, 0.02);
+  }
+
+  drop() {
+    this.tone(300, 150, 0.09, 0.08, 'sine');
+    this.burst('lowpass', 700, 250, 0.08, 0.1, 0.8);
+  }
+
+  throwItem(power = 0.5) {
+    const p = Math.max(0.1, Math.min(1, power));
+    this.burst('bandpass', 500 + 900 * p, 3000, 0.16, 0.08 + 0.1 * p, 0.9);
+    this.tone(180, 90, 0.1, 0.05, 'triangle');
+  }
+
+  /** Something thrown hit someone: a thump and a little comic "boing". */
+  hit() {
+    this.burst('lowpass', 800, 120, 0.2, 0.28, 0.8);
+    this.tone(140, 60, 0.22, 0.2, 'sine');
+    this.tone(330, 520, 0.18, 0.06, 'triangle', 0.08);
+  }
+
   // ---------- interface ----------
   click() {
     this.tone(this.jitter(880, 0.03), 700, 0.045, 0.07, 'square');
@@ -228,6 +251,18 @@ export class Sfx {
         break;
       case 'splash':
         this.splash(e.strength);
+        break;
+      case 'pickup':
+        this.pickup();
+        break;
+      case 'drop':
+        this.drop();
+        break;
+      case 'throw':
+        this.throwItem(e.power);
+        break;
+      case 'hit':
+        this.hit();
         break;
     }
   }
