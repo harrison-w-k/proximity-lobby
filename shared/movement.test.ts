@@ -391,4 +391,31 @@ assert.ok(blockTop(at(-26, -9.5, 'goal')) >= 10, 'the goal is 10 m or more above
   }
 }
 
+
+// sprint is forward only: sideways or backwards you walk
+{
+  const run = (f: number, s: number) => {
+    const p = newSim(0, 0);
+    drive(p, [], 2, () => ({ f, s, sprint: true }));
+    return Math.hypot(p.vx, p.vz);
+  };
+  assert.ok(run(1, 0) > 8.5, 'forward sprint');
+  assert.ok(run(0, 1) < 5.2, 'strafe is a walk');
+  assert.ok(run(-1, 0) < 5.2, 'backwards is a walk');
+}
+
+// hanging on a ledge you can shimmy sideways along it
+{
+  const wall = blk('wall', 0, -5, 8, 1, 3);
+  const p = newSim(0, -2);
+  // jump at the wall holding grab (facing -z) until we hang
+  drive(p, [wall], 3, (s) => ({ f: s.hanging ? 0 : 1, jump: !s.hanging, grab: true }));
+  assert.ok(p.hanging, 'caught the ledge');
+  const x0 = p.x;
+  drive(p, [wall], 1, () => ({ s: 1, grab: true }));
+  assert.ok(p.hanging && p.x > x0 + 1, 'shimmied right');
+  drive(p, [wall], 6, () => ({ s: 1, grab: true }));
+  assert.ok(p.x <= 4 + 1e-6, 'stops at the end of the ledge');
+}
+
 console.log('movement tests passed');

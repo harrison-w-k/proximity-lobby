@@ -7,7 +7,7 @@ export class Sfx {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private slide: { src: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } | null = null;
-  volume = 0.6;
+  volume = 0.45;
 
   /** Browsers only allow audio after a user gesture: call this from the first click / key press. */
   resume() {
@@ -116,8 +116,8 @@ export class Sfx {
 
   land(strength: number) {
     const s = Math.max(0.1, Math.min(1, strength));
-    this.burst('lowpass', 500, 140, 0.12 + 0.12 * s, 0.25 + 0.4 * s, 0.8);
-    this.tone(120, 55, 0.16 + 0.08 * s, 0.18 + 0.25 * s, 'sine');
+    this.burst('lowpass', 500, 140, 0.12 + 0.12 * s, 0.14 + 0.25 * s, 0.8);
+    this.tone(120, 55, 0.16 + 0.08 * s, 0.1 + 0.16 * s, 'sine');
   }
 
   slideStart() {
@@ -127,14 +127,14 @@ export class Sfx {
     src.buffer = this.noise;
     src.loop = true;
     const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.Q.value = 0.8;
+    filter.type = 'lowpass';
+    filter.Q.value = 0.5;
     const t = ctx.currentTime;
-    filter.frequency.setValueAtTime(2200, t);
-    filter.frequency.exponentialRampToValueAtTime(700, t + 1.2);
+    filter.frequency.setValueAtTime(900, t);
+    filter.frequency.exponentialRampToValueAtTime(350, t + 1.0);
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.3, t + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.05, t + 0.12);
     src.connect(filter).connect(gain).connect(this.master);
     src.start();
     this.slide = { src, gain, filter };
@@ -153,14 +153,14 @@ export class Sfx {
   }
 
   grab() {
-    this.burst('bandpass', 2500, 1500, 0.05, 0.22, 1.5);
-    this.tone(210, 130, 0.1, 0.14, 'square');
+    this.burst('bandpass', 2500, 1500, 0.05, 0.1, 1.5);
+    this.tone(210, 130, 0.1, 0.06, 'triangle');
   }
 
   mantle() {
-    this.tone(this.jitter(160), 110, 0.14, 0.12, 'sawtooth'); // a small effort noise
-    this.burst('lowpass', 600, 200, 0.1, 0.25, 0.8, 0.12);
-    this.tone(90, 55, 0.14, 0.2, 'sine', 0.22);
+    this.tone(this.jitter(160), 110, 0.14, 0.05, 'triangle'); // a small effort noise
+    this.burst('lowpass', 600, 200, 0.1, 0.12, 0.8, 0.12);
+    this.tone(90, 55, 0.14, 0.1, 'sine', 0.22);
   }
 
   splash(strength = 1) {

@@ -610,8 +610,9 @@ function makeCharacter(id: string): Character {
   const lerp = (cur: number, target: number, k: number) => cur + (target - cur) * k;
 
   const animate = (a: AnimState, dt: number, t: number) => {
-    const k = 1 - Math.exp(-16 * dt);
+    const k = 1 - Math.exp(-9 * dt);
     const run = Math.min(1, a.speed / 9);
+    const mv = Math.min(1, Math.max(0, (a.speed - 0.3) / 1.7)); // 0 idle .. 1 moving, no pop between them
     const moving = a.speed > 0.6;
     const walking = a.grounded && moving && !a.sliding && !a.hanging && !a.mantle;
     if (walking) P.phase += dt * (4.2 + a.speed * 0.95);
@@ -686,24 +687,21 @@ function makeCharacter(id: string): Character {
       armR = 0.5;
       elbow = 0.9;
       lean = -0.45;
-    } else if (moving) {
-      const amp = 0.18 + 0.75 * run;
+    } else {
+      // walking, running or standing: one continuous blend, so starting and stopping never pops
+      const amp = (0.18 + 0.75 * run) * mv;
       legL = sw * amp;
       legR = -sw * amp;
       kneeL = -Math.max(0, Math.sin(P.phase + 1.2)) * amp * 1.2;
       kneeR = -Math.max(0, Math.sin(P.phase + 1.2 + Math.PI)) * amp * 1.2;
-      armL = -sw * amp * 0.95;
-      armR = sw * amp * 0.95;
-      elbow = 0.25 + run * 0.9;
-      lean = -0.1 - 0.25 * run;
-      twist = sw * 0.14 * run;
-      tilt = sw * 0.06 * run;
-      bob = Math.abs(sw) * 0.045 * run;
-    } else {
-      // idle: a slow weight shift
-      armL = Math.sin(t * 1.3 + phase0) * 0.05;
-      armR = -Math.sin(t * 1.3 + phase0) * 0.05;
-      lean = Math.sin(t * 1.1 + phase0) * 0.02;
+      const idleArm = Math.sin(t * 1.3 + phase0) * 0.05 * (1 - mv);
+      armL = -sw * amp * 0.95 + idleArm;
+      armR = sw * amp * 0.95 - idleArm;
+      elbow = 0.2 + (0.05 + run * 0.9) * mv;
+      lean = (-0.1 - 0.25 * run) * mv + Math.sin(t * 1.1 + phase0) * 0.02 * (1 - mv);
+      twist = sw * 0.14 * run * mv;
+      tilt = sw * 0.06 * run * mv;
+      bob = Math.abs(sw) * 0.045 * run * mv;
     }
 
     P.legL = lerp(P.legL, legL, k);
@@ -944,6 +942,8 @@ export class World {
   private water?: Water;
   private clouds?: THREE.Group;
   private aquarium?: Aquarium;
+  /** The bright rim on every ledge you can climb onto; it pulses gently so it reads at a glance. */
+  private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
   private items = new Map<number, { state: ItemState; group: THREE.Group }>();
   private selfId = '';
   private ripples?: Ripples;
@@ -1167,7 +1167,7 @@ export class World {
       goal: { map: t.goal, tile: 2 },
     };
     const mats = new Map<THREE.Texture, THREE.Material>();
-    const cap = flat(0xe8e6dc);
+    const cap = this.ledgeMat;
     for (const k of OBSTACLES) {
       const { map, tile } = look[k.kind];
       let mat = mats.get(map);
@@ -1180,7 +1180,7 @@ export class World {
       this.scene.add(mesh);
       // a pale rim on the walkable surfaces, so edges read clearly
       if (k.kind !== 'pillar' && k.kind !== 'beam') {
-        const rim = new THREE.Mesh(new THREE.BoxGeometry(k.w + 0.04, 0.05, k.d + 0.04), cap);
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(k.w + 0.08, 0.09, k.d + 0.08), cap);
         rim.position.set(k.x, blockTop(k) + 0.01, k.z);
         this.scene.add(rim);
       }
@@ -1512,6 +1512,7 @@ export class World {
     }
     this.collide();
     this.updateItems(dt);
+    this.ledgeMat.color.setHSL(0.19, 1, 0.55 + 0.1 * Math.sin(this.clock * 3));
 
     // ripples where anyone wades through the water
     this.ripples?.update(dt);

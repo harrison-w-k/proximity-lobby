@@ -43,6 +43,7 @@ const GRAB_MAX = STAND_H + 0.25; // ...and no higher than your hands can reach
 const VAULT_MIN = STEP;
 const VAULT_MAX = 1.5; // from the ground, jump / grab next to a wall mantles anything up to this
 const HANG_DROP = 1.75; // feet hang this far below the ledge, so the hands are on it
+const SHIMMY_SPEED = 1.8; // m/s sideways along a ledge
 const GRAB_ENTER = 0.16; // seconds to ease from where you were into the hang
 const PULL_UP_HOLD = 0.45; // hold forward this long to pull up without pressing jump
 const MANTLE_TIME = 0.5;
@@ -309,6 +310,27 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     p.eye += (EYE_STAND - p.eye) * k1;
 
     const settled = p.hangTime > 0.1;
+
+    // shimmy sideways along the ledge with the strafe keys
+    if (settled && inp.s !== 0) {
+      const blk = blocks.find((k) => k.x === p.hangX && k.z === p.hangZ && blockTop(k) === p.hangTop);
+      if (blk) {
+        // the strafe direction in the world, projected on the line of the ledge (perpendicular to the wall)
+        const tx = -p.hangNz;
+        const tz = p.hangNx;
+        const along = (Math.cos(inp.yaw) * tx + -Math.sin(inp.yaw) * tz) * Math.sign(inp.s);
+        const dir = Math.abs(along) < 0.2 ? 0 : Math.sign(along);
+        const step = dir * SHIMMY_SPEED * dt;
+        const edge = 0.15;
+        const nx2 = Math.max(blk.x - blk.w / 2 + edge, Math.min(blk.x + blk.w / 2 - edge, p.hangToX + tx * step));
+        const nz2 = Math.max(blk.z - blk.d / 2 + edge, Math.min(blk.z + blk.d / 2 - edge, p.hangToZ + tz * step));
+        // the wall-hugging offset only applies off the wall's axis; keep the distance from the face
+        if (Math.abs(p.hangNx) < 0.5) p.hangToX = nx2;
+        else p.hangToZ = nz2;
+        p.x = p.hangToX;
+        p.z = p.hangToZ;
+      }
+    }
     const climb = settled && (inp.jumpPressed || (inp.f > 0.5 && p.hangTime > PULL_UP_HOLD));
     const letGo = (settled && !inp.grab) || inp.crouchPressed || inp.f < -0.5;
     if (climb) {
@@ -355,7 +377,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   p.jumpBuffer = inp.jumpPressed ? JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
 
   // ---- crouch / slide state ----
-  if (grounded && !p.sliding && inp.crouchPressed && inp.sprint && wantsMove && horizSpeed(p) >= SLIDE_MIN_SPEED) {
+  if (grounded && !p.sliding && inp.crouchPressed && inp.sprint && inp.f > 0.3 && horizSpeed(p) >= SLIDE_MIN_SPEED) {
     p.sliding = true;
     p.slideTime = 0;
     const sp = Math.max(horizSpeed(p), SLIDE_SPEED);
@@ -395,7 +417,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
 
   // ---- horizontal velocity ----
   if (!p.sliding) {
-    const sprinting = inp.sprint && !p.crouching;
+    const sprinting = inp.sprint && inp.f > 0.3 && !p.crouching; // sprint is forward only
     const base = p.crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : WALK_SPEED;
     const speed = base * (1 - 0.45 * depth);
     const rate = grounded ? (wantsMove ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
