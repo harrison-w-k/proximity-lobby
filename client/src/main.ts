@@ -76,6 +76,7 @@ function openMenu() {
   settings.hidden = false;
   refreshMenu();
   renderPlayerList();
+  refreshRanges();
   updatePaused();
 }
 
@@ -183,6 +184,7 @@ function renderPlayerList() {
     row.append(label, val, slider);
     playersList.append(row);
   }
+  refreshRanges();
 }
 
 // While looking at a player (and not in a menu), the scroll wheel adjusts their volume.
@@ -211,6 +213,27 @@ window.addEventListener(
   },
   { passive: false },
 );
+
+// Settings tabs
+const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
+function showTab(name: string) {
+  tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll<HTMLElement>('.pane').forEach((p) => (p.hidden = p.dataset.pane !== name));
+}
+tabs.forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab ?? 'gameplay')));
+
+// Paint each slider's filled portion (the CSS reads --p).
+function fillRange(el: HTMLInputElement) {
+  const min = Number(el.min) || 0;
+  const max = Number(el.max) || 100;
+  el.style.setProperty('--p', `${((Number(el.value) - min) / (max - min)) * 100}%`);
+}
+function refreshRanges() {
+  document.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(fillRange);
+}
+document.addEventListener('input', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'range') fillRange(e.target);
+});
 
 $('resume-btn').addEventListener('click', () => closeMenu(true));
 micBtn.addEventListener('click', () => {
@@ -353,6 +376,7 @@ net.onMessage = (m: ServerMsg) => {
   switch (m.t) {
     case 'welcome':
       joined = true;
+      world.orbit = false;
       world.setSelfId(m.id);
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
@@ -384,7 +408,10 @@ net.onMessage = (m: ServerMsg) => {
       world.addPlayer(m.player);
       addChat('•', `${m.player.name} joined`);
       updateHud();
-      if (menuOpen) renderPlayerList();
+      if (menuOpen) {
+        renderPlayerList();
+        refreshRanges();
+      }
       break;
     case 'left':
       addChat('•', `${names.get(m.id) ?? 'Someone'} left`);
@@ -455,6 +482,15 @@ const NOTES: Record<Mode, string> = {
   in: '',
 };
 
+const TITLES: Record<Mode, string> = {
+  legacy: 'Join the lobby',
+  login: 'Welcome back',
+  signup: 'Create account',
+  confirm: 'Check your email',
+  recovery: 'New password',
+  in: 'Ready to play',
+};
+
 /** Show only the fields that belong to the current step. */
 function render() {
   const show = (el: HTMLElement, on: boolean) => (el.hidden = !on);
@@ -478,6 +514,7 @@ function render() {
   joinBtn.textContent =
     { legacy: 'Join', login: 'Log in', signup: 'Sign up', confirm: 'Confirm email', recovery: 'Save new password', in: 'Join' }[mode];
   $('join-note').textContent = NOTES[mode];
+  $('card-title').textContent = TITLES[mode];
   show($('join-note'), mode !== 'in');
   show($('who'), mode === 'in');
   if (mode === 'in') $('who').textContent = `Signed in. You will appear as “${profileName}”.`;

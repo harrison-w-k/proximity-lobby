@@ -152,6 +152,7 @@ export class World {
   yaw = 0;
   pitch = 0;
   feetY = 0; // height of our feet above the floor; > 0 while jumping
+  orbit = true; // slow fly-around of the arena behind the main screen; off once we join
   crouching = false;
   inputEnabled = true;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
@@ -163,6 +164,7 @@ export class World {
   private vy = 0;
   private vz = 0;
   private eye = EYE_HEIGHT; // current eye height, eased toward standing/crouching
+  private orbitAngle = Math.random() * Math.PI * 2;
   private selfBody = new THREE.Group();
   private selfSkin = new THREE.MeshLambertMaterial({ color: 0x6b7bd6 });
   private ray = new THREE.Raycaster();
@@ -380,8 +382,16 @@ export class World {
     for (const a of this.avatars.values()) a.update(dt);
     this.collide();
     this.pos.y = this.feetY + this.eye;
-    this.camera.position.copy(this.pos);
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    if (this.orbit) {
+      this.orbitAngle += dt * 0.06;
+      const r = MAP_RADIUS * 0.7;
+      this.camera.position.set(Math.cos(this.orbitAngle) * r, 9, Math.sin(this.orbitAngle) * r);
+      this.camera.lookAt(0, 1.5, 0);
+    } else {
+      this.camera.position.copy(this.pos);
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
+    }
+    this.selfBody.visible = !this.orbit;
     this.selfBody.position.set(this.pos.x, this.feetY, this.pos.z);
     this.selfBody.rotation.y = this.yaw;
     this.selfBody.scale.y = this.eye / EYE_HEIGHT;
