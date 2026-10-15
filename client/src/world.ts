@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MAP_RADIUS, type PlayerState } from '../../shared/protocol';
-import { clampToArena } from '../../shared/map';
+import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
+import { clampToArena, waterDepth, WADE_DEPTH } from '../../shared/map';
 import { pushOut } from './collision';
 
 export const EYE_HEIGHT = 1.6;
@@ -19,54 +19,18 @@ export const DEFAULT_FOV = 75;
 const THIRD_DISTANCE = 3.6; // metres behind the head in third person
 const THIRD_LIFT = 0.3; // and a little above, so you see over your own shoulders
 
+// ---------- retro look ----------
+// The scene is drawn small (about 512x288) and scaled up with nearest-neighbour filtering, then
+// reduced to 16 levels per channel with an ordered (Bayer) dither: the chunky, gritty look of
+// late-90s 3D. Models are low-poly and flat shaded; textures are tiny and unfiltered.
+const RT_HEIGHT = 288;
+const COLOR_LEVELS = 15; // 16 shades per channel
+
 export function hueFor(id: string): number {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return h % 360;
 }
-
-function makeCheckerTexture(maxAniso: number): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#f1f6fc';
-  g.fillRect(0, 0, 64, 64);
-  g.fillStyle = '#7fa8d6';
-  g.fillRect(0, 0, 32, 32);
-  g.fillRect(32, 32, 32, 32);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set((MAP_RADIUS * 2) / 4, (MAP_RADIUS * 2) / 4); // each tile = 4 m => 2 m squares
-  tex.magFilter = THREE.NearestFilter;
-  tex.anisotropy = maxAniso;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeNameSprite(name: string): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 64;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(0,0,0,0.55)';
-  g.beginPath();
-  g.roundRect(4, 8, 248, 48, 16);
-  g.fill();
-  g.fillStyle = '#fff';
-  g.font = '600 28px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(name, 128, 33, 230);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-  sprite.scale.set(1.6, 0.4, 1);
-  sprite.position.y = 2.15;
-  return sprite;
-}
-
-// ---------- scenery: twilight sky, sea and island ----------
-const SKY_HORIZON = 0xa6dcf8; // fog and sea fade into this, so the horizon is seamless
 
 function seeded(seed: number) {
   let a = seed >>> 0;
@@ -79,52 +43,106 @@ function seeded(seed: number) {
   };
 }
 
+/** A small canvas as an unfiltered, mip-less texture (hard pixels at any distance). */
+function pixelTexture(c: HTMLCanvasElement, repeat = 0): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeat, repeat);
+  }
+  return tex;
+}
+
+function makeCheckerTexture(): THREE.CanvasTexture {
+  const rnd = seeded(11);
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#7ccf56';
+  g.fillRect(0, 0, 16, 16);
+  g.fillStyle = '#58a83c';
+  g.fillRect(0, 0, 8, 8);
+  g.fillRect(8, 8, 8, 8);
+  // a few speckles so big flat tiles don't look like vector fills
+  for (let i = 0; i < 26; i++) {
+    g.fillStyle = rnd() < 0.5 ? 'rgba(20,70,20,0.35)' : 'rgba(210,255,170,0.35)';
+    g.fillRect(Math.floor(rnd() * 16), Math.floor(rnd() * 16), 1, 1);
+  }
+  return pixelTexture(c, (MAP_RADIUS * 2) / 6); // one texture tile = 6 m, so squares are 3 m
+}
+
+function makeNameSprite(name: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(4, 8, 248, 48);
+  g.fillStyle = '#fff';
+  g.font = '700 30px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(name, 128, 33, 232);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sprite.scale.set(2.0, 0.5, 1);
+  sprite.position.y = 2.15;
+  return sprite;
+}
+
+// ---------- scenery: banded sky, sun, blocky clouds, sea, island ----------
+const SKY_HORIZON = 0xbfe4ff; // fog and sea fade into this, so the horizon is seamless
+
 function makeSkyDome(): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x0a2e7a) },
-      mid: { value: new THREE.Color(0x1c78d8) },
+      top: { value: new THREE.Color(0x2c5fd6) },
+      mid: { value: new THREE.Color(0x5b9cf2) },
       horizon: { value: new THREE.Color(SKY_HORIZON) },
-      glow: { value: new THREE.Color(0xfff3d2) },
     },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `
-      uniform vec3 top; uniform vec3 mid; uniform vec3 horizon; uniform vec3 glow;
+      uniform vec3 top; uniform vec3 mid; uniform vec3 horizon;
       varying vec3 vDir;
       void main(){
-        float h = vDir.y;
-        vec3 c = mix(horizon, mid, smoothstep(0.0, 0.28, h));
-        c = mix(c, top, smoothstep(0.22, 0.85, h));
-        c = mix(c, glow, (1.0 - smoothstep(0.0, 0.12, abs(h))) * 0.4);    // soft sunlit band at the horizon
-        c = mix(c, horizon * 0.82, smoothstep(0.0, -0.25, h));            // below the horizon: slightly deeper
+        // hard bands instead of a smooth gradient
+        float h = floor(clamp(vDir.y, 0.0, 1.0) * 7.0) / 7.0;
+        vec3 c = mix(horizon, mid, smoothstep(0.0, 0.4, h));
+        c = mix(c, top, smoothstep(0.35, 0.95, h));
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), mat);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(900, 24, 12), mat);
   dome.renderOrder = -10;
   return dome;
 }
 
 function makeSun(): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 32;
   const g = c.getContext('2d')!;
-  const halo = g.createRadialGradient(128, 128, 6, 128, 128, 128);
-  halo.addColorStop(0, 'rgba(255,255,255,1)');
-  halo.addColorStop(0.12, 'rgba(255,248,214,0.95)');
-  halo.addColorStop(0.4, 'rgba(255,236,170,0.28)');
-  halo.addColorStop(1, 'rgba(255,236,170,0)');
-  g.fillStyle = halo;
-  g.fillRect(0, 0, 256, 256);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const d = Math.hypot(x - 15.5, y - 15.5);
+      if (d < 7.5) g.fillStyle = '#fffbd0';
+      else if (d < 10) g.fillStyle = '#ffe566';
+      else if (d < 14) g.fillStyle = 'rgba(255,240,150,0.35)';
+      else continue;
+      g.fillRect(x, y, 1, 1);
+    }
+  }
   const sun = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }),
+    new THREE.SpriteMaterial({ map: pixelTexture(c), transparent: true, fog: false, depthWrite: false }),
   );
-  sun.scale.set(420, 420, 1);
+  sun.scale.set(260, 260, 1);
   sun.position.set(-300, 250, -520);
   return sun;
 }
@@ -132,31 +150,25 @@ function makeSun(): THREE.Sprite {
 function makeClouds(): THREE.Sprite[] {
   const rnd = seeded(5);
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = 48;
+  c.height = 16;
   const g = c.getContext('2d')!;
-  for (let i = 0; i < 9; i++) {
-    const x = 40 + rnd() * 176;
-    const y = 50 + rnd() * 36;
-    const r = 22 + rnd() * 30;
-    const blob = g.createRadialGradient(x, y, 2, x, y, r);
-    blob.addColorStop(0, 'rgba(255,255,255,0.95)');
-    blob.addColorStop(0.6, 'rgba(255,255,255,0.45)');
-    blob.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = blob;
-    g.fillRect(0, 0, 256, 128);
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  // stacked rectangles: the classic blocky cloud
+  g.fillStyle = '#ffffff';
+  g.fillRect(4, 8, 40, 5);
+  g.fillRect(9, 5, 14, 5);
+  g.fillRect(24, 3, 14, 7);
+  g.fillStyle = '#d2e2f4';
+  g.fillRect(4, 12, 40, 2);
+  const tex = pixelTexture(c);
   const clouds: THREE.Sprite[] = [];
-  for (let i = 0; i < 11; i++) {
-    const m = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.55 + rnd() * 0.35, fog: false, depthWrite: false });
-    const cloud = new THREE.Sprite(m);
-    const angle = (i / 11) * Math.PI * 2 + rnd() * 0.4;
+  for (let i = 0; i < 10; i++) {
+    const cloud = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));
+    const angle = (i / 10) * Math.PI * 2 + rnd() * 0.4;
     const radius = 560 + rnd() * 160;
-    cloud.position.set(Math.cos(angle) * radius, 110 + rnd() * 170, Math.sin(angle) * radius);
-    const w = 300 + rnd() * 260;
-    cloud.scale.set(w, w * 0.4, 1);
+    cloud.position.set(Math.cos(angle) * radius, 120 + rnd() * 170, Math.sin(angle) * radius);
+    const w = 260 + rnd() * 200;
+    cloud.scale.set(w, w / 3, 1);
     clouds.push(cloud);
   }
   return clouds;
@@ -165,50 +177,43 @@ function makeClouds(): THREE.Sprite[] {
 function makeWaterTexture(): THREE.CanvasTexture {
   const rnd = seeded(21);
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#0c68ba';
-  g.fillRect(0, 0, 256, 256);
-  g.lineCap = 'round';
-  for (let i = 0; i < 260; i++) {
-    const x = rnd() * 256;
-    const y = rnd() * 256;
-    const len = 6 + rnd() * 22;
-    g.strokeStyle = `rgba(205,242,255,${0.08 + rnd() * 0.22})`;
-    g.lineWidth = 1 + rnd() * 1.6;
-    for (const dx of [-256, 0, 256]) {
-      // draw wrapped copies so the texture tiles without a seam
-      g.beginPath();
-      g.moveTo(x + dx, y);
-      g.lineTo(x + dx + len, y + (rnd() - 0.5) * 3);
-      g.stroke();
-    }
+  g.fillStyle = '#1f7ce0';
+  g.fillRect(0, 0, 64, 64);
+  const colors = ['#4aa3f5', '#6cbcff', '#1966c4'];
+  for (let i = 0; i < 90; i++) {
+    g.fillStyle = colors[Math.floor(rnd() * colors.length)];
+    const x = Math.floor(rnd() * 64);
+    const y = Math.floor(rnd() * 64);
+    const len = 2 + Math.floor(rnd() * 6);
+    g.fillRect(x, y, len, 1);
+    if (x + len > 64) g.fillRect(0, y, x + len - 64, 1); // wrap so it tiles
   }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(160, 160);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  return pixelTexture(c, 120);
 }
+
+const flat = (color: number, extra: Partial<THREE.MeshLambertMaterialParameters> = {}) =>
+  new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
 
 function makePalm(rnd: () => number): THREE.Group {
   const palm = new THREE.Group();
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a45 });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2aa56a, side: THREE.DoubleSide });
+  const trunkMat = flat(0x8a6a45);
+  const leafMat = flat(0x3fa04a, { side: THREE.DoubleSide });
   const height = 4 + rnd() * 1.6;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.2, height, 6), trunkMat);
+  const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.3, height, 0.3), trunkMat);
   trunk.position.y = height / 2;
   palm.add(trunk);
   const crown = new THREE.Group();
   crown.position.y = height;
-  for (let i = 0; i < 8; i++) {
-    const geo = new THREE.ConeGeometry(0.32, 3.0, 4);
+  for (let i = 0; i < 6; i++) {
+    const geo = new THREE.ConeGeometry(0.34, 3.0, 3);
     geo.translate(0, 1.5, 0); // base at the origin, pointing +y
     const leaf = new THREE.Mesh(geo, leafMat);
     leaf.rotation.z = -(Math.PI / 2 + 0.15 + rnd() * 0.45); // fan outward with a gentle droop
     leaf.scale.set(1, 1, 0.35);
     const pivot = new THREE.Group();
-    pivot.rotation.y = (i / 8) * Math.PI * 2 + rnd() * 0.3;
+    pivot.rotation.y = (i / 6) * Math.PI * 2 + rnd() * 0.3;
     pivot.add(leaf);
     crown.add(pivot);
   }
@@ -218,15 +223,67 @@ function makePalm(rnd: () => number): THREE.Group {
   return palm;
 }
 
+// ---------- the character ----------
+// One blocky model, used for every other player AND for your own body, so what you see when you
+// look down is the same character everyone else sees walking around.
+interface Character {
+  group: THREE.Group;
+  head: THREE.Group; // hidden in first person so it can't block the view
+  shirt: THREE.MeshLambertMaterial;
+  setHue(h: number): void;
+}
+
+function makeCharacter(hue: number): Character {
+  const shirtColor = new THREE.Color().setHSL(hue / 360, 0.7, 0.52);
+  const shirt = new THREE.MeshLambertMaterial({ color: shirtColor, emissive: shirtColor, emissiveIntensity: 0, flatShading: true });
+  const skin = flat(0xf0c49a);
+  const pants = flat(0x2c3e73);
+  const hair = flat(0x3a2a1c);
+  const visorMat = flat(0x151824);
+
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    return mesh;
+  };
+  const group = new THREE.Group();
+  group.add(
+    box(0.2, 0.78, 0.22, -0.11, 0.39, 0, pants), // legs
+    box(0.2, 0.78, 0.22, 0.11, 0.39, 0, pants),
+    box(0.5, 0.64, 0.28, 0, 1.1, 0, shirt), // torso
+    box(0.16, 0.46, 0.2, -0.34, 1.19, 0, shirt), // arms
+    box(0.16, 0.46, 0.2, 0.34, 1.19, 0, shirt),
+    box(0.15, 0.16, 0.18, -0.34, 0.88, 0, skin), // hands
+    box(0.15, 0.16, 0.18, 0.34, 0.88, 0, skin),
+  );
+  const head = new THREE.Group();
+  head.add(
+    box(0.4, 0.4, 0.4, 0, 1.62, 0, skin),
+    box(0.42, 0.12, 0.42, 0, 1.84, 0, hair),
+    box(0.36, 0.1, 0.03, 0, 1.66, -0.21, visorMat), // faces -Z, the direction you walk
+  );
+  group.add(head);
+
+  return {
+    group,
+    head,
+    shirt,
+    setHue(h: number) {
+      shirt.color.setHSL(h / 360, 0.7, 0.52);
+      shirt.emissive.copy(shirt.color);
+    },
+  };
+}
+
 const CROUCH_SCALE = 0.7;
 const NAME_HEIGHT = 2.15;
 
 class Avatar {
   readonly group = new THREE.Group();
-  readonly hit: THREE.Mesh; // what the crosshair ray tests against
-  private shell = new THREE.Group(); // capsule + visor; squashed when crouching
+  readonly hit: THREE.Mesh; // what the crosshair ray tests against (invisible)
+  private shell = new THREE.Group(); // the character; squashed when crouching
   private label: THREE.Sprite;
-  private body: THREE.MeshStandardMaterial;
+  private body: THREE.MeshLambertMaterial;
   private tx: number;
   private tz: number;
   private ty: number;
@@ -234,18 +291,14 @@ class Avatar {
   private crouch: boolean;
 
   constructor(p: PlayerState) {
-    const color = new THREE.Color().setHSL(hueFor(p.id) / 360, 0.65, 0.55);
-    this.body = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0 });
-    const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.0, 4, 12), this.body);
-    capsule.position.y = 0.85;
-    capsule.userData.id = p.id;
-    this.hit = capsule;
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.45, 0.16, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x151824 }),
-    );
-    visor.position.set(0, 1.4, -0.28); // faces -Z (same as camera forward at yaw 0)
-    this.shell.add(capsule, visor);
+    const ch = makeCharacter(hueFor(p.id));
+    this.body = ch.shirt;
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.9, 0.6), new THREE.MeshBasicMaterial());
+    hit.visible = false;
+    hit.position.y = 0.95;
+    hit.userData.id = p.id;
+    this.hit = hit;
+    this.shell.add(ch.group, hit);
     this.label = makeNameSprite(p.name);
     this.group.add(this.shell, this.label);
     this.group.position.set(p.x, p.y ?? 0, p.z);
@@ -313,6 +366,7 @@ export class World {
   inputEnabled = true;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
   onFrame?: (dt: number) => void;
+  onSentHome?: () => void; // fired when you drift past the swim limit and are returned to the centre
 
   private keys = new Set<string>();
   private last = performance.now();
@@ -323,27 +377,59 @@ export class World {
   private orbitAngle = Math.random() * Math.PI * 2;
   private tpBlend = 0; // 0 = camera at the head, 1 = fully pulled back
   private frontBlend = 0; // 0 = camera behind you, 1 = camera in front, facing you
-  private selfThird = new THREE.Group(); // our full avatar, shown only in third person
-  private selfBody = new THREE.Group();
-  private selfSkin = new THREE.MeshLambertMaterial({ color: 0x6b7bd6 });
+  private selfThird = new THREE.Group(); // our full character, shown while the camera is pulled back
+  private selfBody = new THREE.Group(); // the same character, minus head, seen when looking down
+  private selfChars: Character[] = [];
   private ray = new THREE.Raycaster();
   private centre = new THREE.Vector2(0, 0);
   private waterTex?: THREE.CanvasTexture;
 
-  constructor(private canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // low-resolution render target + the pass that scales, dithers and quantises it to the screen
+  private rt = new THREE.WebGLRenderTarget(2, 2, {
+    minFilter: THREE.NearestFilter,
+    magFilter: THREE.NearestFilter,
+    generateMipmaps: false,
+  });
+  private postScene = new THREE.Scene();
+  private postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private postMat = new THREE.ShaderMaterial({
+    depthTest: false,
+    depthWrite: false,
+    uniforms: { tDiffuse: { value: this.rt.texture }, size: { value: new THREE.Vector2(2, 2) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `
+      uniform sampler2D tDiffuse; uniform vec2 size; varying vec2 vUv;
+      float bayer2(vec2 p) { return mod(p.x * 2.0 + p.y * 3.0, 4.0); }
+      float bayer4(vec2 p) {
+        vec2 q = floor(p);
+        return (bayer2(mod(q, 2.0)) * 4.0 + bayer2(mod(floor(q / 2.0), 2.0))) / 16.0;
+      }
+      void main() {
+        vec3 c = texture2D(tDiffuse, vUv).rgb;
+        c = pow(max(c, 0.0), vec3(1.0 / 2.2));                 // linear -> display
+        float levels = ${COLOR_LEVELS}.0;
+        float d = (bayer4(vUv * size) - 0.5) / levels;          // ordered dither at the low-res pixel grid
+        c = floor((c + d) * levels + 0.5) / levels;             // 16 shades per channel
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      }`,
+  });
 
-    // Twilight over a dark sea: the fog is the horizon colour, so the water melts into the sky.
+  constructor(private canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+    this.renderer.setPixelRatio(1);
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.postMat);
+    quad.frustumCulled = false;
+    this.postScene.add(quad);
+
+    // Short, bright fog in the horizon colour: the sea melts into the sky.
     const horizon = new THREE.Color(SKY_HORIZON);
     this.scene.background = horizon;
-    this.scene.fog = new THREE.Fog(horizon, 90, 380);
+    this.scene.fog = new THREE.Fog(horizon, 45, 230);
     this.camera.rotation.order = 'YXZ';
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
 
-    this.scene.add(new THREE.HemisphereLight(0xdff2ff, 0x6f90b3, 1.3));
-    const sunlight = new THREE.DirectionalLight(0xfff1d0, 1.5);
+    this.scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a96b8, 1.25));
+    const sunlight = new THREE.DirectionalLight(0xfff4d6, 1.5);
     sunlight.position.set(-34, 70, -46); // from the sun's side of the sky
     this.scene.add(sunlight);
 
@@ -394,6 +480,11 @@ export class World {
     this.pos.set(x, EYE_HEIGHT, z);
   }
 
+  private sendHome() {
+    this.teleport(0, 0);
+    this.onSentHome?.();
+  }
+
   cycleView() {
     this.viewMode = ((this.viewMode + 1) % 3) as 0 | 1 | 2;
   }
@@ -403,9 +494,9 @@ export class World {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Colour our own body like the capsule other players see us as. */
+  /** Colour our own body like the character other players see us as. */
   setSelfId(id: string) {
-    this.selfSkin.color.setHSL(hueFor(id) / 360, 0.65, 0.55);
+    for (const c of this.selfChars) c.setHue(hueFor(id));
   }
 
   /** Id of the player under the crosshair within `maxDist` metres, if any. Call after render. */
@@ -416,49 +507,53 @@ export class World {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  /** The checkered arena sits on a sand-ringed island in a dark sea, with palms and rocks. */
+  /** A tiled arena on a sandy island in a bright sea, with palms, rocks and a ring of buoys. */
   private buildIsland() {
     const R = MAP_RADIUS;
     const rnd = seeded(1337);
 
     const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(R, 96),
-      new THREE.MeshLambertMaterial({ map: makeCheckerTexture(this.renderer.capabilities.getMaxAnisotropy()) }),
+      new THREE.CircleGeometry(R, 24),
+      new THREE.MeshLambertMaterial({ map: makeCheckerTexture() }),
     );
     floor.rotation.x = -Math.PI / 2;
 
-    const rim = new THREE.Mesh(
-      new THREE.RingGeometry(R - 0.5, R, 96),
-      new THREE.MeshBasicMaterial({ color: 0x35c8ff }),
-    );
+    const rim = new THREE.Mesh(new THREE.RingGeometry(R - 0.5, R, 24), new THREE.MeshBasicMaterial({ color: 0xfff6c0 }));
     rim.rotation.x = -Math.PI / 2;
     rim.position.y = 0.01;
 
-    const beach = new THREE.Mesh(
-      new THREE.RingGeometry(R, R + 7, 96),
-      new THREE.MeshLambertMaterial({ color: 0xe9d8a8 }),
-    );
+    const beach = new THREE.Mesh(new THREE.RingGeometry(R, R + 7, 24), flat(0xe6cf8a));
     beach.rotation.x = -Math.PI / 2;
     beach.position.y = -0.02;
 
     const foam = new THREE.Mesh(
-      new THREE.RingGeometry(R + 6.6, R + 8.2, 96),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
+      new THREE.RingGeometry(R + 6.6, R + 8.2, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }),
     );
     foam.rotation.x = -Math.PI / 2;
     foam.position.y = -0.3;
 
     this.waterTex = makeWaterTexture();
-    const sea = new THREE.Mesh(
-      new THREE.CircleGeometry(1000, 64),
-      new THREE.MeshBasicMaterial({ map: this.waterTex }),
-    );
+    const sea = new THREE.Mesh(new THREE.CircleGeometry(1000, 16), new THREE.MeshBasicMaterial({ map: this.waterTex }));
     sea.rotation.x = -Math.PI / 2;
     sea.position.y = -0.35;
 
     this.scene.add(floor, rim, beach, foam, sea);
 
-    // Palms along the beach. Decoration only: they are outside the walkable circle.
+    // A ring of buoys marks how far out you can swim.
+    const buoyMat = flat(0xff6a2a);
+    const buoyTop = flat(0xffffff);
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      const buoy = new THREE.Group();
+      buoy.add(new THREE.Mesh(new THREE.SphereGeometry(0.45, 6, 4), buoyMat));
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.47, 6, 3, 0, Math.PI * 2, 0, 0.8), buoyTop);
+      buoy.add(cap);
+      buoy.position.set(Math.cos(a) * (SWIM_LIMIT - 0.5), -0.25, Math.sin(a) * (SWIM_LIMIT - 0.5));
+      this.scene.add(buoy);
+    }
+
+    // Palms along the beach. Decoration only: they sit outside the tiled arena.
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2 + (rnd() - 0.5) * 0.25;
       const r = R + 1.8 + rnd() * 3.4;
@@ -468,7 +563,7 @@ export class World {
     }
 
     // Rocks on the beach and out in the shallows.
-    const rockMat = new THREE.MeshLambertMaterial({ color: 0x8493ad });
+    const rockMat = flat(0x8a93a6);
     for (let i = 0; i < 16; i++) {
       const angle = rnd() * Math.PI * 2;
       const r = R + 3 + rnd() * 24;
@@ -481,30 +576,23 @@ export class World {
     }
   }
 
-  /** Torso, arms and legs under the camera so you can see yourself when you look down. */
+  /**
+   * Your own body: the same character other players see. In first person the head is hidden (and
+   * the model sits a little behind the camera) so you only see arms, torso and legs when you look
+   * down; once the camera pulls back the full character takes over.
+   */
   private buildSelfBody() {
-    const dark = new THREE.MeshLambertMaterial({ color: 0x20242f });
-    const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-      mesh.position.set(x, y, z);
-      return mesh;
-    };
-    // z > 0 is behind the camera, so nothing here can block the view straight ahead.
-    this.selfBody.add(
-      box(0.46, 0.55, 0.26, 0, 1.12, 0.1, this.selfSkin), // torso
-      box(0.14, 0.55, 0.16, -0.31, 1.12, 0.1, this.selfSkin), // arms
-      box(0.14, 0.55, 0.16, 0.31, 1.12, 0.1, this.selfSkin),
-      box(0.17, 0.85, 0.2, -0.11, 0.425, 0.1, dark), // legs
-      box(0.17, 0.85, 0.2, 0.11, 0.425, 0.1, dark),
-    );
+    const fp = makeCharacter(210);
+    fp.head.visible = false;
+    fp.group.position.z = 0.2; // z > 0 is behind the camera: clear of the near plane, yet the chest and legs show when you look down
+    this.selfBody.add(fp.group);
     this.scene.add(this.selfBody);
 
-    const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.0, 4, 12), this.selfSkin);
-    capsule.position.y = 0.85;
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.16, 0.2), new THREE.MeshLambertMaterial({ color: 0x151824 }));
-    visor.position.set(0, 1.4, -0.28); // faces -Z like everyone else's avatar
-    this.selfThird.add(capsule, visor);
+    const tp = makeCharacter(210);
+    this.selfThird.add(tp.group);
     this.scene.add(this.selfThird);
+
+    this.selfChars = [fp, tp];
   }
 
   addPlayer(p: PlayerState) {
@@ -534,9 +622,21 @@ export class World {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    // The scene is rendered at a fixed small height; the width follows the window shape.
+    const rw = Math.max(2, Math.round((RT_HEIGHT * w) / Math.max(1, h)));
+    this.rt.setSize(rw, RT_HEIGHT);
+    this.postMat.uniforms.size.value.set(rw, RT_HEIGHT);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
+
+  private renderRetro() {
+    const r = this.renderer;
+    r.setRenderTarget(this.rt);
+    r.render(this.scene, this.camera);
+    r.setRenderTarget(null);
+    r.render(this.postScene, this.postCam);
+  }
 
   /** Smoothed walking, sprint (Ctrl), crouch (Shift) and jump (Space) with gravity. */
   private move(dt: number) {
@@ -547,7 +647,10 @@ export class World {
 
     this.crouching = on && (k.has('ShiftLeft') || k.has('ShiftRight'));
     const sprinting = on && !this.crouching && (k.has('ControlLeft') || k.has('ControlRight'));
-    const speed = this.crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : WALK_SPEED;
+    // In the sea you sink to about chest height and wade more slowly.
+    const depth = waterDepth(this.pos.x, this.pos.z);
+    const ground = -WADE_DEPTH * depth;
+    const speed = (this.crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : WALK_SPEED) * (1 - 0.45 * depth);
 
     let tx = 0;
     let tz = 0;
@@ -563,23 +666,24 @@ export class World {
     }
 
     // Ease toward the wanted velocity: a short ramp up, a short slide to a stop, and momentum in the air.
-    const grounded = this.feetY <= 0 && this.vy <= 0;
+    const grounded = this.feetY <= ground + 1e-3 && this.vy <= 0;
     const rate = grounded ? (wantsMove ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
     const a = 1 - Math.exp(-rate * dt);
     this.vx += (tx - this.vx) * a;
     this.vz += (tz - this.vz) * a;
 
-    if (on && grounded && k.has('Space')) this.vy = JUMP_SPEED;
+    if (on && grounded && k.has('Space')) this.vy = JUMP_SPEED * (1 - 0.35 * depth);
     this.vy -= GRAVITY * dt;
     this.feetY += this.vy * dt;
-    if (this.feetY <= 0) {
-      this.feetY = 0;
+    if (this.feetY <= ground) {
+      this.feetY = ground; // follows the sea floor smoothly as you wade in
       this.vy = 0;
     }
 
-    const p = clampToArena(this.pos.x + this.vx * dt, this.pos.z + this.vz * dt, MAP_RADIUS - BODY_RADIUS);
-    this.pos.x = p.x;
-    this.pos.z = p.z;
+    this.pos.x += this.vx * dt;
+    this.pos.z += this.vz * dt;
+    // A ring of buoys marks the limit; past it you are returned to the island.
+    if (Math.hypot(this.pos.x, this.pos.z) > SWIM_LIMIT - 1) this.sendHome();
 
     const wantEye = this.crouching ? EYE_CROUCH : EYE_HEIGHT;
     this.eye += (wantEye - this.eye) * (1 - Math.exp(-14 * dt));
@@ -588,7 +692,7 @@ export class World {
   /** Players are solid: slide around others and get nudged if someone walks into you. */
   private collide() {
     const p = pushOut(this.pos.x, this.pos.z, [...this.avatars.values()].map((a) => a.group.position), BODY_RADIUS * 2);
-    const q = clampToArena(p.x, p.z, MAP_RADIUS - BODY_RADIUS);
+    const q = clampToArena(p.x, p.z, SWIM_LIMIT);
     this.pos.x = q.x;
     this.pos.z = q.z;
   }
@@ -600,7 +704,7 @@ export class World {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.safe('update', () => this.update(dt));
-    this.safe('render', () => this.renderer.render(this.scene, this.camera));
+    this.safe('render', () => this.renderRetro());
     this.safe('frame', () => this.onFrame?.(dt));
   };
 
@@ -619,8 +723,10 @@ export class World {
   private update(dt: number) {
     this.move(dt);
     if (this.waterTex) {
-      this.waterTex.offset.x += dt * 0.006;
-      this.waterTex.offset.y += dt * 0.0025;
+      // step the scroll in whole texels so the water crawls in chunky pixel jumps
+      const t = performance.now() / 1000;
+      this.waterTex.offset.x = Math.floor(t * 3) / 64;
+      this.waterTex.offset.y = Math.floor(t * 1.2) / 64;
     }
     for (const a of this.avatars.values()) a.update(dt);
     this.collide();
@@ -636,7 +742,7 @@ export class World {
       this.orbitAngle += dt * 0.06;
       const r = MAP_RADIUS * 0.7;
       this.camera.position.set(Math.cos(this.orbitAngle) * r, 6, Math.sin(this.orbitAngle) * r);
-      this.camera.lookAt(0, 5, 0); // slightly down, so the horizon, moon and stars frame the menu
+      this.camera.lookAt(0, 5, 0); // slightly down, so the horizon, sun and clouds frame the menu
     } else {
       // Smoothstep so moves start and end gently. The camera orbits the head: pulling back is a
       // change of distance, and going to the front view swings it 180 degrees around you (yaw + PI)
@@ -654,15 +760,16 @@ export class World {
       );
       this.camera.rotation.set(camPitch, camYaw, 0);
     }
-    // First-person torso and legs only while the camera is at the head; the capsule takes over as it pulls back.
+    // The headless first-person body only while the camera is at the head; the full character
+    // (identical model, with its head) takes over as the camera pulls back.
     this.selfBody.visible = !this.orbit && this.tpBlend < 0.02;
     this.selfThird.visible = !this.orbit && this.tpBlend >= 0.02;
+    const squash = 0.7 + 0.3 * Math.min(1, Math.max(0, (this.eye - EYE_CROUCH) / (EYE_HEIGHT - EYE_CROUCH)));
     this.selfThird.position.set(this.pos.x, this.feetY, this.pos.z);
     this.selfThird.rotation.y = this.yaw;
-    this.selfThird.scale.y = 0.7 + 0.3 * Math.min(1, Math.max(0, (this.eye - EYE_CROUCH) / (EYE_HEIGHT - EYE_CROUCH)));
+    this.selfThird.scale.y = squash;
     this.selfBody.position.set(this.pos.x, this.feetY, this.pos.z);
     this.selfBody.rotation.y = this.yaw;
-    this.selfBody.scale.y = this.eye / EYE_HEIGHT;
+    this.selfBody.scale.y = squash;
   }
-
 }

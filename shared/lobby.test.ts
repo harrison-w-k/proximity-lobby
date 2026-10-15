@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Lobby, type Peer, type Session } from './lobby';
-import { JUMP_MAX_Y, MAP_RADIUS, MAX_PLAYERS, type ServerMsg } from './protocol';
-import { clampToArena } from './map';
+import { JUMP_MAX_Y, MAP_RADIUS, MAX_PLAYERS, SWIM_LIMIT, WATER_MIN_Y, type ServerMsg } from './protocol';
+import { clampToArena, SHORE_RADIUS, waterDepth } from './map';
 
 function client(lobby: Lobby) {
   const inbox: ServerMsg[] = [];
@@ -33,7 +33,7 @@ assert.equal(lobby.flush(), false);
 const st = a.inbox.find((m) => m.t === 'state');
 const sp = st && st.t === 'state' ? st.p[0] : null;
 assert.ok(sp && sp[0] === b.s.id && sp[3] === 1 && sp[4] === 0 && sp[5] === 0);
-assert.ok(sp && Math.abs(Math.hypot(sp[1], sp[2]) - MAP_RADIUS) < 1e-9);
+assert.ok(sp && Math.abs(Math.hypot(sp[1], sp[2]) - SWIM_LIMIT) < 1e-9); // the sea is walkable out to SWIM_LIMIT
 assert.ok(sp && sp[1] > 0 && sp[2] < 0); // pulled toward the centre along the same direction
 assert.ok(!b.inbox.some((m) => m.t === 'state'));
 
@@ -43,7 +43,17 @@ b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: 99, crouch: 'yes' });
 assert.equal(b.s.y, JUMP_MAX_Y);
 assert.equal(b.s.crouch, false);
 b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: -5 });
-assert.equal(b.s.y, 0);
+assert.equal(b.s.y, WATER_MIN_Y); // wading is allowed, but not unbounded
+b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: -1 });
+assert.equal(b.s.y, -1);
+
+// wading depth: dry up to the shore, eased in, fully in the water four metres later
+assert.equal(waterDepth(0, 0), 0);
+assert.equal(waterDepth(MAP_RADIUS, 0), 0);
+assert.equal(waterDepth(SHORE_RADIUS, 0), 0);
+assert.ok(waterDepth(SHORE_RADIUS + 2, 0) > 0.4 && waterDepth(SHORE_RADIUS + 2, 0) < 0.6);
+assert.equal(waterDepth(SHORE_RADIUS + 4, 0), 1);
+assert.equal(waterDepth(0, SHORE_RADIUS + 50), 1);
 lobby.flush();
 
 // arena clamp helper

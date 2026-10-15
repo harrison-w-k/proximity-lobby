@@ -10,6 +10,8 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const canvas = $<HTMLCanvasElement>('scene');
 const world = new World(canvas);
 const net = new Net();
+// Dev server only (stripped from production builds): lets automated checks pose the scene.
+if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = world;
 let voice: Voice | null = null;
 let joined = false;
 let typing = false;
@@ -481,6 +483,8 @@ let sry = NaN;
 let sy = NaN;
 let scrouch = false;
 const fwd = { x: 0, y: 0, z: 0 };
+
+world.onSentHome = () => addChat('•', 'You drifted too far out. Back to the island!');
 
 world.onFrame = () => {
   if (!joined) return;

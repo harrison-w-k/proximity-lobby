@@ -2,6 +2,8 @@
 // It knows nothing about sockets: each host wraps its WebSocket in a Peer.
 import {
   JUMP_MAX_Y,
+  SWIM_LIMIT,
+  WATER_MIN_Y,
   MAX_CHAT,
   MAX_NAME,
   MAX_PLAYERS,
@@ -161,11 +163,11 @@ export class Lobby {
       }
       case 'pos': {
         if (!c.joined || !finite(msg.x) || !finite(msg.z) || !finite(msg.ry)) return;
-        const at = clampToArena(msg.x, msg.z);
+        const at = clampToArena(msg.x, msg.z, SWIM_LIMIT);
         c.x = at.x;
         c.z = at.z;
         c.ry = msg.ry;
-        c.y = finite(msg.y) ? Math.max(0, Math.min(JUMP_MAX_Y, msg.y)) : 0;
+        c.y = finite(msg.y) ? Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, msg.y)) : 0;
         c.crouch = msg.crouch === true;
         this.dirty.add(c.id);
         break;
