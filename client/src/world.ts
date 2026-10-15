@@ -914,6 +914,11 @@ export class World {
   viewMode: 0 | 1 | 2 = 1;
   crouching = false;
   inputEnabled = true;
+  /** On a phone: no pointer lock, and the on-screen controls feed these. */
+  touchMode = false;
+  touchF = 0; // -1..1
+  touchS = 0;
+  touchSprint = false;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
   onFrame?: (dt: number) => void;
   onShove?: (id: number, vx: number, vz: number) => void; // you ran into a loose item
@@ -1003,13 +1008,27 @@ export class World {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
     document.addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement !== this.canvas || !this.inputEnabled) return;
+      if (this.touchMode || document.pointerLockElement !== this.canvas || !this.inputEnabled) return;
       const k = 0.0022 * this.lookSensitivity;
       this.yaw -= e.movementX * k;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - e.movementY * k));
     });
 
     this.renderer.setAnimationLoop(this.tick);
+  }
+
+  /** Turn the camera by a touch drag (pixels). */
+  look(dx: number, dy: number) {
+    if (!this.inputEnabled) return;
+    const k = 0.0042 * this.lookSensitivity;
+    this.yaw -= dx * k;
+    this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - dy * k));
+  }
+
+  /** Hold or release a key from the on-screen buttons. */
+  setKey(code: string, down: boolean) {
+    if (down) this.keys.add(code);
+    else this.keys.delete(code);
   }
 
   lock() {
@@ -1449,8 +1468,9 @@ export class World {
   private move(dt: number) {
     const k = this.keys;
     const on = this.inputEnabled;
-    const f = on ? (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) : 0;
-    const side = on ? (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) : 0;
+    const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
+    const f = on ? clamp1((k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) + this.touchF) : 0;
+    const side = on ? clamp1((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.touchS) : 0;
     const jump = on && k.has('Space');
     const crouch = on && k.has('KeyC');
     const grab = on && k.has('KeyE');
@@ -1462,7 +1482,7 @@ export class World {
       jumpPressed: jump && !this.prevJump,
       crouch,
       crouchPressed: crouch && !this.prevCrouch,
-      sprint: on && (k.has('ShiftLeft') || k.has('ShiftRight')),
+      sprint: on && (k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSprint),
       grab,
       grabPressed: grab && !this.prevGrab,
     };

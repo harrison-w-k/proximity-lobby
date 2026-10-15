@@ -1,3 +1,4 @@
+import { initTouch, isTouchDevice } from './touch';
 import { Net } from './net';
 import { DEFAULT_FOV, DEFAULT_RENDER_HEIGHT, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
@@ -47,13 +48,17 @@ function updateHud() {
 }
 setInterval(() => joined && updateHud(), 500);
 
+const touch = isTouchDevice();
+/** Playing = the mouse is captured (desktop) or the touch controls are up (phone). */
+const hasControl = () => touch || document.pointerLockElement === canvas;
+
 function updatePaused() {
-  $('paused').hidden = !joined || typing || menuOpen || document.pointerLockElement === canvas;
+  $('paused').hidden = !joined || typing || menuOpen || hasControl();
 }
 // Losing the mouse (Esc, alt-tab) opens settings so the mouse can be used. Opening chat also
 // releases it, but that sets `typing` first so the menu stays closed.
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== canvas) openMenu();
+  if (!touch && document.pointerLockElement !== canvas) openMenu();
   updatePaused();
 });
 canvas.addEventListener('click', () => joined && !typing && world.lock());
@@ -61,14 +66,17 @@ canvas.addEventListener('click', () => joined && !typing && world.lock());
 
 // Aiming a throw: hold the left button to charge the bar, release to throw.
 document.addEventListener('mousedown', (e) => {
-  if (e.button === 0 && world.aiming && document.pointerLockElement === canvas) world.charging = true;
+  if (e.button === 0 && world.aiming && hasControl()) world.charging = true;
 });
-document.addEventListener('mouseup', (e) => {
-  if (e.button !== 0 || !world.aiming || !world.charging) return;
+function releaseThrow() {
+  if (!world.aiming || !world.charging) return;
   world.charging = false;
   const held = world.holding;
   if (held !== null) net.send({ t: 'throw', id: held, f: world.throwFlight(Math.max(0.08, world.charge)) });
   world.cancelAim();
+}
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 0) releaseThrow();
 });
 
 // ---------- settings menu ----------
@@ -596,6 +604,10 @@ function closeChat(send: boolean) {
   updatePaused();
 }
 
+const touchUi = touch ? initTouch(world, { openMenu, openChat, releaseThrow }) : null;
+setInterval(() => touchUi?.show(joined && !menuOpen && !typing), 150);
+if (touch) document.body.classList.add('touch');
+
 window.addEventListener('keydown', (e) => {
   if (!joined) return;
   if (e.code === 'Enter' || e.code === 'NumpadEnter') {
@@ -683,7 +695,7 @@ world.onFrame = () => {
   }
 
   // Who is under the crosshair (for the volume prompt)? Only while actually playing.
-  const playing = !menuOpen && !typing && document.pointerLockElement === canvas;
+  const playing = !menuOpen && !typing && hasControl();
   const id = playing ? world.playerUnderCrosshair(20) : null;
   if (id !== lookId || id) {
     lookId = id;
