@@ -1,5 +1,5 @@
 // Types and constants shared by client and server.
-import type { ItemState } from './items';
+import type { Flight, ItemState } from './items';
 
 export const MAX_PLAYERS = 20;
 export const MAP_RADIUS = 24; // the arena is a circle of this radius (m) centred on the origin
@@ -32,6 +32,7 @@ export type ClientMsg =
   | { t: 'avatar'; img: string | null } // set (or clear) your profile photo
   | { t: 'take'; id: number } // pick an item up
   | { t: 'drop'; id: number; x: number; y: number; z: number } // put the item you carry down here
+  | { t: 'throw'; id: number; f: Flight } // throw the item you carry
   | { t: 'signal'; to: string; data: unknown };
 
 export type ServerMsg =
@@ -53,5 +54,5 @@ export type ServerMsg =
   | { t: 'dm'; fromId: string; from: string; toId: string; to: string; text: string }
   | { t: 'notice'; text: string }
   | { t: 'avatar'; id: string; img: string | null }
-  | { t: 'item'; item: ItemState } // an item was picked up or put down
+  | { t: 'item'; item: ItemState; fly?: Flight } // an item was picked up, put down or thrown (fly = its launch)
   | { t: 'signal'; from: string; data: unknown };

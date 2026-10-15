@@ -13,7 +13,7 @@ import {
 } from './protocol';
 import { clampToArena } from './map';
 import { validAvatar } from './avatar';
-import { ITEM_SPAWNS, REACH, type ItemState } from './items';
+import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, throwPath, type ItemState } from './items';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
 
@@ -236,6 +236,24 @@ export class Lobby {
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, msg.y));
         it.holder = null;
         this.broadcast({ t: 'item', item: it });
+        break;
+      }
+      case 'throw': {
+        const it = this.items.get(msg.id);
+        const f = msg.f;
+        if (!c.joined || !it || it.holder !== c.id || !Array.isArray(f) || f.length !== 6 || !f.every(finite)) return;
+        if (Math.hypot(f[0] - c.x, f[2] - c.z) > 3 || f[1] < c.y - 1 || f[1] > c.y + 3) return;
+        const v = Math.hypot(f[3], f[4], f[5]);
+        const k = v > THROW_MAX_SPEED ? THROW_MAX_SPEED / v : 1;
+        const launch: [number, number, number, number, number, number] = [f[0], f[1], f[2], f[3] * k, f[4] * k, f[5] * k];
+        const path = throwPath(launch);
+        const end = path[path.length - 1];
+        const at = clampToArena(end[0], end[2], SWIM_LIMIT);
+        it.x = at.x;
+        it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, end[1]));
+        it.z = at.z;
+        it.holder = null;
+        this.broadcast({ t: 'item', item: it, fly: launch });
         break;
       }
       case 'signal': {

@@ -249,4 +249,17 @@ await malformedTests();
   assert.equal(q.inbox.filter((m) => m.t === 'item').length, 2);
 }
 
+// throwing: the item leaves the hands, flies, and the server settles it somewhere ahead
+{
+  const L = new Lobby([]);
+  const p = client(L);
+  p.tx({ t: 'join', name: 'p' });
+  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  p.tx({ t: 'take', id: 0 });
+  p.tx({ t: 'throw', id: 0, f: [4, 1.3, 2.5, 0, 4.5, -10] });
+  const m = p.inbox.filter((x) => x.t === 'item').pop();
+  assert.ok(m && m.t === 'item' && m.item.holder === null && m.fly, 'thrown item is loose and has a flight');
+  assert.ok(m.t === 'item' && m.item.z < 0, 'it travelled in the throw direction');
+}
+
 console.log('lobby tests passed');

@@ -3,7 +3,7 @@ import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol'
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
 import { OBSTACLES, blockTop, type Block } from '../../shared/obstacles';
-import { REACH, type ItemKind, type ItemState } from '../../shared/items';
+import { REACH, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
 
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
@@ -941,7 +941,7 @@ export class World {
   /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
   private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
-  private items = new Map<number, { state: ItemState; group: THREE.Group }>();
+  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number } }>();
   private selfId = '';
   private ripples?: Ripples;
   private rippleTimer = 0;
@@ -1160,7 +1160,7 @@ export class World {
       this.scene.add(mesh);
     }
     // One bright bar, moved each frame onto the nearest climbable edge (see updateLedgeHint).
-    this.ledgeHint = new THREE.Mesh(new THREE.BoxGeometry(1, 0.1, 0.1), this.ledgeMat);
+    this.ledgeHint = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), this.ledgeMat);
     this.ledgeHint.visible = false;
     this.scene.add(this.ledgeHint);
     // a flag on the goal tower
@@ -1205,7 +1205,7 @@ export class World {
     for (const it of list) this.setItem(it);
   }
 
-  setItem(state: ItemState) {
+  setItem(state: ItemState, fly?: Flight) {
     let it = this.items.get(state.id);
     if (!it) {
       const group = makeItem(state.kind);
@@ -1216,6 +1216,7 @@ export class World {
       this.items.set(state.id, it);
     }
     it.state = state;
+    it.flight = fly ? { path: throwPath(fly), t: 0 } : undefined;
   }
 
   /** The item you are carrying, if any. */
@@ -1224,20 +1225,29 @@ export class World {
     return null;
   }
 
-  /** The item under the crosshair that is within reach, if any. Call after render. */
-  itemUnderCrosshair(): number | null {
-    this.ray.setFromCamera(this.centre, this.camera);
-    this.ray.far = 12;
-    const hits = this.ray.intersectObjects(
-      [...this.items.values()].filter((i) => !i.state.holder).map((i) => i.group),
-      true,
-    );
-    for (const h of hits) {
-      const id = h.object.userData.itemId as number | undefined;
-      const it = id === undefined ? undefined : this.items.get(id);
-      if (it && Math.hypot(it.state.x - this.pos.x, it.state.z - this.pos.z) <= REACH) return id as number;
+  /** The nearest loose item within reach, if any. */
+  nearestItem(): number | null {
+    let best: number | null = null;
+    let bestD = REACH;
+    for (const [id, it] of this.items) {
+      if (it.state.holder || it.flight) continue;
+      if (Math.abs(it.state.y - this.feetY) > 2.2) continue;
+      const d = Math.hypot(it.state.x - this.pos.x, it.state.z - this.pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
     }
-    return null;
+    return best;
+  }
+
+  /** The launch of a throw: out of your hands, along where you are facing and a little upward. */
+  throwFlight(): Flight {
+    const sy = Math.sin(this.yaw);
+    const cy = Math.cos(this.yaw);
+    const speed = 10;
+    const up = 4.5 + Math.sin(this.pitch) * 7;
+    return [this.pos.x - sy * 0.5, this.feetY + 1.3, this.pos.z - cy * 0.5, -sy * speed, up, -cy * speed];
   }
 
   /** Where a dropped item lands: a step in front of you, at your feet. Null in mid-air. */
@@ -1279,17 +1289,29 @@ export class World {
     const top = blockTop(k) + 0.06;
     bar.visible = true;
     if (alongX) {
-      bar.scale.set(len + 0.08, 1, 1);
+      bar.scale.set(len + 0.08, 0.1, 0.1);
       bar.position.set(k.x, top, k.z + Math.sign(dz) * (k.d / 2));
     } else {
-      bar.scale.set(1, 1, len + 0.08);
+      bar.scale.set(0.1, 0.1, len + 0.08);
       bar.position.set(k.x + Math.sign(dx) * (k.w / 2), top, k.z);
     }
   }
 
   private updateItems(dt: number) {
     const k = 1 - Math.exp(-18 * dt);
-    for (const { state, group } of this.items.values()) {
+    for (const it of this.items.values()) {
+      const { state, group } = it;
+      if (it.flight) {
+        it.flight.t += dt;
+        const i = Math.floor(it.flight.t * 60);
+        if (i < it.flight.path.length) {
+          const [fx, fy, fz] = it.flight.path[i];
+          group.position.set(fx, fy, fz);
+          group.rotation.y += dt * 9;
+          continue;
+        }
+        it.flight = undefined;
+      }
       let x = state.x;
       let y = state.y;
       let z = state.z;
@@ -1462,7 +1484,14 @@ export class World {
   /** Players are solid: slide around others and get nudged if someone walks into you. */
   private collide() {
     const p = pushOut(this.pos.x, this.pos.z, [...this.avatars.values()].map((a) => a.group.position), BODY_RADIUS * 2);
-    const q = clampToArena(p.x, p.z, SWIM_LIMIT);
+    // loose items are solid too (the ones lying at about your height)
+    const loose: { x: number; z: number }[] = [];
+    for (const it of this.items.values()) {
+      if (it.state.holder || it.flight) continue;
+      if (Math.abs(it.group.position.y - this.feetY) < 1.2) loose.push(it.group.position);
+    }
+    const p2 = pushOut(p.x, p.z, loose, BODY_RADIUS + 0.22);
+    const q = clampToArena(p2.x, p2.z, SWIM_LIMIT);
     this.pos.x = q.x;
     this.pos.z = q.z;
     this.sim.x = q.x; // players shoving each other must move the controller too

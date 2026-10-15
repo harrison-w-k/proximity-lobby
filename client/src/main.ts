@@ -58,18 +58,6 @@ document.addEventListener('pointerlockchange', () => {
 });
 canvas.addEventListener('click', () => joined && !typing && world.lock());
 
-// Click (while playing) to pick up what is under the crosshair, or to put down what you carry.
-document.addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || !joined || typing || menuOpen || document.pointerLockElement !== canvas) return;
-  const held = world.holding;
-  if (held !== null) {
-    const spot = world.dropSpot();
-    if (spot) net.send({ t: 'drop', id: held, ...spot });
-    return;
-  }
-  const id = world.itemUnderCrosshair();
-  if (id !== null) net.send({ t: 'take', id });
-});
 
 // ---------- settings menu ----------
 const settings = $('settings');
@@ -610,6 +598,19 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
+  } else if ((e.code === 'KeyF' || e.code === 'KeyR') && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    // F picks up the nearest item or sets down what you carry; R throws it
+    const held = world.holding;
+    if (held !== null) {
+      if (e.code === 'KeyR') net.send({ t: 'throw', id: held, f: world.throwFlight() });
+      else {
+        const spot = world.dropSpot();
+        if (spot) net.send({ t: 'drop', id: held, ...spot });
+      }
+    } else if (e.code === 'KeyF') {
+      const id = world.nearestItem();
+      if (id !== null) net.send({ t: 'take', id });
+    }
   } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
     world.cycleView();
   }
@@ -669,7 +670,7 @@ world.onFrame = () => {
     lookId = id;
     showTarget();
   }
-  const hint = world.holding !== null ? 'Click to drop' : playing && world.itemUnderCrosshair() !== null ? 'Click to pick up' : '';
+  const hint = world.holding !== null ? 'F set down · R throw' : playing && world.nearestItem() !== null ? 'F to pick up' : '';
   const hintEl = $('pickup-hint');
   if (hintEl.textContent !== hint) {
     hintEl.textContent = hint;
@@ -741,7 +742,7 @@ net.onMessage = (m: ServerMsg) => {
       if (menuOpen) renderPlayerList();
       break;
     case 'item':
-      world.setItem(m.item);
+      world.setItem(m.item, m.fly);
       break;
     case 'state':
       for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);
