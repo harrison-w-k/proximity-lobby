@@ -228,4 +228,25 @@ async function malformedTests() {
 }
 await malformedTests();
 
+// items: one at a time, only when close, and dropped where the carrier says
+{
+  const L = new Lobby([]);
+  const p = client(L);
+  const q = client(L);
+  p.tx({ t: 'join', name: 'p' });
+  q.tx({ t: 'join', name: 'q' });
+  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  q.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  p.tx({ t: 'take', id: 0 }); // ball at (4, 3)
+  q.tx({ t: 'take', id: 0 }); // already held
+  assert.equal(q.inbox.filter((m) => m.t === 'item').length, 1);
+  p.tx({ t: 'take', id: 1 }); // hands full
+  p.tx({ t: 'drop', id: 0, x: 5, y: 0, z: 3 });
+  const dropped = q.inbox.filter((m) => m.t === 'item').pop();
+  assert.ok(dropped && dropped.t === 'item' && dropped.item.holder === null && dropped.item.x === 5);
+  q.tx({ t: 'pos', x: -40, z: 40, ry: 0 });
+  q.tx({ t: 'take', id: 0 }); // too far
+  assert.equal(q.inbox.filter((m) => m.t === 'item').length, 2);
+}
+
 console.log('lobby tests passed');

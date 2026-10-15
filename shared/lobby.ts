@@ -13,6 +13,7 @@ import {
 } from './protocol';
 import { clampToArena } from './map';
 import { validAvatar } from './avatar';
+import { ITEM_SPAWNS, REACH, type ItemState } from './items';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
 
@@ -52,6 +53,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 export class Lobby {
   private conns = new Map<string, Session>(); // joined players only
   private dirty = new Set<string>();
+  private items = new Map<number, ItemState>(ITEM_SPAWNS.map((i) => [i.id, { ...i, holder: null }]));
   /** Hosts that outlive a restart (the Durable Object) persist photos here: null = removed. */
   onAvatar?: (id: string, img: string | null) => void;
 
@@ -169,7 +171,7 @@ export class Lobby {
         c.joined = true;
         const others = [...this.conns.values()].filter((o) => o.joined).map(publicState);
         this.conns.set(c.id, c);
-        this.send(c, { t: 'welcome', id: c.id, spawn: { x: c.x, z: c.z }, players: others, iceServers: this.iceServers });
+        this.send(c, { t: 'welcome', id: c.id, spawn: { x: c.x, z: c.z }, players: others, items: [...this.items.values()], iceServers: this.iceServers });
         this.broadcast({ t: 'joined', player: publicState(c) }, c.id);
         break;
       }
@@ -214,6 +216,28 @@ export class Lobby {
         this.broadcast({ t: 'avatar', id: c.id, img }, c.id);
         break;
       }
+      case 'take': {
+        const it = this.items.get(msg.id);
+        if (!c.joined || !it || it.holder) return;
+        for (const o of this.items.values()) if (o.holder === c.id) return; // hands are full
+        if (Math.hypot(it.x - c.x, it.z - c.z) > REACH + 3) return; // too far (allows for lag)
+        it.holder = c.id;
+        this.broadcast({ t: 'item', item: it });
+        break;
+      }
+      case 'drop': {
+        const it = this.items.get(msg.id);
+        if (!c.joined || !it || it.holder !== c.id) return;
+        if (!finite(msg.x) || !finite(msg.y) || !finite(msg.z)) return;
+        const at = clampToArena(msg.x, msg.z, SWIM_LIMIT);
+        if (Math.hypot(at.x - c.x, at.z - c.z) > 6) return;
+        it.x = at.x;
+        it.z = at.z;
+        it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, msg.y));
+        it.holder = null;
+        this.broadcast({ t: 'item', item: it });
+        break;
+      }
       case 'signal': {
         if (!c.joined) return;
         const target = this.conns.get(msg.to);
@@ -228,6 +252,14 @@ export class Lobby {
     c.closed = true;
     if (!this.conns.delete(c.id)) return;
     if (c.avatar) this.onAvatar?.(c.id, null);
+    for (const it of this.items.values()) {
+      if (it.holder !== c.id) continue; // whatever they carried is left where they stood
+      it.holder = null;
+      it.x = c.x;
+      it.z = c.z;
+      it.y = Math.max(0, c.y);
+      this.broadcast({ t: 'item', item: it });
+    }
     this.dirty.delete(c.id);
     if (c.joined) this.broadcast({ t: 'left', id: c.id });
   }

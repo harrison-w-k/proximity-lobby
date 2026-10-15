@@ -4,6 +4,7 @@ import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
 import { OBSTACLES, blockTop, type Block } from '../../shared/obstacles';
 import { buildAquarium, type Aquarium } from './aquarium';
+import { REACH, type ItemKind, type ItemState } from '../../shared/items';
 
 // The aquarium stands just past the island's northern beach (its entrance faces the island).
 const AQUARIUM_Z = -37;
@@ -463,43 +464,17 @@ interface Character {
   animate(a: AnimState, dt: number, t: number): void;
 }
 
-const GLOW_COLORS = [0x3df2ff, 0xb6ff3c, 0xff4fd8, 0xffc23c, 0xff6a3d];
-const screenCache = new Map<string, THREE.CanvasTexture>();
-const screenFor = (glowHex: number) => {
-  const css = `#${glowHex.toString(16).padStart(6, '0')}`;
-  let t = screenCache.get(css);
-  if (!t) {
-    t = T.screenFace(css);
-    screenCache.set(css, t);
-  }
-  return t;
-};
-
 function makeCharacter(id: string): Character {
-  const textures = tex();
   const hue = hueFor(id);
   const r = seeded(hashId(id) ^ 0x9e3779b9);
   const phase0 = r() * 6.28;
-  const glowHex = GLOW_COLORS[Math.floor(r() * GLOW_COLORS.length)];
-  const crestKind = Math.floor(r() * 4);
-  const tailSegs = 7 + Math.floor(r() * 3);
-  const eyeScale = 0.9 + r() * 0.3;
   const bulk = 0.92 + r() * 0.22;
-
-  const shirtColor = new THREE.Color().setHSL(hue / 360, 0.62, 0.5);
-  const accentColor = new THREE.Color().setHSL(((hue + 170) % 360) / 360, 0.7, 0.55);
-  const armor = new THREE.MeshLambertMaterial({
-    map: textures.armor,
-    color: shirtColor,
-    emissive: shirtColor,
-    emissiveIntensity: 0,
-    flatShading: true,
-  });
-  const trim = textured(textures.armor, accentColor.getHex());
-  const dark = textured(textures.dark);
-  const glow = new THREE.MeshBasicMaterial({ color: glowHex });
-  const defaultScreen = screenFor(glowHex);
-  const faceMat = new THREE.MeshBasicMaterial({ map: defaultScreen });
+  const clayColor = new THREE.Color().setHSL(hue / 360, 0.5, 0.84);
+  // one pale clay material for the whole body, like a shop-window mannequin
+  const armor = new THREE.MeshLambertMaterial({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.3 });
+  const blank = new THREE.Color(clayColor);
+  // faceless unless the player sets a profile photo
+  const faceMat = new THREE.MeshBasicMaterial({ color: blank });
 
   const cyl = (rt: number, rb: number, h: number, seg: number, m: THREE.Material) =>
     new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m);
@@ -513,27 +488,27 @@ function makeCharacter(id: string): Character {
   const group = (x = 0, y = 0, z = 0) => at(new THREE.Group(), x, y, z);
 
   const body = new THREE.Group();
+  const caps = (rad: number, len: number) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 10), armor);
+  const ball = (rad: number, sx = 1, sy = 1, sz = 1) => {
+    const m = ico(rad, armor, 1);
+    m.scale.set(sx, sy, sz);
+    return m;
+  };
 
   // pelvis
-  const pelvis = ico(0.2, dark);
-  pelvis.scale.set(1.1 * bulk, 0.8, 1.2);
-  body.add(at(pelvis, 0, 0.7, 0));
+  body.add(at(ball(0.2, 1.1 * bulk, 0.8, 0.95), 0, 0.7, 0));
 
-  // legs: thigh, a backward-bending knee, a long shin, and a foot with two toes forward, two back
+  // legs: thigh and shin joined by a ball knee
   const legs: { hip: THREE.Group; knee: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
-    const hip = group(side * 0.15 * bulk, 0.7, 0);
-    hip.add(ico(0.085, dark));
-    hip.add(at(cyl(0.085, 0.07, 0.34, 5, armor), 0, -0.17, 0));
+    const hip = group(side * 0.12 * bulk, 0.7, 0);
+    hip.add(ball(0.09));
+    hip.add(at(caps(0.09, 0.2), 0, -0.17, 0));
     const knee = group(0, -0.34, 0);
-    knee.add(ico(0.07, dark));
-    knee.add(at(cyl(0.06, 0.045, 0.34, 5, dark), 0, -0.17, 0));
-    const foot = group(0, -0.34, 0);
-    foot.add(at(box(0.17, 0.05, 0.26, dark), 0, 0.0, -0.03));
-    for (const tx of [-0.055, 0.055]) {
-      foot.add(at(box(0.05, 0.04, 0.14, trim), tx, 0, -0.19)); // toes forward
-      foot.add(at(box(0.05, 0.04, 0.1, trim), tx, 0, 0.13)); // toes back
-    }
+    knee.add(ball(0.075));
+    knee.add(at(caps(0.07, 0.2), 0, -0.17, 0));
+    const foot = group(0, -0.36, 0);
+    foot.add(at(ball(0.08, 1, 0.6, 1.7), 0, 0.0, -0.06));
     knee.add(foot);
     hip.add(knee);
     body.add(hip);
@@ -542,111 +517,38 @@ function makeCharacter(id: string): Character {
 
   // torso group pivots at the hips so it can lean
   const torsoG = group(0, 0.74, 0);
-  const torso = cyl(0.19 * bulk, 0.26 * bulk, 0.62, 6, armor);
-  torso.rotation.y = Math.PI / 6;
-  torsoG.add(at(torso, 0, 0.31, 0));
-  torsoG.add(at(box(0.3 * bulk, 0.26, 0.08, trim), 0, 0.42, -0.2));
-  torsoG.add(at(box(0.2, 0.03, 0.02, glow), 0, 0.46, -0.245));
-  torsoG.add(at(box(0.34 * bulk, 0.14, 0.07, dark), 0, 0.14, -0.2));
-  for (let i = 0; i < 4; i++) {
-    const spike = cone(0.05, 0.2 - i * 0.02, 4, trim); // a dorsal ridge
-    spike.rotation.x = Math.PI / 2 + 0.3;
-    torsoG.add(at(spike, 0, 0.12 + i * 0.14, 0.2));
-  }
-  torsoG.add(at(cyl(0.09, 0.11, 0.16, 5, dark), 0, 0.7, -0.02));
+  const chest = at(caps(0.2 * bulk, 0.3), 0, 0.32, 0);
+  chest.scale.set(1.1, 1, 0.8);
+  torsoG.add(chest);
+  torsoG.add(at(cyl(0.06, 0.08, 0.14, 8, armor), 0, 0.72, 0)); // neck
 
-  // head: snout, casque crest, turret eyes, and the face screen
+  // head: a smooth egg with no features
   const head = group(0, 0.92, -0.02);
-  const skull = cyl(0.13, 0.19, 0.44, 6, armor);
-  skull.rotation.x = -Math.PI / 2; // axis along z, narrow end forward
-  head.add(at(skull, 0, 0, -0.05));
-  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.23), faceMat);
+  head.add(at(ball(0.2, 0.9, 1.1, 1), 0, 0.02, 0));
+  // the profile photo, if any, sits on the front of the face
+  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22), faceMat);
   screenPlane.rotation.y = Math.PI; // plane faces +z; the character faces -z
-  head.add(at(screenPlane, 0, -0.01, -0.285));
-  head.add(at(box(0.27, 0.025, 0.02, glow), 0, 0.125, -0.27)); // a glowing brow strip
-
-  let crestTop = 0.28;
-  if (crestKind === 0) {
-    const c = cone(0.14, 0.36, 4, trim);
-    c.rotation.x = -0.6;
-    head.add(at(c, 0, 0.27, 0.15));
-    crestTop = 0.42;
-  } else if (crestKind === 1) {
-    for (const s of [-1, 1]) {
-      const horn = cone(0.05, 0.3, 4, trim);
-      horn.rotation.set(-0.5, 0, -s * 0.3);
-      head.add(at(horn, s * 0.09, 0.22, 0.1));
-    }
-    crestTop = 0.4;
-  } else if (crestKind === 2) {
-    const fin = box(0.04, 0.28, 0.3, trim);
-    fin.rotation.x = -0.25;
-    head.add(at(fin, 0, 0.24, 0.12));
-    crestTop = 0.4;
-  } else {
-    head.add(at(cyl(0.015, 0.015, 0.26, 4, dark), 0, 0.25, 0.1));
-    head.add(at(ico(0.07, glow), 0, 0.4, 0.1));
-    crestTop = 0.48;
-  }
-
+  head.add(at(screenPlane, 0, 0.0, -0.185));
+  const crestTop = 0.2;
   const eyes: THREE.Group[] = [];
-  for (const side of [-1, 1]) {
-    const eye = group(side * 0.2 * bulk, 0.05, -0.02);
-    eye.add(ico(0.095 * eyeScale, dark));
-    const lens = cone(0.07 * eyeScale, 0.16, 6, dark);
-    lens.rotation.z = -side * (Math.PI / 2);
-    eye.add(at(lens, side * 0.1, 0, 0));
-    eye.add(at(ico(0.05 * eyeScale, glow), side * 0.2, 0, 0));
-    head.add(eye);
-    eyes.push(eye);
-  }
   torsoG.add(head);
 
-  // arms: shoulder, upper arm, elbow, forearm, and a clawed hand (two fingers forward, two back)
+  // arms: shoulder, upper arm, ball elbow, forearm, round hand
   const arms: { shoulder: THREE.Group; elbow: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
-    const shoulder = group(side * 0.31 * bulk, 0.56, 0);
-    shoulder.add(ico(0.085, dark));
-    shoulder.add(at(cyl(0.055, 0.05, 0.3, 5, armor), 0, -0.15, 0));
+    const shoulder = group(side * 0.3 * bulk, 0.56, 0);
+    shoulder.add(ball(0.085));
+    shoulder.add(at(caps(0.065, 0.18), 0, -0.15, 0));
     const elbow = group(0, -0.3, 0);
-    elbow.add(ico(0.05, dark));
-    elbow.add(at(cyl(0.045, 0.04, 0.28, 5, dark), 0, -0.14, 0));
-    const hand = group(0, -0.28, 0);
-    hand.add(at(box(0.09, 0.06, 0.1, armor), 0, -0.02, 0));
-    for (const fx of [-0.025, 0.025]) {
-      const front = cone(0.022, 0.13, 4, trim);
-      front.rotation.x = -Math.PI / 2;
-      hand.add(at(front, fx, -0.045, -0.1));
-      const back = cone(0.022, 0.1, 4, trim);
-      back.rotation.x = Math.PI / 2;
-      hand.add(at(back, fx, -0.045, 0.09));
-    }
-    elbow.add(hand);
+    elbow.add(ball(0.06));
+    elbow.add(at(caps(0.055, 0.17), 0, -0.14, 0));
+    elbow.add(at(ball(0.065), 0, -0.3, 0));
     shoulder.add(elbow);
     torsoG.add(shoulder);
     arms.push({ shoulder, elbow });
   }
   body.add(torsoG);
-
-  // the tail: a chain of tapering segments, each turned a little more, so it curls into a spiral
-  const tail = group(0, 0.72, 0.2);
-  {
-    let parent: THREE.Object3D = tail;
-    let radius = 0.075;
-    const seg = 0.15;
-    for (let i = 0; i < tailSegs; i++) {
-      const holder = group(0, 0, i === 0 ? 0 : seg);
-      holder.rotation.x = -0.42;
-      const m = cyl(radius, radius * 0.82, seg, 5, i % 2 ? armor : dark);
-      m.rotation.x = Math.PI / 2;
-      holder.add(at(m, 0, 0, seg / 2));
-      parent.add(holder);
-      parent = holder;
-      radius *= 0.84;
-    }
-    parent.add(at(ico(0.04, glow), 0, 0, seg + 0.02));
-  }
-  body.add(tail);
+  const tail = group(0, 0.72, 0.2); // (kept so the animation code below has nothing to special-case)
 
   // Normalise so the head sits at eye height whatever the proportions, so the camera always matches.
   const headY = 0.74 + 0.92;
@@ -663,7 +565,8 @@ function makeCharacter(id: string): Character {
     const mine = faceRequest;
     faceTex?.dispose();
     faceTex = null;
-    faceMat.map = defaultScreen;
+    faceMat.map = null;
+    faceMat.color.copy(blank);
     faceMat.needsUpdate = true;
     if (!url || !validAvatar(url)) return; // photos from other players are untrusted: re-validate
     new THREE.TextureLoader().load(
@@ -679,6 +582,7 @@ function makeCharacter(id: string): Character {
         t.colorSpace = THREE.SRGBColorSpace;
         faceTex = t;
         faceMat.map = t;
+        faceMat.color.set(0xffffff);
         faceMat.needsUpdate = true;
       },
       undefined,
@@ -829,22 +733,6 @@ function makeCharacter(id: string): Character {
     torsoG.rotation.z = P.tilt;
     torsoG.scale.y = 1 + Math.sin(t * 2.2 + phase0) * 0.012; // breathing
     body.position.y = P.bob;
-
-    // the tail sways, and lifts as you run or jump
-    tail.rotation.y = Math.sin(t * 1.3 + phase0) * 0.2 + sw * 0.1 * run;
-    tail.rotation.x = -0.05 - run * 0.25 - (a.grounded ? 0 : 0.3);
-
-    // chameleon eyes: each one swivels on its own, then both lock forward when running
-    const free = 1 - run * 0.85;
-    eyes[0].rotation.y = Math.sin(t * 0.9 + phase0) * 0.9 * free;
-    eyes[1].rotation.y = Math.sin(t * 0.8 + phase0 + 2.1) * 0.9 * free;
-    eyes[0].rotation.x = Math.sin(t * 0.6 + phase0) * 0.25 * free;
-    eyes[1].rotation.x = Math.sin(t * 0.55 + phase0 + 1.3) * 0.25 * free;
-
-    // camouflage: the armour colour slowly drifts around the player's hue
-    const h2 = (hue + 22 * Math.sin(t * 0.4 + phase0) + 360) % 360;
-    armor.color.setHSL(h2 / 360, 0.62, 0.5);
-    armor.emissive.copy(armor.color);
   };
 
   return {
@@ -853,14 +741,46 @@ function makeCharacter(id: string): Character {
     shirt: armor,
     height: (headY + crestTop) * s,
     setHue(h: number) {
-      shirtColor.setHSL(h / 360, 0.62, 0.5);
-      armor.color.copy(shirtColor);
-      armor.emissive.copy(shirtColor);
-      trim.color.setHSL(((h + 170) % 360) / 360, 0.7, 0.55);
+      clayColor.setHSL(h / 360, 0.5, 0.84);
+      blank.copy(clayColor);
+      armor.color.copy(clayColor);
+      armor.emissive.copy(clayColor);
+      if (!faceMat.map) faceMat.color.copy(blank);
     },
     setFace,
     animate,
   };
+}
+
+/** A pick-up-able object, sitting with its base at y = 0 and about 0.4 m across. */
+function makeItem(kind: ItemKind): THREE.Group {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) => {
+    const m = new THREE.Mesh(geo, flat(color));
+    m.position.set(x, y, z);
+    g.add(m);
+    return m;
+  };
+  if (kind === 'ball') {
+    add(new THREE.IcosahedronGeometry(0.22, 1), 0xff5a4a, 0, 0.22);
+    add(new THREE.TorusGeometry(0.221, 0.03, 5, 14), 0xffffff, 0, 0.22).rotation.x = Math.PI / 2;
+  } else if (kind === 'crate') {
+    add(new THREE.BoxGeometry(0.4, 0.4, 0.4), 0xb98648, 0, 0.2);
+    add(new THREE.BoxGeometry(0.42, 0.06, 0.42), 0x8a5e2c, 0, 0.2);
+  } else if (kind === 'cone') {
+    add(new THREE.ConeGeometry(0.17, 0.46, 8), 0xff8a1e, 0, 0.27);
+    add(new THREE.BoxGeometry(0.4, 0.05, 0.4), 0xff8a1e, 0, 0.025);
+    add(new THREE.CylinderGeometry(0.1, 0.12, 0.08, 8), 0xffffff, 0, 0.2);
+  } else if (kind === 'duck') {
+    add(new THREE.SphereGeometry(0.2, 10, 8), 0xffd92e, 0, 0.2).scale.set(1, 0.85, 1.25);
+    add(new THREE.SphereGeometry(0.12, 10, 8), 0xffd92e, 0, 0.44, -0.1);
+    add(new THREE.BoxGeometry(0.1, 0.04, 0.1), 0xff8a1e, 0, 0.43, -0.22);
+  } else {
+    add(new THREE.SphereGeometry(0.2, 10, 8), 0x4ab0ff, 0, 0.22).scale.set(0.7, 0.9, 1.5);
+    add(new THREE.ConeGeometry(0.12, 0.22, 4), 0x2f86d6, 0, 0.22, 0.34).rotation.x = Math.PI / 2;
+    add(new THREE.BoxGeometry(0.03, 0.14, 0.12), 0x2f86d6, 0, 0.42, 0);
+  }
+  return g;
 }
 
 const CROUCH_SCALE = 0.7;
@@ -1024,6 +944,8 @@ export class World {
   private water?: Water;
   private clouds?: THREE.Group;
   private aquarium?: Aquarium;
+  private items = new Map<number, { state: ItemState; group: THREE.Group }>();
+  private selfId = '';
   private ripples?: Ripples;
   private rippleTimer = 0;
   private stepAccum = 0; // metres walked since the last footstep
@@ -1136,6 +1058,7 @@ export class World {
 
   /** Colour and build our own body like the character other players see us as. */
   setSelfId(id: string) {
+    this.selfId = id;
     this.rebuildSelf(id); // your colour AND your build come from your id, like everyone else's
   }
 
@@ -1296,6 +1219,97 @@ export class World {
     this.selfThird.add(tp.group);
     this.selfChars = [fp, tp];
     for (const c of this.selfChars) c.setFace(this.selfAvatar);
+  }
+
+  // ---- items you can pick up ----
+
+  setItems(list: ItemState[]) {
+    for (const it of list) this.setItem(it);
+  }
+
+  setItem(state: ItemState) {
+    let it = this.items.get(state.id);
+    if (!it) {
+      const group = makeItem(state.kind);
+      group.position.set(state.x, state.y, state.z);
+      group.traverse((o) => (o.userData.itemId = state.id));
+      this.scene.add(group);
+      it = { state, group };
+      this.items.set(state.id, it);
+    }
+    it.state = state;
+  }
+
+  /** The item you are carrying, if any. */
+  get holding(): number | null {
+    for (const [id, it] of this.items) if (it.state.holder === this.selfId) return id;
+    return null;
+  }
+
+  /** The item under the crosshair that is within reach, if any. Call after render. */
+  itemUnderCrosshair(): number | null {
+    this.ray.setFromCamera(this.centre, this.camera);
+    this.ray.far = 12;
+    const hits = this.ray.intersectObjects(
+      [...this.items.values()].filter((i) => !i.state.holder).map((i) => i.group),
+      true,
+    );
+    for (const h of hits) {
+      const id = h.object.userData.itemId as number | undefined;
+      const it = id === undefined ? undefined : this.items.get(id);
+      if (it && Math.hypot(it.state.x - this.pos.x, it.state.z - this.pos.z) <= REACH) return id as number;
+    }
+    return null;
+  }
+
+  /** Where a dropped item lands: a step in front of you, at your feet. Null in mid-air. */
+  dropSpot(): { x: number; y: number; z: number } | null {
+    if (!this.sim.onGround) return null;
+    return {
+      x: this.pos.x - Math.sin(this.yaw) * 0.9,
+      y: this.feetY,
+      z: this.pos.z - Math.cos(this.yaw) * 0.9,
+    };
+  }
+
+  private updateItems(dt: number) {
+    const k = 1 - Math.exp(-18 * dt);
+    for (const { state, group } of this.items.values()) {
+      let x = state.x;
+      let y = state.y;
+      let z = state.z;
+      let yaw = group.rotation.y + dt * 0.8; // lying about: a slow turn so it catches the eye
+      if (state.holder) {
+        // carried in front of the chest
+        let hx: number;
+        let hz: number;
+        let hy: number;
+        let ry: number;
+        if (state.holder === this.selfId) {
+          hx = this.pos.x;
+          hz = this.pos.z;
+          hy = this.feetY;
+          ry = this.yaw;
+        } else {
+          const a = this.avatars.get(state.holder);
+          if (!a) continue;
+          hx = a.group.position.x;
+          hz = a.group.position.z;
+          hy = a.group.position.y;
+          ry = a.group.rotation.y;
+        }
+        x = hx - Math.sin(ry) * 0.55;
+        z = hz - Math.cos(ry) * 0.55;
+        y = hy + 0.75;
+        yaw = ry;
+      } else {
+        y += Math.sin(this.clock * 2 + state.id) * 0.02;
+      }
+      group.position.x += (x - group.position.x) * k;
+      group.position.y += (y - group.position.y) * k;
+      group.position.z += (z - group.position.z) * k;
+      group.rotation.y = yaw;
+    }
   }
 
   addPlayer(p: PlayerState) {
@@ -1497,6 +1511,7 @@ export class World {
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
     this.collide();
+    this.updateItems(dt);
 
     // ripples where anyone wades through the water
     this.ripples?.update(dt);

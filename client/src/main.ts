@@ -58,6 +58,19 @@ document.addEventListener('pointerlockchange', () => {
 });
 canvas.addEventListener('click', () => joined && !typing && world.lock());
 
+// Click (while playing) to pick up what is under the crosshair, or to put down what you carry.
+document.addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || !joined || typing || menuOpen || document.pointerLockElement !== canvas) return;
+  const held = world.holding;
+  if (held !== null) {
+    const spot = world.dropSpot();
+    if (spot) net.send({ t: 'drop', id: held, ...spot });
+    return;
+  }
+  const id = world.itemUnderCrosshair();
+  if (id !== null) net.send({ t: 'take', id });
+});
+
 // ---------- settings menu ----------
 const settings = $('settings');
 const sensInput = $<HTMLInputElement>('sens');
@@ -656,6 +669,12 @@ world.onFrame = () => {
     lookId = id;
     showTarget();
   }
+  const hint = world.holding !== null ? 'Click to drop' : playing && world.itemUnderCrosshair() !== null ? 'Click to pick up' : '';
+  const hintEl = $('pickup-hint');
+  if (hintEl.textContent !== hint) {
+    hintEl.textContent = hint;
+    hintEl.hidden = hint === '';
+  }
 };
 
 // ---------- networking ----------
@@ -674,6 +693,7 @@ net.onMessage = (m: ServerMsg) => {
       world.setSelfId(m.id);
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
+      world.setItems(m.items);
       for (const p of m.players) {
         names.set(p.id, p.name);
         applySavedVolume(p.id, p.name);
@@ -719,6 +739,9 @@ net.onMessage = (m: ServerMsg) => {
       voice?.removePeer(m.id);
       updateHud();
       if (menuOpen) renderPlayerList();
+      break;
+    case 'item':
+      world.setItem(m.item);
       break;
     case 'state':
       for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);

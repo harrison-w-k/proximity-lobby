@@ -142,6 +142,9 @@
     #mic.off { background: var(--red); }
     #crosshair { position: fixed; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; background: var(--white);
       border: 2px solid var(--ink); z-index: 4; pointer-events: none; }
+    #pickup-hint { position: fixed; left: 50%; top: calc(50% + 60px); transform: translateX(-50%); z-index: 6; padding: 5px 12px;
+      font-family: var(--font-pixel); font-size: 10px; text-transform: uppercase; background: var(--ink); color: var(--white);
+      border: 3px solid var(--white); pointer-events: none; }
     #paused { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 6; pointer-events: none; padding: 14px 20px;
       font-family: var(--font-pixel); font-size: 12px; text-transform: uppercase; background: var(--blue); border: 4px solid var(--ink);
       box-shadow: inset 4px 4px 0 var(--blue-light), inset -4px -4px 0 var(--blue-dark), 6px 6px 0 rgba(0,0,0,.45); }
@@ -231,6 +234,7 @@
 <body>
   <canvas id="scene"></canvas>
   <div id="crosshair" hidden></div>
+  <div id="pickup-hint" hidden></div>
 
   <!-- ===== main screen ===== -->
   <div id="join" class="overlay">
