@@ -112,6 +112,46 @@ const d = client(lobby3);
 d.tx({ t: 'join', name: 'ZED' });
 assert.equal(d.s.name, 'ZED_2');
 
+// ---- profile photos ----
+{
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const L = new Lobby([]);
+  const u1 = client(L);
+  const u2 = client(L);
+  u1.tx({ t: 'join', name: 'pic' });
+  u2.tx({ t: 'join', name: 'watcher' });
+  const events: [string, string | null][] = [];
+  L.onAvatar = (id, img) => events.push([id, img]);
+
+  // a valid photo is stored, announced to others (not echoed to the sender), and persisted via the hook
+  u1.tx({ t: 'avatar', img: png });
+  assert.deepEqual(u2.inbox.find((m) => m.t === 'avatar'), { t: 'avatar', id: u1.s.id, img: png });
+  assert.ok(!u1.inbox.some((m) => m.t === 'avatar'));
+  assert.deepEqual(events, [[u1.s.id, png]]);
+
+  // someone joining later sees it in the player list
+  const late = client(L);
+  late.tx({ t: 'join', name: 'late' });
+  const w = late.inbox.find((m) => m.t === 'welcome');
+  assert.ok(w && w.t === 'welcome' && w.players.some((p) => p.id === u1.s.id && p.avatar === png));
+
+  // anything that is not a small image data URL is ignored
+  const before = u2.inbox.length;
+  for (const bad of ['http://evil.example/x.png', 'data:text/html;base64,PGgxPg==', 'javascript:alert(1)',
+    'data:image/svg+xml;base64,PHN2Zz4=', 'data:image/png;base64,' + 'A'.repeat(7000), 42, {}]) {
+    u1.tx({ t: 'avatar', img: bad as never });
+  }
+  assert.equal(u2.inbox.length, before);
+  assert.equal(u1.s.avatar, png); // still the good one
+
+  // clearing removes it for everyone, and leaving cleans up persisted state
+  u1.tx({ t: 'avatar', img: null });
+  assert.deepEqual(u2.inbox.filter((m) => m.t === 'avatar').at(-1), { t: 'avatar', id: u1.s.id, img: null });
+  u1.tx({ t: 'avatar', img: png });
+  L.close(u1.s);
+  assert.deepEqual(events.at(-1), [u1.s.id, null]);
+}
+
 // ---- verified-login mode ----
 async function authTests() {
   const verify = async (token: string) => {

@@ -18,6 +18,7 @@ export interface PlayerState {
   ry: number; // yaw, radians
   y: number; // feet height above the floor (m); > 0 while jumping
   crouch: boolean;
+  avatar?: string; // profile photo as a small data URL, drawn on the face
 }
 
 export type ClientMsg =
@@ -27,6 +28,7 @@ export type ClientMsg =
   | { t: 'pos'; x: number; z: number; ry: number; y?: number; crouch?: boolean }
   | { t: 'chat'; text: string }
   | { t: 'dm'; to: string; text: string } // private message to a player id
+  | { t: 'avatar'; img: string | null } // set (or clear) your profile photo
   | { t: 'signal'; to: string; data: unknown };
 
 export type ServerMsg =
@@ -46,4 +48,5 @@ export type ServerMsg =
   // Sent to both the sender and the recipient, so each sees the same line.
   | { t: 'dm'; fromId: string; from: string; toId: string; to: string; text: string }
   | { t: 'notice'; text: string }
+  | { t: 'avatar'; id: string; img: string | null }
   | { t: 'signal'; from: string; data: unknown };

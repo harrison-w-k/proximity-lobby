@@ -12,6 +12,7 @@ import {
   type ServerMsg,
 } from './protocol';
 import { clampToArena } from './map';
+import { validAvatar } from './avatar';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
 
@@ -30,6 +31,7 @@ export interface Session extends Saved {
   chatTimes: number[];
   verifying?: boolean; // a join is waiting on the auth check
   closed?: boolean;
+  avatar?: string; // not part of Saved: too big for a socket attachment, hosts persist it separately
 }
 
 /** token -> username, null if the login is invalid. May throw if the auth service is down. */
@@ -43,12 +45,15 @@ const publicState = (c: Session): PlayerState => ({
   ry: c.ry,
   y: c.y,
   crouch: c.crouch,
+  avatar: c.avatar,
 });
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 export class Lobby {
   private conns = new Map<string, Session>(); // joined players only
   private dirty = new Set<string>();
+  /** Hosts that outlive a restart (the Durable Object) persist photos here: null = removed. */
+  onAvatar?: (id: string, img: string | null) => void;
 
   constructor(
     private iceServers: IceServers,
@@ -72,9 +77,16 @@ export class Lobby {
   }
 
   /** Rebuild a session from saved state (Worker woke from hibernation). */
-  restore(peer: Peer, saved: Saved): Session {
+  restore(peer: Peer, saved: Saved, avatar?: string): Session {
     // older attachments predate y / crouch, so default them
-    const c: Session = { ...saved, y: saved.y ?? 0, crouch: saved.crouch ?? false, peer, chatTimes: [] };
+    const c: Session = {
+      ...saved,
+      y: saved.y ?? 0,
+      crouch: saved.crouch ?? false,
+      peer,
+      chatTimes: [],
+      avatar: validAvatar(avatar) ? avatar : undefined,
+    };
     if (c.joined) this.conns.set(c.id, c);
     return c;
   }
@@ -193,6 +205,15 @@ export class Lobby {
         this.send(c, out);
         break;
       }
+      case 'avatar': {
+        if (!c.joined) return;
+        const img = msg.img === null ? null : validAvatar(msg.img) ? msg.img : undefined;
+        if (img === undefined || !this.allowChat(c)) return; // junk or too frequent: ignore
+        c.avatar = img ?? undefined;
+        this.onAvatar?.(c.id, img);
+        this.broadcast({ t: 'avatar', id: c.id, img }, c.id);
+        break;
+      }
       case 'signal': {
         if (!c.joined) return;
         const target = this.conns.get(msg.to);
@@ -206,6 +227,7 @@ export class Lobby {
   close(c: Session) {
     c.closed = true;
     if (!this.conns.delete(c.id)) return;
+    if (c.avatar) this.onAvatar?.(c.id, null);
     this.dirty.delete(c.id);
     if (c.joined) this.broadcast({ t: 'left', id: c.id });
   }

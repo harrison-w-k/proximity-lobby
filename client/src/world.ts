@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
 import { clampToArena, waterDepth, WADE_DEPTH } from '../../shared/map';
 import { pushOut } from './collision';
+import { validAvatar } from '../../shared/avatar';
 
 export const EYE_HEIGHT = 1.6;
 const EYE_CROUCH = 1.0;
@@ -30,6 +31,13 @@ export function hueFor(id: string): number {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return h % 360;
+}
+
+/** Stable 32-bit hash of a player id: the same id always yields the same body, on every client. */
+function hashId(id: string): number {
+  let h = 2166136261;
+  for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h >>> 0;
 }
 
 function seeded(seed: number) {
@@ -225,47 +233,160 @@ interface Character {
   head: THREE.Group; // hidden in first person so it can't block the view
   shirt: THREE.MeshLambertMaterial;
   setHue(h: number): void;
+  /** Height of the very top of this body (m), so a name tag can float above it. */
+  height: number;
+  /** Put a (validated) data-URL photo on the front of the head, or null to go back to the plain face. */
+  setFace(url: string | null): void;
 }
 
-function makeCharacter(hue: number): Character {
+const SKIN_TONES = [0xf6dcc0, 0xf0c49a, 0xd9a273, 0xa8683f, 0x6b4129];
+
+function makeCharacter(id: string): Character {
+  const hue = hueFor(id);
+  const r = seeded(hashId(id) ^ 0x9e3779b9);
   const shirtColor = new THREE.Color().setHSL(hue / 360, 0.7, 0.52);
+  const accentColor = new THREE.Color().setHSL(((hue + 150) % 360) / 360, 0.75, 0.55);
+  const pantsColor = new THREE.Color().setHSL(((hue + 200) % 360) / 360, 0.4, 0.27);
+
   const shirt = new THREE.MeshLambertMaterial({ color: shirtColor, emissive: shirtColor, emissiveIntensity: 0, flatShading: true });
-  const skin = flat(0xf0c49a);
-  const pants = flat(0x2c3e73);
-  const hair = flat(0x3a2a1c);
+  const accent = flat(accentColor.getHex());
+  const pants = flat(pantsColor.getHex());
+  const skin = flat(SKIN_TONES[Math.floor(r() * SKIN_TONES.length)]);
+  const hair = flat(0x2b1d14 + Math.floor(r() * 0x302010));
   const visorMat = flat(0x151824);
 
-  const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-    mesh.position.set(x, y, z);
-    return mesh;
+  // Everything about the silhouette is rolled from the id.
+  const torsoW = 0.42 + r() * 0.26; // slim .. broad
+  const torsoH = 0.5 + r() * 0.24; // short .. long
+  const torsoD = 0.24 + r() * 0.14;
+  const legH = 0.55 + r() * 0.3; // stubby .. leggy
+  const legW = 0.15 + r() * 0.09;
+  const armH = 0.36 + r() * 0.22;
+  const armW = 0.13 + r() * 0.07;
+  const headW = 0.34 + r() * 0.18;
+  const headH = 0.32 + r() * 0.2;
+  const headD = 0.34 + r() * 0.1;
+  const topper = Math.floor(r() * 5); // 0 hair, 1 cap, 2 antenna, 3 ears, 4 spikes
+  const hasTail = r() < 0.4;
+  const hasBelt = r() < 0.6;
+
+  const mesh = (geo: THREE.BufferGeometry, x: number, y: number, z: number, m: THREE.Material) => {
+    const o = new THREE.Mesh(geo, m);
+    o.position.set(x, y, z);
+    return o;
   };
-  const group = new THREE.Group();
-  group.add(
-    box(0.2, 0.78, 0.22, -0.11, 0.39, 0, pants), // legs
-    box(0.2, 0.78, 0.22, 0.11, 0.39, 0, pants),
-    box(0.5, 0.64, 0.28, 0, 1.1, 0, shirt), // torso
-    box(0.16, 0.46, 0.2, -0.34, 1.19, 0, shirt), // arms
-    box(0.16, 0.46, 0.2, 0.34, 1.19, 0, shirt),
-    box(0.15, 0.16, 0.18, -0.34, 0.88, 0, skin), // hands
-    box(0.15, 0.16, 0.18, 0.34, 0.88, 0, skin),
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) =>
+    mesh(new THREE.BoxGeometry(w, h, d), x, y, z, m);
+
+  const body = new THREE.Group();
+  const torsoY = legH + torsoH / 2;
+  const legX = Math.max(legW / 2 + 0.01, torsoW * 0.26);
+  body.add(
+    box(legW, legH, legW + 0.04, -legX, legH / 2, 0, pants), // legs
+    box(legW, legH, legW + 0.04, legX, legH / 2, 0, pants),
+    box(torsoW, torsoH, torsoD, 0, torsoY, 0, shirt), // torso
   );
+  if (hasBelt) body.add(box(torsoW + 0.02, 0.08, torsoD + 0.02, 0, legH + 0.06, 0, accent));
+  const armX = torsoW / 2 + armW / 2 + 0.01;
+  const armY = legH + torsoH - armH / 2;
+  body.add(
+    box(armW, armH, armW + 0.04, -armX, armY, 0, shirt), // arms
+    box(armW, armH, armW + 0.04, armX, armY, 0, shirt),
+    box(armW - 0.01, 0.15, armW + 0.02, -armX, armY - armH / 2 - 0.07, 0, skin), // hands
+    box(armW - 0.01, 0.15, armW + 0.02, armX, armY - armH / 2 - 0.07, 0, skin),
+  );
+  if (hasTail) {
+    const tail = box(0.1, 0.1, 0.3, 0, legH + 0.14, torsoD / 2 + 0.16, accent);
+    tail.rotation.x = -0.35;
+    body.add(tail);
+  }
+
+  // Head. Box faces are +x, -x, +y, -y, +z, -z; the character walks toward -z, so -z carries the photo.
+  const headCenterY = legH + torsoH + headH / 2 + 0.03;
+  const headTop = headCenterY + headH / 2;
   const head = new THREE.Group();
-  head.add(
-    box(0.4, 0.4, 0.4, 0, 1.62, 0, skin),
-    box(0.42, 0.12, 0.42, 0, 1.84, 0, hair),
-    box(0.36, 0.1, 0.03, 0, 1.66, -0.21, visorMat), // faces -Z, the direction you walk
-  );
-  group.add(head);
+  const faceMat = new THREE.MeshLambertMaterial({ color: skin.color, flatShading: true });
+  const headBox = new THREE.Mesh(new THREE.BoxGeometry(headW, headH, headD), [skin, skin, skin, skin, skin, faceMat]);
+  headBox.position.set(0, headCenterY, 0);
+  const visor = box(headW * 0.9, Math.max(0.08, headH * 0.26), 0.03, 0, headCenterY + headH * 0.08, -(headD / 2 + 0.012), visorMat);
+  head.add(headBox, visor);
+  let topperHeight = 0.1;
+  if (topper === 0) {
+    head.add(box(headW + 0.02, 0.1, headD + 0.02, 0, headTop + 0.04, 0, hair));
+  } else if (topper === 1) {
+    head.add(box(headW + 0.02, 0.12, headD + 0.02, 0, headTop + 0.05, 0, accent));
+    head.add(box(headW * 0.8, 0.03, 0.16, 0, headTop + 0.01, -(headD / 2 + 0.08), accent)); // brim
+  } else if (topper === 2) {
+    head.add(box(0.03, 0.24, 0.03, 0, headTop + 0.12, 0, hair));
+    head.add(box(0.1, 0.1, 0.1, 0, headTop + 0.28, 0, accent));
+    topperHeight = 0.34;
+  } else if (topper === 3) {
+    for (const side of [-1, 1]) head.add(box(0.1, 0.2, 0.08, side * (headW / 2 + 0.04), headTop + 0.05, 0, skin));
+    topperHeight = 0.15;
+  } else {
+    for (const [dx, h] of [[-0.1, 0.13], [0, 0.2], [0.1, 0.13]] as const) {
+      const spike = mesh(new THREE.ConeGeometry(0.06, h, 4), dx * (headW / 0.4), headTop + h / 2, 0, accent);
+      head.add(spike);
+    }
+    topperHeight = 0.2;
+  }
+  body.add(head);
+
+  // Normalise so the head sits at eye height whatever the proportions: stubby bodies come out
+  // chunky, leggy ones tall, and every one of them still matches the camera.
+  const root = new THREE.Group();
+  const s = 1.62 / headCenterY;
+  body.scale.setScalar(s);
+  root.add(body);
+
+  let faceTex: THREE.Texture | null = null;
+  let faceRequest = 0;
+  const setFace = (url: string | null) => {
+    faceRequest++;
+    const mine = faceRequest;
+    faceTex?.dispose();
+    faceTex = null;
+    faceMat.map = null;
+    faceMat.color.copy(skin.color);
+    faceMat.needsUpdate = true;
+    visor.visible = true;
+    if (!url || !validAvatar(url)) return; // photos from other players are untrusted: re-validate
+    new THREE.TextureLoader().load(
+      url,
+      (tex) => {
+        if (mine !== faceRequest) {
+          tex.dispose(); // replaced or cleared while it was loading
+          return;
+        }
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        faceTex = tex;
+        faceMat.map = tex;
+        faceMat.color.set(0xffffff);
+        faceMat.needsUpdate = true;
+        visor.visible = false; // the photo is the face now
+      },
+      undefined,
+      () => {
+        /* undecodable image: keep the plain face */
+      },
+    );
+  };
 
   return {
-    group,
+    group: root,
     head,
     shirt,
+    height: (headTop + topperHeight) * s,
     setHue(h: number) {
       shirt.color.setHSL(h / 360, 0.7, 0.52);
       shirt.emissive.copy(shirt.color);
+      accent.color.setHSL(((h + 150) % 360) / 360, 0.75, 0.55);
+      pants.color.setHSL(((h + 200) % 360) / 360, 0.4, 0.27);
     },
+    setFace,
   };
 }
 
@@ -278,6 +399,8 @@ class Avatar {
   private shell = new THREE.Group(); // the character; squashed when crouching
   private label: THREE.Sprite;
   private body: THREE.MeshLambertMaterial;
+  private character: Character;
+  private nameHeight = NAME_HEIGHT;
   private tx: number;
   private tz: number;
   private ty: number;
@@ -285,8 +408,11 @@ class Avatar {
   private crouch: boolean;
 
   constructor(p: PlayerState) {
-    const ch = makeCharacter(hueFor(p.id));
+    const ch = makeCharacter(p.id);
+    this.character = ch;
+    this.nameHeight = ch.height + 0.3;
     this.body = ch.shirt;
+    if (p.avatar) ch.setFace(p.avatar);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.9, 0.6), new THREE.MeshBasicMaterial());
     hit.visible = false;
     hit.position.y = 0.95;
@@ -304,7 +430,7 @@ class Avatar {
     this.crouch = p.crouch ?? false;
     const s = this.crouch ? CROUCH_SCALE : 1;
     this.shell.scale.y = s;
-    this.label.position.y = NAME_HEIGHT * s;
+    this.label.position.y = this.nameHeight * s;
   }
 
   setTarget(x: number, z: number, ry: number, y: number, crouch: boolean) {
@@ -319,6 +445,10 @@ class Avatar {
     this.body.emissiveIntensity = on ? 0.9 : 0;
   }
 
+  setAvatar(url: string | null) {
+    this.character.setFace(url);
+  }
+
   update(dt: number) {
     const k = 1 - Math.exp(-15 * dt);
     const g = this.group;
@@ -327,19 +457,23 @@ class Avatar {
     g.position.y += (this.ty - g.position.y) * k;
     const want = this.crouch ? CROUCH_SCALE : 1;
     this.shell.scale.y += (want - this.shell.scale.y) * k;
-    this.label.position.y = NAME_HEIGHT * this.shell.scale.y;
+    this.label.position.y = this.nameHeight * this.shell.scale.y;
     let d = this.try_ - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d)); // shortest angle
     g.rotation.y += d * k;
   }
 
   dispose() {
+    this.character.setFace(null); // frees the photo texture
     this.group.traverse((o) => {
       const m = o as THREE.Mesh | THREE.Sprite;
       (m as THREE.Mesh).geometry?.dispose?.();
-      const mat = m.material as THREE.Material | THREE.SpriteMaterial | undefined;
-      (mat as THREE.SpriteMaterial | undefined)?.map?.dispose();
-      mat?.dispose();
+      // the head has one material per face, so material may be an array
+      const mats = ([] as (THREE.Material | undefined)[]).concat(m.material as THREE.Material | THREE.Material[] | undefined);
+      for (const mat of mats) {
+        (mat as THREE.SpriteMaterial | undefined)?.map?.dispose();
+        mat?.dispose();
+      }
     });
   }
 }
@@ -374,6 +508,7 @@ export class World {
   private selfThird = new THREE.Group(); // our full character, shown while the camera is pulled back
   private selfBody = new THREE.Group(); // the same character, minus head, seen when looking down
   private selfChars: Character[] = [];
+  private selfAvatar: string | null = null;
   private ray = new THREE.Raycaster();
   private centre = new THREE.Vector2(0, 0);
   private waterTex?: THREE.CanvasTexture;
@@ -488,9 +623,19 @@ export class World {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Your own photo on your own face (visible in third / front view). */
+  setSelfAvatar(url: string | null) {
+    this.selfAvatar = url;
+    for (const c of this.selfChars) c.setFace(url);
+  }
+
+  setPlayerAvatar(id: string, url: string | null) {
+    this.avatars.get(id)?.setAvatar(url);
+  }
+
   /** Colour our own body like the character other players see us as. */
   setSelfId(id: string) {
-    for (const c of this.selfChars) c.setHue(hueFor(id));
+    this.rebuildSelf(id); // your colour AND your build come from your id, like everyone else's
   }
 
   /** Id of the player under the crosshair within `maxDist` metres, if any. Call after render. */
@@ -576,17 +721,21 @@ export class World {
    * down; once the camera pulls back the full character takes over.
    */
   private buildSelfBody() {
-    const fp = makeCharacter(210);
+    this.scene.add(this.selfBody, this.selfThird);
+    this.rebuildSelf('self'); // placeholder until the server tells us our id
+  }
+
+  private rebuildSelf(id: string) {
+    this.selfBody.clear();
+    this.selfThird.clear();
+    const fp = makeCharacter(id);
     fp.head.visible = false;
     fp.group.position.z = 0.2; // z > 0 is behind the camera: clear of the near plane, yet the chest and legs show when you look down
     this.selfBody.add(fp.group);
-    this.scene.add(this.selfBody);
-
-    const tp = makeCharacter(210);
+    const tp = makeCharacter(id);
     this.selfThird.add(tp.group);
-    this.scene.add(this.selfThird);
-
     this.selfChars = [fp, tp];
+    for (const c of this.selfChars) c.setFace(this.selfAvatar);
   }
 
   addPlayer(p: PlayerState) {

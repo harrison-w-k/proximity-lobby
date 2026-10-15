@@ -2,6 +2,7 @@ import { Net } from './net';
 import { DEFAULT_FOV, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
+import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
 
@@ -81,6 +82,7 @@ function openMenu() {
   refreshMenu();
   renderPlayerList();
   syncAudioControls();
+  refreshAccount();
   void refreshDevices();
   refreshRanges();
   updatePaused();
@@ -335,6 +337,92 @@ setInterval(() => {
 }, 50);
 syncAudioControls();
 
+// ---- Account: profile photo ----
+const AVATAR_KEY = 'avatar';
+let avatarUrl: string | null = null;
+{
+  const saved = store.get(AVATAR_KEY);
+  if (saved && validAvatar(saved)) avatarUrl = saved;
+}
+const avatarPreview = $<HTMLCanvasElement>('avatar-preview');
+const avatarStatus = $('avatar-status');
+const avatarFile = $<HTMLInputElement>('avatar-file');
+
+function drawAvatarPreview() {
+  const g = avatarPreview.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, 32, 32);
+  if (!avatarUrl) {
+    g.fillStyle = '#14338a';
+    g.fillRect(0, 0, 32, 32);
+    g.fillStyle = '#c9d4ff';
+    g.fillRect(14, 8, 4, 12); // a pixel "?"
+    g.fillRect(14, 23, 4, 3);
+    return;
+  }
+  const img = new Image();
+  img.onload = () => g.drawImage(img, 0, 0, 32, 32);
+  img.src = avatarUrl;
+}
+
+/** Centre-crop to a square, shrink to 32x32 and encode as a small JPEG. The original is never kept or sent. */
+async function makeAvatar(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('That image is too large (10 MB max).');
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d')!;
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 32, 32);
+  bmp.close();
+  for (const quality of [0.85, 0.7, 0.5]) {
+    const url = c.toDataURL('image/jpeg', quality);
+    if (validAvatar(url)) return url;
+  }
+  throw new Error('Could not shrink that image enough.');
+}
+
+function applyAvatar(url: string | null) {
+  avatarUrl = url;
+  if (url) store.set(AVATAR_KEY, url);
+  else {
+    try {
+      localStorage.removeItem(AVATAR_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  world.setSelfAvatar(url);
+  if (joined) net.send({ t: 'avatar', img: url });
+  drawAvatarPreview();
+}
+
+$('avatar-pick').addEventListener('click', () => avatarFile.click());
+$('avatar-clear').addEventListener('click', () => {
+  applyAvatar(null);
+  avatarStatus.textContent = 'Photo removed.';
+});
+avatarFile.addEventListener('change', async () => {
+  const file = avatarFile.files?.[0];
+  avatarFile.value = ''; // so choosing the same file again still fires
+  if (!file) return;
+  try {
+    applyAvatar(await makeAvatar(file));
+    avatarStatus.textContent = 'Photo updated. Look at yourself in third person (T) to see it.';
+  } catch (e) {
+    avatarStatus.textContent = e instanceof Error ? e.message : 'Could not use that image.';
+  }
+});
+
+function refreshAccount() {
+  $('account-name').textContent = profileName || '(not signed in)';
+}
+world.setSelfAvatar(avatarUrl);
+drawAvatarPreview();
+
 // Settings tabs
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
 function showTab(name: string) {
@@ -541,6 +629,7 @@ net.onMessage = (m: ServerMsg) => {
     case 'welcome':
       joined = true;
       myId = m.id;
+      if (avatarUrl) net.send({ t: 'avatar', img: avatarUrl }); // share our photo with the lobby
       world.orbit = false;
       world.setSelfId(m.id);
       world.teleport(m.spawn.x, m.spawn.z);
@@ -601,6 +690,9 @@ net.onMessage = (m: ServerMsg) => {
     }
     case 'notice':
       addChat('•', m.text);
+      break;
+    case 'avatar':
+      world.setPlayerAvatar(m.id, m.img);
       break;
     case 'signal':
       void voice?.handleSignal(m.from, m.data);

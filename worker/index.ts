@@ -53,11 +53,24 @@ export class LobbyDO extends DurableObject<Env> {
         ? supabaseAuth({ url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY })
         : undefined;
     this.lobby = new Lobby(iceServersFrom(env), verify);
-    // Rebuild players after the object was evicted or hibernated.
-    for (const ws of ctx.getWebSockets()) {
-      const saved = ws.deserializeAttachment() as Saved | null;
-      if (saved) this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved));
-    }
+    // Profile photos are too big for a socket attachment (2 KiB), so they live in storage.
+    this.lobby.onAvatar = (id, img) => {
+      const op: Promise<unknown> = img ? ctx.storage.put(`av:${id}`, img) : ctx.storage.delete(`av:${id}`);
+      op.catch((e) => console.error('avatar storage failed', e));
+    };
+    // Rebuild players (and their photos) after the object was evicted or hibernated.
+    void ctx.blockConcurrencyWhile(async () => {
+      const stored = await ctx.storage.list<string>({ prefix: 'av:' });
+      const live = new Set<string>();
+      for (const ws of ctx.getWebSockets()) {
+        const saved = ws.deserializeAttachment() as Saved | null;
+        if (!saved) continue;
+        live.add(`av:${saved.id}`);
+        this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved, stored.get(`av:${saved.id}`)));
+      }
+      const stale = [...stored.keys()].filter((k) => !live.has(k)).slice(0, 128); // players who are gone
+      if (stale.length) await ctx.storage.delete(stale);
+    });
   }
 
   async fetch(req: Request): Promise<Response> {
