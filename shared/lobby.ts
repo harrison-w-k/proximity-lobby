@@ -25,7 +25,12 @@ export interface Saved extends PlayerState {
 export interface Session extends Saved {
   peer: Peer;
   chatTimes: number[];
+  verifying?: boolean; // a join is waiting on the auth check
+  closed?: boolean;
 }
+
+/** token -> username, null if the login is invalid. May throw if the auth service is down. */
+export type Verifier = (token: string) => Promise<string | null>;
 
 const publicState = (c: Session): PlayerState => ({ id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry });
 const clampMap = (v: number) => Math.max(-MAP_HALF, Math.min(MAP_HALF, v));
@@ -35,7 +40,10 @@ export class Lobby {
   private conns = new Map<string, Session>(); // joined players only
   private dirty = new Set<string>();
 
-  constructor(private iceServers: IceServers) {}
+  constructor(
+    private iceServers: IceServers,
+    private verify?: Verifier,
+  ) {}
 
   /** A new socket connected; it is not a player until it sends `join`. */
   open(peer: Peer): Session {
@@ -53,6 +61,43 @@ export class Lobby {
     return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, joined: c.joined };
   }
 
+  /**
+   * Entry point for hosts. With a verifier configured, `join` must carry a valid token and the
+   * name comes from the verified profile; otherwise it is the same as `message`.
+   */
+  async handle(c: Session, raw: string): Promise<void> {
+    if (this.verify) {
+      let msg: ClientMsg | null = null;
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (msg?.t === 'join') {
+        if (c.joined || c.verifying) return;
+        c.verifying = true;
+        let name: string | null = null;
+        let reason = 'Please sign in to join.';
+        try {
+          name = typeof msg.token === 'string' ? await this.verify(msg.token) : null;
+        } catch {
+          reason = 'Sign-in service is unavailable. Please try again.';
+        } finally {
+          c.verifying = false;
+        }
+        if (c.closed) return;
+        if (!name) {
+          this.send(c, { t: 'denied', reason });
+          c.peer.close();
+          return;
+        }
+        this.message(c, JSON.stringify({ t: 'join', name }));
+        return;
+      }
+    }
+    this.message(c, raw);
+  }
+
   message(c: Session, raw: string) {
     let msg: ClientMsg;
     try {
@@ -63,7 +108,7 @@ export class Lobby {
 
     switch (msg.t) {
       case 'join': {
-        if (c.joined) return;
+        if (c.joined || c.closed) return;
         if (this.conns.size >= MAX_PLAYERS) {
           this.send(c, { t: 'full' });
           c.peer.close();
@@ -114,6 +159,7 @@ export class Lobby {
 
   /** The socket closed. */
   close(c: Session) {
+    c.closed = true;
     if (!this.conns.delete(c.id)) return;
     this.dirty.delete(c.id);
     if (c.joined) this.broadcast({ t: 'left', id: c.id });

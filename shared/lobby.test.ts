@@ -64,4 +64,65 @@ const d = client(lobby3);
 d.tx({ t: 'join', name: 'ZED' });
 assert.equal(d.s.name, 'ZED_2');
 
+// ---- verified-login mode ----
+async function authTests() {
+  const verify = async (token: string) => {
+    if (token === 'down') throw new Error('unreachable');
+    return token === 'good' ? 'verified_jane' : null;
+  };
+  const L = new Lobby([], verify);
+  const mk = () => {
+    const c = client(L);
+    const send = (m: object) => L.handle(c.s, JSON.stringify(m));
+    return { ...c, send };
+  };
+
+  // valid token: server uses the profile name, not the one the client claims
+  const ok = mk();
+  await ok.send({ t: 'join', name: 'admin', token: 'good' });
+  assert.equal(ok.s.name, 'verified_jane');
+  assert.equal(ok.inbox[0].t, 'welcome');
+
+  // missing / invalid token: denied and closed, never joins
+  const none = mk();
+  await none.send({ t: 'join', name: 'admin' });
+  assert.deepEqual(none.inbox, [{ t: 'denied', reason: 'Please sign in to join.' }]);
+  assert.ok(none.isClosed());
+  const bad = mk();
+  await bad.send({ t: 'join', name: 'admin', token: 'forged' });
+  assert.equal(bad.inbox[0].t, 'denied');
+  assert.equal(bad.s.joined, false);
+
+  // auth service down: distinct message
+  const down = mk();
+  await down.send({ t: 'join', name: 'x', token: 'down' });
+  const dm = down.inbox[0];
+  assert.ok(dm.t === 'denied' && /unavailable/.test(dm.reason));
+
+  // same account twice: second gets a numbered name rather than a clash
+  const again = mk();
+  await again.send({ t: 'join', name: 'x', token: 'good' });
+  assert.equal(again.s.name, 'verified_jane_2');
+
+  // socket closes while the token is being checked: no ghost player is left behind
+  const slowLobby = new Lobby([], () => new Promise((r) => setTimeout(() => r('ghost'), 20)));
+  const g = client(slowLobby);
+  const pending = slowLobby.handle(g.s, JSON.stringify({ t: 'join', name: 'x', token: 't' }));
+  slowLobby.close(g.s);
+  await pending;
+  assert.equal(g.s.joined, false);
+  const watcher = client(slowLobby);
+  await slowLobby.handle(watcher.s, JSON.stringify({ t: 'join', name: 'x', token: 't' }));
+  assert.equal(watcher.s.name, 'ghost'); // not ghost_2
+
+  // double join while verifying is ignored
+  const dbl = mk();
+  await Promise.all([
+    dbl.send({ t: 'join', name: 'x', token: 'good' }),
+    dbl.send({ t: 'join', name: 'x', token: 'good' }),
+  ]);
+  assert.equal(dbl.inbox.filter((m) => m.t === 'welcome').length, 1);
+}
+await authTests();
+
 console.log('lobby tests passed');

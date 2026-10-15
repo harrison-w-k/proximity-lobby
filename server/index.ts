@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { ServerMsg } from '../shared/protocol';
 import { Lobby } from '../shared/lobby';
+import { supabaseAuth } from '../shared/auth';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = resolve(import.meta.dirname, '../dist/client');
@@ -52,7 +53,14 @@ const http = createServer(async (req, res) => {
   }
 });
 
-const lobby = new Lobby(iceServers);
+// With Supabase configured, joining requires a verified login. Without it (plain local dev),
+// the server accepts the name the client sends. The VITE_ names let one client/.env.local do both.
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+const verify = supabaseUrl && supabaseKey ? supabaseAuth({ url: supabaseUrl, anonKey: supabaseKey }) : undefined;
+console.log(verify ? 'auth: Supabase login required to join' : 'auth: off (names are not verified)');
+
+const lobby = new Lobby(iceServers, verify);
 const alive = new WeakMap<WebSocket, boolean>();
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
@@ -65,7 +73,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('pong', () => alive.set(ws, true));
-  ws.on('message', (raw) => lobby.message(session, raw.toString()));
+  ws.on('message', (raw) => void lobby.handle(session, raw.toString()));
   ws.on('close', () => lobby.close(session));
   ws.on('error', () => ws.terminate());
 });

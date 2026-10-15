@@ -1,6 +1,7 @@
 import { Net } from './net';
 import { EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
+import { getSupabase } from './supabase';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
 
@@ -149,6 +150,10 @@ net.onMessage = (m: ServerMsg) => {
       $('status').textContent = 'The lobby is full (20/20). Try again soon.';
       ($('join-btn') as HTMLButtonElement).disabled = false;
       break;
+    case 'denied':
+      $('status').textContent = m.reason;
+      ($('join-btn') as HTMLButtonElement).disabled = false;
+      break;
     case 'joined':
       names.set(m.player.id, m.player.name);
       world.addPlayer(m.player);
@@ -181,35 +186,120 @@ export function usernameFromEmail(email: string): string {
   return local.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 16);
 }
 
+// With Supabase configured the player signs in with an emailed magic link and joins under the
+// username in their verified profile. Without it, the old unverified email flow is used.
+const supabase = getSupabase();
 const emailInput = $<HTMLInputElement>('email');
+const joinBtn = $<HTMLButtonElement>('join-btn');
+const signoutBtn = $<HTMLButtonElement>('signout-btn');
+const status = $('status');
+let profileName = ''; // set while signed in
+
 try {
   emailInput.value = localStorage.getItem('email') ?? '';
 } catch {
   /* storage unavailable */
 }
 
-$<HTMLFormElement>('join-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = $<HTMLButtonElement>('join-btn');
-  const status = $('status');
-  btn.disabled = true;
-  status.textContent = 'Requesting microphone…';
+function setStatus(text: string, ok = false) {
+  status.textContent = text;
+  status.classList.toggle('ok', ok);
+}
+
+async function showSignedIn(userId: string) {
+  const { data, error } = await supabase!.from('profiles').select('username').eq('id', userId).maybeSingle();
+  if (error || !data) {
+    setStatus('Signed in, but your profile could not be loaded. Please reload.');
+    return;
+  }
+  profileName = data.username;
+  $('who').textContent = `Signed in. You will appear as “${profileName}”.`;
+  $('who').hidden = false;
+  $('join-note').hidden = true;
+  emailInput.hidden = true;
+  emailInput.required = false;
+  signoutBtn.hidden = false;
+  joinBtn.textContent = 'Join';
+  joinBtn.disabled = false;
+  setStatus('');
+}
+
+function showSignedOut() {
+  profileName = '';
+  $('who').hidden = true;
+  $('join-note').hidden = false;
+  $('join-note').textContent =
+    'Sign in with your email to get a username other players will see. We send you a one-time link; no password needed.';
+  emailInput.hidden = false;
+  emailInput.required = true;
+  signoutBtn.hidden = true;
+  joinBtn.textContent = 'Email me a sign-in link';
+  joinBtn.disabled = false;
+}
+
+if (supabase) {
+  showSignedOut();
+  supabase.auth.onAuthStateChange((_event, session) => {
+    // Defer: calling supabase inside this callback can deadlock.
+    setTimeout(() => (session ? void showSignedIn(session.user.id) : showSignedOut()), 0);
+  });
+  signoutBtn.addEventListener('click', () => void supabase.auth.signOut());
+}
+
+async function enterLobby(name: string, token?: string) {
+  joinBtn.disabled = true;
+  setStatus('Requesting microphone…');
 
   voice = new Voice((to, data) => net.send({ t: 'signal', to, data }));
   await voice.init(); // continues without a mic if denied
 
-  status.textContent = 'Connecting…';
+  setStatus('Connecting…');
   try {
     await net.connect();
   } catch {
-    status.textContent = 'Could not reach the server.';
-    btn.disabled = false;
+    setStatus('Could not reach the server.');
+    joinBtn.disabled = false;
     return;
   }
-  try {
-    localStorage.setItem('email', emailInput.value);
-  } catch {
-    /* storage unavailable */
+  net.send({ t: 'join', name, token });
+}
+
+$<HTMLFormElement>('join-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  if (!supabase) {
+    try {
+      localStorage.setItem('email', emailInput.value);
+    } catch {
+      /* storage unavailable */
+    }
+    await enterLobby(usernameFromEmail(emailInput.value));
+    return;
   }
-  net.send({ t: 'join', name: usernameFromEmail(emailInput.value) });
+
+  if (!profileName) {
+    joinBtn.disabled = true;
+    const email = emailInput.value.trim();
+    try {
+      localStorage.setItem('email', email);
+    } catch {
+      /* storage unavailable */
+    }
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${location.origin}/` },
+    });
+    joinBtn.disabled = false;
+    if (error) setStatus(`Could not send the link: ${error.message}`);
+    else setStatus('Check your inbox and click the link. This page will update when you are signed in.', true);
+    return;
+  }
+
+  const { data } = await supabase.auth.getSession(); // refreshes an expired token
+  if (!data.session) {
+    showSignedOut();
+    setStatus('Your session expired. Please sign in again.');
+    return;
+  }
+  await enterLobby(profileName, data.session.access_token);
 });

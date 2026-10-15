@@ -16,7 +16,9 @@ export interface PlayerState {
 }
 
 export type ClientMsg =
-  | { t: 'join'; name: string }
+  // `token` is the player's Supabase access token. When the host has auth configured, the
+  // server ignores `name` and uses the username from the verified profile instead.
+  | { t: 'join'; name: string; token?: string }
   | { t: 'pos'; x: number; z: number; ry: number }
   | { t: 'chat'; text: string }
   | { t: 'signal'; to: string; data: unknown };
@@ -30,6 +32,7 @@ export type ServerMsg =
       iceServers: { urls: string | string[]; username?: string; credential?: string }[];
     }
   | { t: 'full' }
+  | { t: 'denied'; reason: string }
   | { t: 'joined'; player: PlayerState }
   | { t: 'left'; id: string }
   | { t: 'state'; p: [id: string, x: number, z: number, ry: number][] }

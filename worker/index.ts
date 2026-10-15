@@ -1,10 +1,13 @@
 // Cloudflare Worker entry: static client + one Durable Object that runs the lobby.
 import { DurableObject } from 'cloudflare:workers';
 import { Lobby, type IceServers, type Peer, type Saved, type Session } from '../shared/lobby';
+import { supabaseAuth } from '../shared/auth';
 
 interface Env {
   LOBBY: DurableObjectNamespace<LobbyDO>;
   ASSETS: Fetcher;
+  SUPABASE_URL?: string; // public; set in wrangler.jsonc
+  SUPABASE_ANON_KEY?: string; // public (publishable) key only
   TURN_URL?: string;
   TURN_USERNAME?: string;
   TURN_CREDENTIAL?: string;
@@ -45,7 +48,11 @@ export class LobbyDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.lobby = new Lobby(iceServersFrom(env));
+    const verify =
+      env.SUPABASE_URL && env.SUPABASE_ANON_KEY
+        ? supabaseAuth({ url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY })
+        : undefined;
+    this.lobby = new Lobby(iceServersFrom(env), verify);
     // Rebuild players after the object was evicted or hibernated.
     for (const ws of ctx.getWebSockets()) {
       const saved = ws.deserializeAttachment() as Saved | null;
@@ -63,14 +70,14 @@ export class LobbyDO extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const session = this.sessions.get(ws);
     if (!session || typeof message !== 'string') return;
     if (message.length > MAX_PAYLOAD) {
       ws.close(1009, 'message too big');
       return;
     }
-    this.lobby.message(session, message);
+    await this.lobby.handle(session, message);
     try {
       ws.serializeAttachment(this.lobby.save(session));
     } catch {
