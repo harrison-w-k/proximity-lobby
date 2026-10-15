@@ -13,6 +13,7 @@ import {
 } from './protocol';
 import { clampToArena } from './map';
 import { validAvatar } from './avatar';
+import { validLook, type Look } from './look';
 import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, throwPath, type ItemState } from './items';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
@@ -32,6 +33,7 @@ export interface Session extends Saved {
   chatTimes: number[];
   verifying?: boolean; // a join is waiting on the auth check
   closed?: boolean;
+  hitAt?: number;
   avatar?: string; // not part of Saved: too big for a socket attachment, hosts persist it separately
 }
 
@@ -47,6 +49,7 @@ const publicState = (c: Session): PlayerState => ({
   y: c.y,
   crouch: c.crouch,
   avatar: c.avatar,
+  look: c.look,
 });
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -110,7 +113,7 @@ export class Lobby {
   }
 
   save(c: Session): Saved {
-    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined };
+    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined, look: c.look };
   }
 
   /**
@@ -232,6 +235,24 @@ export class Lobby {
         this.broadcast({ t: 'avatar', id: c.id, img }, c.id);
         break;
       }
+      case 'look': {
+        if (!c.joined) return;
+        const look: Look | null = validLook(msg.c, msg.h);
+        if (!look || !this.allowChat(c)) return;
+        c.look = look;
+        this.broadcast({ t: 'look', id: c.id, c: look.c, h: look.h }, c.id);
+        break;
+      }
+      case 'hit': {
+        if (!c.joined || !finite(msg.vx) || !finite(msg.vz)) return;
+        const now = Date.now();
+        if (now - (c.hitAt ?? 0) < 1200) return; // one knock-down at a time
+        c.hitAt = now;
+        const sp = Math.hypot(msg.vx, msg.vz);
+        const k = sp > 12 ? 12 / sp : 1;
+        this.broadcast({ t: 'ragdoll', id: c.id, vx: msg.vx * k, vz: msg.vz * k }, c.id);
+        break;
+      }
       case 'take': {
         const it = this.items.get(msg.id);
         if (!c.joined || !it) return;
@@ -280,7 +301,7 @@ export class Lobby {
         it.z = at.z;
         it.holder = null;
         this.itemsChanged();
-        this.broadcast({ t: 'item', item: it, fly: launch });
+        this.broadcast({ t: 'item', item: it, fly: launch, by: c.id });
         break;
       }
       case 'shove': {

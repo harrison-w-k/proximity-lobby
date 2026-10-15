@@ -414,6 +414,14 @@
     #t-view { right: calc(max(10px, env(safe-area-inset-right)) + 108px); }
     body.touch #chat { bottom: 190px; width: min(70vw, 480px); }
     body.touch #crosshair { display: block; }
+
+    /* ---- character menu ---- */
+    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px; margin-top: 8px; }
+    .swatch { height: 34px; border: 2px solid #7a7968; border-radius: 3px; cursor: pointer; font-weight: 700; color: #444;
+      background: linear-gradient(135deg, #fff, #cfcbb8); box-shadow: inset 0 0 0 1px rgba(255,255,255,.55); }
+    .swatch:hover { border-color: #f8b330; }
+    .swatch.on { border-color: #0831d9; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0831d9; }
+    .hatlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -487,6 +495,7 @@
           <button class="tab active" type="button" data-tab="gameplay">Gameplay</button>
           <button class="tab" type="button" data-tab="audio">Audio</button>
           <button class="tab" type="button" data-tab="controls">Controls</button>
+          <button class="tab" type="button" data-tab="character">Character</button>
           <button class="tab" type="button" data-tab="account">Account</button>
         </nav>
 
@@ -614,6 +623,20 @@
             <div class="bind"><span>Mute microphone</span><span class="keys"><span class="key">M</span></span></div>
             <div class="bind"><span>Player volume (while looking at them)</span><span class="keys"><span class="key">Scroll</span></span></div>
             <div class="bind"><span>Settings</span><span class="keys"><span class="key">Esc</span></span></div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="character" hidden>
+          <h3 class="group-title">Appearance</h3>
+          <div class="setting">
+            <div class="setting-title">Colour scheme</div>
+            <p class="setting-desc">The colour of your clay body. Everyone in the lobby sees it. Press T to look at yourself.</p>
+            <div id="look-colors" class="swatches"></div>
+          </div>
+          <div class="setting">
+            <div class="setting-title">Hat</div>
+            <p class="setting-desc">Pick something to wear on your head.</p>
+            <div id="look-hats" class="hatlist"></div>
           </div>
         </section>
 

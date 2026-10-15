@@ -3,6 +3,7 @@ import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol'
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
 import { OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
+import { HATS, LOOK_COLORS, type Look } from '../../shared/look';
 import { REACH, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
 
 import { pushOut } from './collision';
@@ -446,6 +447,7 @@ interface AnimState {
   sliding: boolean;
   hanging: boolean;
   mantle: boolean;
+  ragdoll?: number; // 0..1: knocked down and limp
 }
 
 interface Character {
@@ -453,6 +455,8 @@ interface Character {
   head: THREE.Group; // hidden in first person so it can't block the view
   shirt: THREE.MeshLambertMaterial; // the armour: its emissive lights up when the player speaks
   setHue(h: number): void;
+  /** Clay colour and hat chosen in the character menu (null: the id-based defaults). */
+  setLook(look: Look | null): void;
   /** Height of the very top of this body (m), so a name tag can float above it. */
   height: number;
   /** Put a (validated) data-URL photo on the face screen, or null to go back to the default eyes. */
@@ -553,6 +557,58 @@ function makeCharacter(id: string): Character {
   const root = new THREE.Group();
   body.scale.setScalar(s);
   root.add(body);
+
+  // ----- look: colour and hat -----
+  let hat: THREE.Group | null = null;
+  const hatMat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const makeHat = (kind: number): THREE.Group | null => {
+    if (kind <= 0) return null;
+    const g = new THREE.Group();
+    const add = (geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) => {
+      const m = new THREE.Mesh(geo, hatMat(color));
+      m.position.set(x, y, z);
+      g.add(m);
+      return m;
+    };
+    if (kind === 1) {
+      add(new THREE.SphereGeometry(0.225, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0x2a6bd8, 0, 0.08, 0);
+      add(new THREE.BoxGeometry(0.3, 0.025, 0.2), 0x1b4ba0, 0, 0.09, -0.26);
+    } else if (kind === 2) {
+      add(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 12), 0x16161c, 0, 0.4, 0);
+      add(new THREE.CylinderGeometry(0.27, 0.27, 0.025, 14), 0x16161c, 0, 0.24, 0);
+      add(new THREE.CylinderGeometry(0.152, 0.152, 0.06, 12), 0xc82828, 0, 0.3, 0);
+    } else if (kind === 3) {
+      add(new THREE.ConeGeometry(0.15, 0.36, 10), 0xffd23f, 0, 0.42, 0);
+      add(new THREE.SphereGeometry(0.045, 8, 6), 0xe85aa8, 0, 0.62, 0);
+    } else if (kind === 4) {
+      add(new THREE.CylinderGeometry(0.18, 0.2, 0.16, 8), 0xf2c230, 0, 0.3, 0);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        add(new THREE.ConeGeometry(0.045, 0.14, 4), 0xf2c230, Math.cos(a) * 0.17, 0.43, Math.sin(a) * 0.17);
+      }
+    } else {
+      const band = add(new THREE.TorusGeometry(0.24, 0.025, 6, 16, Math.PI), 0x303848, 0, 0.04, 0);
+      band.rotation.z = 0;
+      for (const side of [-1, 1]) add(new THREE.CylinderGeometry(0.08, 0.08, 0.07, 10), 0x2a6bd8, side * 0.24, 0.04, 0).rotation.z = Math.PI / 2;
+    }
+    return g;
+  };
+  const setLook = (look: Look | null) => {
+    const c = look && look.c >= 0 && look.c < LOOK_COLORS.length ? new THREE.Color(LOOK_COLORS[look.c].hex) : new THREE.Color().setHSL(hue / 360, 0.5, 0.84);
+    clayColor.copy(c);
+    blank.copy(c);
+    armor.color.copy(c);
+    armor.emissive.copy(c);
+    if (!faceMat.map) faceMat.color.copy(blank);
+    if (hat) {
+      head.remove(hat);
+      hat.traverse((o) => ((o as THREE.Mesh).geometry?.dispose?.(), ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.()));
+      hat = null;
+    }
+    const kind = look && look.h >= 0 && look.h < HATS.length ? look.h : 0;
+    hat = makeHat(kind);
+    if (hat) head.add(hat);
+  };
 
   // ----- face photo -----
   let faceTex: THREE.Texture | null = null;
@@ -713,6 +769,20 @@ function makeCharacter(id: string): Character {
     P.tilt = lerp(P.tilt, tilt, k);
     P.bob = lerp(P.bob, bob, k);
 
+    // knocked down: the whole body topples and the limbs go limp and flail
+    const rag = a.ragdoll ?? 0;
+    if (rag > 0.01) {
+      const flail = Math.sin(t * 9 + phase0);
+      P.legL = lerp(P.legL, 0.6 + flail * 0.5, rag);
+      P.legR = lerp(P.legR, -0.4 - flail * 0.5, rag);
+      P.kneeL = lerp(P.kneeL, -0.7, rag);
+      P.kneeR = lerp(P.kneeR, -0.3, rag);
+      P.armL = lerp(P.armL, 2.2 + flail * 0.7, rag);
+      P.armR = lerp(P.armR, 1.8 - flail * 0.7, rag);
+    }
+    root.rotation.x = -rag * 1.45; // falls over backwards, about the feet
+    root.position.y = rag * 0.22;
+
     legs[0].hip.rotation.x = P.legL;
     legs[1].hip.rotation.x = P.legR;
     legs[0].knee.rotation.x = P.kneeL;
@@ -743,6 +813,7 @@ function makeCharacter(id: string): Character {
       if (!faceMat.map) faceMat.color.copy(blank);
     },
     setFace,
+    setLook,
     animate,
   };
 }
@@ -778,6 +849,16 @@ function makeItem(kind: ItemKind): THREE.Group {
   return g;
 }
 
+const RAGDOLL_TIME = 2.2; // seconds spent on the floor after a hit
+/** 0..1 over the fall, the stay on the ground, and the getting up. */
+const ragdollAmount = (left: number) => {
+  if (left <= 0) return 0;
+  const elapsed = RAGDOLL_TIME - left;
+  const down = Math.min(1, elapsed / 0.18);
+  const up = Math.min(1, left / 0.5);
+  return Math.max(0, Math.min(down, up));
+};
+
 const CROUCH_SCALE = 0.7;
 const NAME_HEIGHT = 2.5;
 
@@ -799,6 +880,7 @@ class Avatar {
   private lastZ: number;
   private speed = 0; // smoothed, derived from how far they actually move
   private vy = 0;
+  private ragdollLeft = 0;
   stepAccum = 0; // metres this player has walked since their last audible footstep
 
   constructor(p: PlayerState) {
@@ -807,6 +889,7 @@ class Avatar {
     this.nameHeight = ch.height + 0.3;
     this.body = ch.shirt;
     if (p.avatar) ch.setFace(p.avatar);
+    if (p.look) ch.setLook(p.look);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.2, 0.8), new THREE.MeshBasicMaterial());
     hit.visible = false;
     hit.position.y = 1.1;
@@ -846,6 +929,15 @@ class Avatar {
     this.character.setFace(url);
   }
 
+  setLook(look: Look | null) {
+    this.character.setLook(look);
+  }
+
+  /** Knocked down by a thrown item: tumble for a couple of seconds. */
+  ragdoll() {
+    this.ragdollLeft = RAGDOLL_TIME;
+  }
+
   update(dt: number, t: number) {
     const k = 1 - Math.exp(-15 * dt);
     const g = this.group;
@@ -879,10 +971,12 @@ class Avatar {
         sliding: this.crouch && this.speed > 3.6, // crouched but moving fast is a slide
         hanging: false,
         mantle: false,
+        ragdoll: ragdollAmount(this.ragdollLeft),
       },
       dt,
       t,
     );
+    this.ragdollLeft = Math.max(0, this.ragdollLeft - dt);
   }
 
   dispose() {
@@ -948,8 +1042,11 @@ export class World {
   /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
   private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
-  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number }; changedAt: number }>();
+  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string }; changedAt: number }>();
   private selfId = '';
+  private selfLook: Look | null = null;
+  private ragdollT = 0; // seconds of being knocked down left
+  onHit?: (vx: number, vz: number) => void; // a thrown item hit you
   // throw aiming: R zooms the camera in over the shoulder, holding the mouse charges the power
   aiming = false;
   charging = false;
@@ -1218,7 +1315,37 @@ export class World {
     const tp = makeCharacter(id);
     this.selfThird.add(tp.group);
     this.selfChars = [fp, tp];
-    for (const c of this.selfChars) c.setFace(this.selfAvatar);
+    for (const c of this.selfChars) {
+      c.setFace(this.selfAvatar);
+      c.setLook(this.selfLook);
+    }
+  }
+
+  setSelfLook(look: Look | null) {
+    this.selfLook = look;
+    for (const c of this.selfChars) c.setLook(look);
+  }
+
+  setPlayerLook(id: string, look: Look | null) {
+    this.avatars.get(id)?.setLook(look);
+  }
+
+  /** Someone else got hit: tumble them. */
+  ragdollPlayer(id: string) {
+    this.avatars.get(id)?.ragdoll();
+  }
+
+  /** You were hit: knocked back, and no control for a moment. */
+  private knockDown(vx: number, vz: number) {
+    this.ragdollT = RAGDOLL_TIME;
+    this.cancelAim();
+    const s = this.sim;
+    s.vx = vx;
+    s.vz = vz;
+    if (s.onGround) s.vy = 4;
+    s.sliding = false;
+    s.hanging = false;
+    this.onHit?.(vx, vz);
   }
 
   // ---- items you can pick up ----
@@ -1227,7 +1354,7 @@ export class World {
     for (const it of list) this.setItem(it);
   }
 
-  setItem(state: ItemState, fly?: Flight) {
+  setItem(state: ItemState, fly?: Flight, by?: string) {
     let it = this.items.get(state.id);
     if (!it) {
       const group = makeItem(state.kind);
@@ -1239,7 +1366,7 @@ export class World {
     }
     it.state = state;
     it.changedAt = performance.now();
-    it.flight = fly ? { path: throwPath(fly), t: 0 } : undefined;
+    it.flight = fly ? { path: throwPath(fly), t: 0, by } : undefined;
   }
 
   /** The item you are carrying, if any. */
@@ -1386,6 +1513,21 @@ export class World {
         if (i < it.flight.path.length) {
           const [fx, fy, fz] = it.flight.path[i];
           group.position.set(fx, fy, fz);
+          // a thrown item that reaches you knocks you down
+          const by = it.flight.by;
+          if (by && by !== this.selfId && this.ragdollT <= 0 && i > 0) {
+            const prev = it.flight.path[i - 1];
+            const vx = (fx - prev[0]) * 60;
+            const vz = (fz - prev[2]) * 60;
+            if (
+              Math.hypot(vx, vz) > 4 &&
+              Math.hypot(fx - this.pos.x, fz - this.pos.z) < 0.6 &&
+              fy > this.feetY - 0.1 &&
+              fy < this.feetY + 1.9
+            ) {
+              this.knockDown(vx * 0.7, vz * 0.7);
+            }
+          }
           group.rotation.y += dt * 9;
           continue;
         }
@@ -1467,7 +1609,7 @@ export class World {
    */
   private move(dt: number) {
     const k = this.keys;
-    const on = this.inputEnabled;
+    const on = this.inputEnabled && this.ragdollT <= 0;
     const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
     const f = on ? clamp1((k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) + this.touchF) : 0;
     const side = on ? clamp1((k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + this.touchS) : 0;
@@ -1680,12 +1822,14 @@ export class World {
       sliding: sim.sliding,
       hanging: sim.hanging,
       mantle: sim.mantle !== null,
+      ragdoll: ragdollAmount(this.ragdollT),
     };
+    this.ragdollT = Math.max(0, this.ragdollT - dt);
     for (const c of this.selfChars) c.animate(state, dt, this.clock);
 
     this.pos.y = this.feetY + sim.eye;
     const ease = 1 - Math.exp(-7 * dt);
-    const wantBack = this.viewMode > 0 || this.aiming ? 1 : 0;
+    const wantBack = this.viewMode > 0 || this.aiming || this.ragdollT > 0 ? 1 : 0;
     const wantFront = this.viewMode === 2 && !this.aiming ? 1 : 0;
     this.tpBlend += (wantBack - this.tpBlend) * ease;
     this.frontBlend += (wantFront - this.frontBlend) * ease;

@@ -1,3 +1,4 @@
+import { DEFAULT_LOOK, HATS, LOOK_COLORS, type Look } from '../../shared/look';
 import { initTouch, isTouchDevice } from './touch';
 import { Net } from './net';
 import { DEFAULT_FOV, DEFAULT_RENDER_HEIGHT, EYE_HEIGHT, World } from './world';
@@ -492,6 +493,56 @@ drawAvatarPreview();
 
 // Settings tabs
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
+// ---------- character: colour and hat ----------
+let myLook: Look = { ...DEFAULT_LOOK };
+try {
+  const raw = JSON.parse(localStorage.getItem('look') ?? 'null');
+  if (raw && Number.isInteger(raw.c) && Number.isInteger(raw.h) && raw.c >= -1 && raw.c < LOOK_COLORS.length && raw.h >= 0 && raw.h < HATS.length) {
+    myLook = { c: raw.c, h: raw.h };
+  }
+} catch {
+  /* no saved look */
+}
+const swatches = $('look-colors');
+const hatList = $('look-hats');
+function paintLookMenu() {
+  swatches.querySelectorAll<HTMLElement>('.swatch').forEach((el) => el.classList.toggle('on', Number(el.dataset.c) === myLook.c));
+  hatList.querySelectorAll<HTMLElement>('.btn').forEach((el) => el.classList.toggle('active', Number(el.dataset.h) === myLook.h));
+}
+function applyLook(next: Look) {
+  myLook = next;
+  try {
+    localStorage.setItem('look', JSON.stringify(next));
+  } catch {
+    /* private mode */
+  }
+  world.setSelfLook(next);
+  if (joined) net.send({ t: 'look', c: next.c, h: next.h });
+  paintLookMenu();
+}
+for (const [i, col] of [{ name: 'Default', hex: -1 }, ...LOOK_COLORS].entries()) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'swatch';
+  el.title = col.name;
+  el.dataset.c = String(i - 1);
+  if (col.hex >= 0) el.style.background = `#${col.hex.toString(16).padStart(6, '0')}`;
+  else el.textContent = 'A';
+  el.addEventListener('click', () => applyLook({ ...myLook, c: i - 1 }));
+  swatches.appendChild(el);
+}
+HATS.forEach((name, h) => {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'btn glass small';
+  el.dataset.h = String(h);
+  el.textContent = name;
+  el.addEventListener('click', () => applyLook({ ...myLook, h }));
+  hatList.appendChild(el);
+});
+paintLookMenu();
+world.setSelfLook(myLook);
+
 function showTab(name: string) {
   if (name !== 'audio') setTesting(false); // never leave "hear myself" running unseen
   tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
@@ -714,6 +765,7 @@ world.onFrame = () => {
 
 // ---------- networking ----------
 world.onShove = (id, vx, vz) => net.send({ t: 'shove', id, vx, vz });
+world.onHit = (vx, vz) => net.send({ t: 'hit', vx, vz });
 
 net.onClose = () => {
   if (joined) $('dead').hidden = false;
@@ -728,6 +780,8 @@ net.onMessage = (m: ServerMsg) => {
       if (avatarUrl) net.send({ t: 'avatar', img: avatarUrl }); // share our photo with the lobby
       world.orbit = false;
       world.setSelfId(m.id);
+      world.setSelfLook(myLook);
+      net.send({ t: 'look', c: myLook.c, h: myLook.h });
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
       world.setItems(m.items);
@@ -778,7 +832,13 @@ net.onMessage = (m: ServerMsg) => {
       if (menuOpen) renderPlayerList();
       break;
     case 'item':
-      world.setItem(m.item, m.fly);
+      world.setItem(m.item, m.fly, m.by);
+      break;
+    case 'look':
+      world.setPlayerLook(m.id, { c: m.c, h: m.h });
+      break;
+    case 'ragdoll':
+      world.ragdollPlayer(m.id);
       break;
     case 'state':
       for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);

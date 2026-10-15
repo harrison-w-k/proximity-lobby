@@ -1,5 +1,6 @@
 // Types and constants shared by client and server.
 import type { Flight, ItemState } from './items';
+import type { Look } from './look';
 
 export const MAX_PLAYERS = 20;
 export const MAP_RADIUS = 24; // the arena is a circle of this radius (m) centred on the origin
@@ -20,6 +21,7 @@ export interface PlayerState {
   y: number; // feet height above the floor (m); > 0 while jumping
   crouch: boolean;
   avatar?: string; // profile photo as a small data URL, drawn on the face
+  look?: Look; // chosen clay colour and hat
 }
 
 export type ClientMsg =
@@ -30,6 +32,8 @@ export type ClientMsg =
   | { t: 'chat'; text: string }
   | { t: 'dm'; to: string; text: string } // private message to a player id
   | { t: 'avatar'; img: string | null } // set (or clear) your profile photo
+  | { t: 'look'; c: number; h: number } // set your colour and hat
+  | { t: 'hit'; vx: number; vz: number } // a thrown item hit you: tell everyone to ragdoll you
   | { t: 'take'; id: number } // pick an item up
   | { t: 'drop'; id: number; x: number; y: number; z: number } // put the item you carry down here
   | { t: 'throw'; id: number; f: Flight } // throw the item you carry
@@ -55,5 +59,7 @@ export type ServerMsg =
   | { t: 'dm'; fromId: string; from: string; toId: string; to: string; text: string }
   | { t: 'notice'; text: string }
   | { t: 'avatar'; id: string; img: string | null }
-  | { t: 'item'; item: ItemState; fly?: Flight } // an item was picked up, put down or thrown (fly = its launch)
+  | { t: 'look'; id: string; c: number; h: number }
+  | { t: 'ragdoll'; id: string; vx: number; vz: number }
+  | { t: 'item'; item: ItemState; fly?: Flight; by?: string } // an item was picked up, put down or thrown (fly = its launch)
   | { t: 'signal'; from: string; data: unknown };
