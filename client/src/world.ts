@@ -494,61 +494,75 @@ function makeCharacter(id: string): Character {
   const group = (x = 0, y = 0, z = 0) => at(new THREE.Group(), x, y, z);
 
   const body = new THREE.Group();
-  const caps = (rad: number, len: number) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 10), armor);
-  const ball = (rad: number, sx = 1, sy = 1, sz = 1) => {
-    const m = ico(rad, armor, 1);
-    m.scale.set(sx, sy, sz);
+  const caps = (rad: number, len: number) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 12), armor);
+  /** A smooth ellipsoid with half-extents (rx, ry, rz) metres. */
+  const blob = (rx: number, ry: number, rz: number) => {
+    const m = ico(1, armor, 2);
+    m.scale.set(rx, ry, rz);
     return m;
   };
 
-  // pelvis
-  body.add(at(ball(0.2, 1.1 * bulk, 0.8, 0.95), 0, 0.7, 0));
+  // A 1.75 m adult, in metres: ankle 0.08, knee 0.51, hip 0.94, shoulder 1.43, neck 1.5, head
+  // centre 1.64. Eyes sit at about 1.68, and the whole figure is scaled so that is the camera height.
+  const HIP = 0.94;
+  const THIGH = 0.43;
+  const SHIN = 0.43;
 
-  // legs: thigh and shin joined by a ball knee
+  // pelvis
+  body.add(at(blob(0.2 * bulk, 0.11, 0.125), 0, HIP + 0.02, 0));
+
+  // legs: thigh, knee, shin, ankle and a shoe-shaped foot
   const legs: { hip: THREE.Group; knee: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
-    const hip = group(side * 0.12 * bulk, 0.7, 0);
-    hip.add(ball(0.09));
-    hip.add(at(caps(0.09, 0.2), 0, -0.17, 0));
-    const knee = group(0, -0.34, 0);
-    knee.add(ball(0.075));
-    knee.add(at(caps(0.07, 0.2), 0, -0.17, 0));
-    const foot = group(0, -0.36, 0);
-    foot.add(at(ball(0.08, 1, 0.6, 1.7), 0, 0.0, -0.06));
-    knee.add(foot);
+    const hip = group(side * 0.1 * bulk, HIP, 0);
+    hip.add(at(blob(0.1, 0.1, 0.1), 0, 0, 0));
+    const thigh = caps(0.092, THIGH - 0.18);
+    thigh.scale.set(1, 1, 1.05);
+    hip.add(at(thigh, 0, -THIGH / 2, 0));
+    const knee = group(0, -THIGH, 0);
+    knee.add(at(blob(0.07, 0.07, 0.07), 0, 0, 0));
+    knee.add(at(caps(0.066, SHIN - 0.15), 0, -SHIN / 2, 0));
+    const ankle = group(0, -SHIN, 0);
+    ankle.add(at(blob(0.05, 0.05, 0.05), 0, 0, 0));
+    ankle.add(at(blob(0.058, 0.045, 0.13), 0, -0.04, -0.05)); // the foot, pointing forward (-z)
+    knee.add(ankle);
     hip.add(knee);
     body.add(hip);
     legs.push({ hip, knee });
   }
 
-  // torso group pivots at the hips so it can lean
-  const torsoG = group(0, 0.74, 0);
-  const chest = at(caps(0.2 * bulk, 0.3), 0, 0.32, 0);
-  chest.scale.set(1.1, 1, 0.8);
-  torsoG.add(chest);
-  torsoG.add(at(cyl(0.06, 0.08, 0.14, 8, armor), 0, 0.72, 0)); // neck
+  // torso group pivots at the hips so it can lean and twist
+  const torsoG = group(0, HIP, 0);
+  torsoG.add(at(blob(0.17 * bulk, 0.11, 0.115), 0, 0.15, 0)); // belly / waist
+  torsoG.add(at(blob(0.215 * bulk, 0.2, 0.135), 0, 0.34, 0)); // chest and ribcage
+  torsoG.add(at(blob(0.23 * bulk, 0.065, 0.115), 0, 0.46, 0)); // shoulder line
+  torsoG.add(at(cyl(0.052, 0.065, 0.1, 10, armor), 0, 0.56, 0)); // neck
 
-  // head: a smooth egg with no features
-  const head = group(0, 0.92, -0.02);
-  head.add(at(ball(0.2, 0.9, 1.1, 1), 0, 0.02, 0));
+  // head: a human-proportioned egg (about 15 cm wide, 23 cm tall) with a nose-and-chin hint of jaw
+  const head = group(0, 0.7, -0.005);
+  head.add(at(blob(0.088, 0.122, 0.105), 0, 0.0, 0));
+  head.add(at(blob(0.07, 0.055, 0.078), 0, -0.07, -0.015)); // jaw
   // the profile photo, if any, sits on the front of the face
-  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22), faceMat);
+  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.15), faceMat);
   screenPlane.rotation.y = Math.PI; // plane faces +z; the character faces -z
-  head.add(at(screenPlane, 0, 0.0, -0.185));
-  const crestTop = 0.2;
+  head.add(at(screenPlane, 0, 0.0, -0.093));
+  const crestTop = 0.13;
   const eyes: THREE.Group[] = [];
   torsoG.add(head);
 
-  // arms: shoulder, upper arm, ball elbow, forearm, round hand
+  // arms: shoulder, upper arm, elbow, forearm, wrist and a hand with a thumb
   const arms: { shoulder: THREE.Group; elbow: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
-    const shoulder = group(side * 0.3 * bulk, 0.56, 0);
-    shoulder.add(ball(0.085));
-    shoulder.add(at(caps(0.065, 0.18), 0, -0.15, 0));
-    const elbow = group(0, -0.3, 0);
-    elbow.add(ball(0.06));
-    elbow.add(at(caps(0.055, 0.17), 0, -0.14, 0));
-    elbow.add(at(ball(0.065), 0, -0.3, 0));
+    const shoulder = group(side * 0.25 * bulk, 0.47, 0);
+    shoulder.add(at(blob(0.068, 0.068, 0.068), 0, 0, 0));
+    shoulder.add(at(caps(0.055, 0.18), 0, -0.145, 0));
+    const elbow = group(0, -0.29, 0);
+    elbow.add(at(blob(0.048, 0.048, 0.048), 0, 0, 0));
+    elbow.add(at(caps(0.045, 0.17), 0, -0.13, 0));
+    const hand = group(0, -0.27, 0);
+    hand.add(at(blob(0.05, 0.09, 0.028), 0, -0.07, 0)); // palm and fingers
+    hand.add(at(blob(0.018, 0.045, 0.02), side * -0.045, -0.05, -0.015)); // thumb
+    elbow.add(hand);
     shoulder.add(elbow);
     torsoG.add(shoulder);
     arms.push({ shoulder, elbow });
@@ -557,7 +571,7 @@ function makeCharacter(id: string): Character {
   const tail = group(0, 0.72, 0.2); // (kept so the animation code below has nothing to special-case)
 
   // Normalise so the head sits at eye height whatever the proportions, so the camera always matches.
-  const headY = 0.74 + 0.92;
+  const headY = HIP + 0.7 + 0.04; // eye height of the unscaled figure
   const s = 1.62 / headY;
   const root = new THREE.Group();
   body.scale.setScalar(s);
@@ -612,7 +626,11 @@ function makeCharacter(id: string): Character {
     }
     const kind = look && look.h >= 0 && look.h < HATS.length ? look.h : 0;
     hat = makeHat(kind);
-    if (hat) head.add(hat);
+    if (hat) {
+      hat.scale.setScalar(0.62); // the hats are modelled for a bigger head
+      hat.position.y = -0.09;
+      head.add(hat);
+    }
   };
 
   // ----- face photo -----
