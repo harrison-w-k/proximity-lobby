@@ -33,7 +33,7 @@
     [hidden] { display: none !important; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--white);
       font-family: var(--font-body); font-size: 21px; line-height: 1.2; user-select: none; }
-    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
     button, select { font: inherit; color: inherit; }
     button { cursor: pointer; }
     button:disabled { opacity: .5; cursor: default; }
@@ -325,6 +325,16 @@
             </div>
             <input id="fov" type="range" min="60" max="110" step="1" value="75" aria-label="Field of view" />
           </div>
+          <div class="setting">
+            <div class="setting-head">
+              <div>
+                <div class="setting-title">Render resolution</div>
+                <p class="setting-desc">Lower is chunkier and retro; the top setting is your screen's full resolution.</p>
+              </div>
+              <div class="setting-val" id="res-val">480p</div>
+            </div>
+            <input id="res" type="range" min="240" max="1080" step="120" value="480" aria-label="Render resolution" />
+          </div>
         </section>
 
         <section class="pane" data-pane="audio" hidden>
@@ -399,10 +409,10 @@
             <div class="bind"><span>Crouch</span><span class="keys"><span class="key">C</span></span></div>
             <div class="bind"><span>Slide: while sprinting, then</span><span class="keys"><span class="key">C</span></span></div>
             <div class="bind"><span>Vault or climb: press jump next to a wall</span><span class="keys"><span class="key">Space</span></span></div>
-            <div class="bind"><span>Grab a ledge: jump at a high wall, then pull up</span><span class="keys"><span class="key">Space</span></span></div>
+            <div class="bind"><span>Grab a ledge: hold in the air near a wall, then Space or W to pull up</span><span class="keys"><span class="key">E</span></span></div>
             <div class="bind"><span>Let go of a ledge</span><span class="keys"><span class="key">C</span><span class="key">S</span></span></div>
             <div class="bind"><span>Look around</span><span class="keys"><span class="key">Mouse</span></span></div>
-            <div class="bind"><span>Camera: first person, behind you, in front</span><span class="keys"><span class="key">T</span></span></div>
+            <div class="bind"><span>Camera: over the shoulder, in front, first person</span><span class="keys"><span class="key">T</span></span></div>
           </div>
           <h3 class="group-title" style="margin-top:22px">Social</h3>
           <div class="binds">

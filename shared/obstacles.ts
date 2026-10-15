@@ -69,24 +69,44 @@ const YARD: Block[] = [
   b('pillar', -15.5, 16.5, 0.8, 0.8, 3),
 ];
 
-/** Parkour course (east side). Runs steps -> gap jumps -> grab the wall -> plank -> goal tower. */
+/**
+ * The obby (east and north). It gets harder as it climbs:
+ *   1. warm-up steps
+ *   2. hop platforms about 1 m square: a 3 m gap, then two sprint jumps of 4.6 and 5.2 m
+ *   3. a 4.6 m wall, 2 m above the last platform: hold E in the air to catch the ledge, pull up
+ *   4. a long plank high above the ground
+ *   5. four pillars, 0.7 m wide and about 4 m apart, a step higher each time: sprint jumps that
+ *      you have to time to land on something the size of a doormat
+ *   6. a tower of three tall walls: grab, pull up, jump, grab, pull up...
+ *   7. the goal, almost 12 m up
+ * Falling just means walking back to the start; there is no penalty.
+ */
 const COURSE: Block[] = [
   // 1. warm-up steps, getting higher
   b('step', 7.5, -7, 3, 3, 0.3),
   b('step', 11, -7, 2, 2, 0.6),
   b('step', 14, -7, 2, 2, 1.0),
   b('step', 17, -7, 2, 2, 1.4),
-  // 2. gap jumps (about 2.5 m between edges: easy at a sprint, tight at a walk)
-  b('platform', 20, -10, 2, 2, 1.4),
-  b('platform', 19.5, -14.2, 2, 2, 1.4),
-  // 3. wall to grab and mantle: its top is 1.6 m above the platform, more than a jump reaches,
-  //    so you must catch the ledge and pull yourself up
-  b('wall', 19.5, -17.8, 3, 1.2, 3.0),
-  // 4. a narrow plank across the top of it, leading to the tower
-  b('platform', 14, -17.8, 8, 0.7, 2.4),
-  // 5. goal tower: needs one more mantle from the plank
-  b('goal', 8.5, -17, 2.6, 2.6, 3.4),
-  // optional: a slide-under beam on the ground between the steps and the wall
+  // 2. hop platforms: 1.0 / 0.9 / 0.9 m squares, with gaps of 3, 4.6 and 5.2 m
+  b('platform', 21.5, -9, 1.0, 1.0, 1.8),
+  b('platform', 23.6, -14, 0.9, 0.9, 2.2),
+  b('platform', 18, -17.2, 0.9, 0.9, 2.6),
+  // 3. the 4.6 m wall: its top is 2.0 m above the last platform, so you must grab it
+  b('wall', 17, -21.2, 3, 1.2, 4.6),
+  // 4. a long plank across the top of it
+  b('platform', 10.5, -21.2, 9, 0.6, 4.6),
+  // 5. narrow pillars, 0.7 m wide, about 4.7 m apart and half a metre higher each time: you must
+  //    be at a full sprint, and time the jump to within a step
+  b('pillar', 1.0, -19.5, 0.7, 0.7, 5.1),
+  b('pillar', -3.7, -17.2, 0.7, 0.7, 5.6),
+  b('pillar', -8.4, -14.9, 0.7, 0.7, 6.1),
+  b('pillar', -13.1, -12.6, 0.7, 0.7, 6.6),
+  // 6. the grab tower: each wall top is 1.8 m above the one you stand on
+  b('wall', -18.5, -10.5, 3, 1.2, 8.4),
+  b('wall', -22.5, -9, 3, 1.2, 10.2),
+  // 7. the goal tower, at the top
+  b('goal', -26, -9.5, 2.6, 2.6, 12.0),
+  // optional: a slide-under beam on the ground between the steps and the first hop platform
   b('pillar', 10, -12, 0.6, 0.6, 1.6),
   b('pillar', 15, -12, 0.6, 0.6, 1.6),
   b('beam', 12.5, -12, 4.4, 0.5, 0.5, 0.85),
@@ -95,4 +115,4 @@ const COURSE: Block[] = [
 export const OBSTACLES: Block[] = [...YARD, ...COURSE];
 
 /** A short description of the course, in order, for the in-game sign and for tests. */
-export const COURSE_ORDER = COURSE.slice(0, 9);
+export const COURSE_ORDER = COURSE.slice(0, 16);

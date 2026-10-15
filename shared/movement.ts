@@ -15,9 +15,14 @@ export const SPRINT_SPEED = 9;
 export const CROUCH_SPEED = 2.5;
 export const GRAVITY = 22; // m/s^2
 export const JUMP_SPEED = 7.5; // m/s => about 1.3 m
-const GROUND_ACCEL = 10;
-const GROUND_DECEL = 14;
-const AIR_ACCEL = 2.5;
+const GROUND_ACCEL = 13; // snappy: you reach full speed in about a quarter of a second
+const GROUND_DECEL = 17; // ...and stop just as quickly, with a small slide
+const AIR_ACCEL = 4.5; // real air control, so you can correct a jump
+
+// "Game feel" forgiveness
+const COYOTE_TIME = 0.12; // you can still jump this long after running off an edge
+const JUMP_BUFFER = 0.14; // a jump pressed this early before landing still counts
+const JUMP_CUT = 0.5; // letting go of jump early cuts the rise: tap = hop, hold = full jump
 
 // Body heights used for collision
 const STAND_H = 1.8;
@@ -33,12 +38,14 @@ const SLIDE_END_SPEED = 3.0;
 const SLIDE_MAX_TIME = 1.2;
 
 // Ledges
-const GRAB_MIN = 0.7; // a ledge must be at least this far above your feet to be worth hanging from
+const GRAB_MIN = 0.6; // a ledge must be at least this far above your feet to be worth hanging from
 const GRAB_MAX = STAND_H + 0.25; // ...and no higher than your hands can reach
 const VAULT_MIN = STEP;
-const VAULT_MAX = 1.5; // from the ground, a jump press mantles anything up to this
+const VAULT_MAX = 1.5; // from the ground, jump / grab next to a wall mantles anything up to this
 const HANG_DROP = 1.75; // feet hang this far below the ledge, so the hands are on it
-const MANTLE_TIME = 0.4;
+const GRAB_ENTER = 0.16; // seconds to ease from where you were into the hang
+const PULL_UP_HOLD = 0.45; // hold forward this long to pull up without pressing jump
+const MANTLE_TIME = 0.5;
 const VAULT_TIME = 0.3;
 
 export interface Mantle {
@@ -70,9 +77,18 @@ export interface Sim {
   hangTop: number;
   hangX: number; // the block we are hanging from (its centre), for the mantle target
   hangZ: number;
+  hangFromX: number; // where the catch started, so we can ease into the hang
+  hangFromY: number;
+  hangFromZ: number;
+  hangToX: number;
+  hangToZ: number;
   grabCooldown: number;
   mantle: Mantle | null;
   onGround: boolean;
+  coyote: number; // seconds of "still counts as grounded" left
+  jumpBuffer: number; // seconds a pressed jump stays queued
+  jumpCut: boolean;
+  landImpact: number; // downward speed of the last hard landing, for the camera and sound; the reader resets it
 }
 
 export interface Input {
@@ -84,6 +100,8 @@ export interface Input {
   crouch: boolean; // held
   crouchPressed: boolean; // went down this frame
   sprint: boolean; // held
+  grab: boolean; // held: the intentional "catch the ledge" button
+  grabPressed: boolean; // went down this frame
 }
 
 export const noInput = (yaw = 0): Input => ({
@@ -95,6 +113,8 @@ export const noInput = (yaw = 0): Input => ({
   crouch: false,
   crouchPressed: false,
   sprint: false,
+  grab: false,
+  grabPressed: false,
 });
 
 export function newSim(x = 0, z = 0): Sim {
@@ -116,14 +136,29 @@ export function newSim(x = 0, z = 0): Sim {
     hangTop: 0,
     hangX: 0,
     hangZ: 0,
+    hangFromX: 0,
+    hangFromY: 0,
+    hangFromZ: 0,
+    hangToX: 0,
+    hangToZ: 0,
     grabCooldown: 0,
     mantle: null,
     onGround: true,
+    coyote: 0,
+    jumpBuffer: 0,
+    jumpCut: false,
+    landImpact: 0,
   };
 }
 
 const bodyHeight = (p: Sim) => (p.sliding ? SLIDE_H : p.crouching ? CROUCH_H : STAND_H);
 const horizSpeed = (p: Sim) => Math.hypot(p.vx, p.vz);
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const smooth = (v: number) => {
+  const t = clamp01(v);
+  return t * t * (3 - 2 * t);
+};
+const easeOut = (v: number) => 1 - (1 - clamp01(v)) ** 3;
 
 /** Highest block top you could be standing on at (x, z), given where your feet are. */
 function supportTop(blocks: Block[], x: number, z: number, feet: number): number {
@@ -243,46 +278,53 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   const k1 = 1 - Math.exp(-14 * dt);
   p.grabCooldown = Math.max(0, p.grabCooldown - dt);
 
-  // ---- mid-mantle: a short scripted climb ----
+  // ---- mid-mantle: a scripted climb. The hands push up first, then the body rolls over the edge ----
   if (p.mantle) {
     const m = p.mantle;
     m.t += dt;
     const k = Math.min(1, m.t / m.dur);
-    const e = k * k * (3 - 2 * k);
-    p.x = m.x0 + (m.x1 - m.x0) * e;
-    p.z = m.z0 + (m.z1 - m.z0) * e;
-    // rise first, then slide over: the hands push up, the body follows
-    p.y = m.y0 + (m.y1 - m.y0) * Math.min(1, e * 1.35);
+    p.y = m.y0 + (m.y1 - m.y0) * easeOut(k / 0.7);
+    const over = smooth((k - 0.3) / 0.7);
+    p.x = m.x0 + (m.x1 - m.x0) * over;
+    p.z = m.z0 + (m.z1 - m.z0) * over;
     p.eye += (EYE_STAND - p.eye) * k1;
     if (k >= 1) {
       p.mantle = null;
       p.onGround = true;
       p.vx = p.vy = p.vz = 0;
+      p.coyote = COYOTE_TIME;
     }
     return { sentHome: false };
   }
 
-  // ---- hanging from a ledge ----
+  // ---- hanging from a ledge: held while the grab button is held ----
   if (p.hanging) {
     p.hangTime += dt;
     p.vx = p.vy = p.vz = 0;
-    p.y = p.hangTop - HANG_DROP;
+    // ease from where the catch happened into the hang pose, instead of snapping
+    const e = easeOut(p.hangTime / GRAB_ENTER);
+    p.x = p.hangFromX + (p.hangToX - p.hangFromX) * e;
+    p.z = p.hangFromZ + (p.hangToZ - p.hangFromZ) * e;
+    p.y = p.hangFromY + (p.hangTop - HANG_DROP - p.hangFromY) * e;
     p.eye += (EYE_STAND - p.eye) * k1;
-    const climb = inp.jumpPressed || (inp.jump && p.hangTime > 0.3);
+
+    const settled = p.hangTime > 0.1;
+    const climb = settled && (inp.jumpPressed || (inp.f > 0.5 && p.hangTime > PULL_UP_HOLD));
+    const letGo = (settled && !inp.grab) || inp.crouchPressed || inp.f < -0.5;
     if (climb) {
       const target = blocks.find((k) => k.x === p.hangX && k.z === p.hangZ && blockTop(k) === p.hangTop);
       if (target) startMantle(p, target, p.hangNx, p.hangNz, MANTLE_TIME);
       else p.hanging = false;
-    } else if (inp.crouchPressed || inp.f < -0.5) {
-      p.hanging = false; // let go
-      p.vx = p.hangNx * 2;
-      p.vz = p.hangNz * 2;
-      p.grabCooldown = 0.35;
+    } else if (letGo) {
+      p.hanging = false;
+      p.vx = p.hangNx * 1.5; // a small push off the wall
+      p.vz = p.hangNz * 1.5;
+      p.grabCooldown = 0.3;
     }
     return { sentHome: false };
   }
 
-  // ---- wish direction ----
+  // ---- wish direction (and the facing direction, for grabs without a move key) ----
   const sin = Math.sin(inp.yaw);
   const cos = Math.cos(inp.yaw);
   let f = inp.f;
@@ -297,11 +339,20 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     wx = -sin * f + cos * s;
     wz = -cos * f - sin * s;
   }
+  const aimX = wantsMove ? wx : -sin;
+  const aimZ = wantsMove ? wz : -cos;
 
   const supp = supportTop(blocks, p.x, p.z, p.y);
   const ground = Math.max(waterGround, supp);
   const grounded = p.y <= ground + 1e-3 && p.vy <= 0;
   p.onGround = grounded;
+  if (grounded) {
+    p.coyote = COYOTE_TIME;
+    p.jumpCut = false;
+  } else {
+    p.coyote = Math.max(0, p.coyote - dt);
+  }
+  p.jumpBuffer = inp.jumpPressed ? JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
 
   // ---- crouch / slide state ----
   if (grounded && !p.sliding && inp.crouchPressed && inp.sprint && wantsMove && horizSpeed(p) >= SLIDE_MIN_SPEED) {
@@ -353,33 +404,38 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     p.vz += (wz * speed - p.vz) * a;
   }
 
-  // ---- vault / climb from the ground, or jump ----
-  let startedMantle = false;
-  if (grounded && inp.jumpPressed) {
-    let dirx = wx;
-    let dirz = wz;
+  // ---- vault / climb from the ground (jump or grab, next to a wall that is not jumpable) ----
+  if (grounded && (inp.jumpPressed || inp.grabPressed)) {
+    let dirx = aimX;
+    let dirz = aimZ;
     if (!wantsMove && horizSpeed(p) > 0.5) {
       dirx = p.vx / horizSpeed(p);
       dirz = p.vz / horizSpeed(p);
-    } else if (!wantsMove) {
-      dirx = -sin; // facing direction
-      dirz = -cos;
     }
     const w = wallAhead(blocks, p.x, p.z, dirx, dirz, p.y, STAND_H);
     if (w) {
       const rise = blockTop(w.block) - p.y;
       if (rise > VAULT_MIN && rise <= VAULT_MAX) {
         startMantle(p, w.block, w.nx, w.nz, VAULT_TIME + 0.08 * rise);
-        startedMantle = true;
+        p.jumpBuffer = 0;
+        return { sentHome: false };
       }
     }
   }
-  if (startedMantle) return { sentHome: false };
 
-  if (grounded && (inp.jump || inp.jumpPressed)) {
+  // ---- jump: buffered, with coyote time, variable height ----
+  const wantJump = p.jumpBuffer > 0 || (grounded && inp.jump); // holding jump keeps hopping
+  if (wantJump && (grounded || p.coyote > 0)) {
     p.vy = JUMP_SPEED * (1 - 0.35 * depth);
+    p.coyote = 0;
+    p.jumpBuffer = 0;
+    p.jumpCut = false;
     if (p.sliding) p.sliding = false; // a slide-jump keeps all its speed
     p.crouching = false;
+  }
+  if (!inp.jump && p.vy > 3 && !p.jumpCut && !p.onGround) {
+    p.vy *= JUMP_CUT; // let go early: a shorter hop
+    p.jumpCut = true;
   }
 
   // ---- integrate horizontally, with collision ----
@@ -397,6 +453,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   const supp2 = supportTop(blocks, p.x, p.z, p.y);
   const depth2 = waterDepth(p.x, p.z);
   const ground2 = Math.max(-WADE_DEPTH * depth2, supp2);
+  const vyBefore = p.vy;
   p.vy -= GRAVITY * dt;
   p.y += p.vy * dt;
   // hit your head on the underside of something
@@ -411,6 +468,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     }
   }
   if (p.y <= ground2) {
+    if (!grounded && vyBefore < -3) p.landImpact = Math.max(p.landImpact, -vyBefore);
     p.y = ground2;
     p.vy = 0;
     p.onGround = true;
@@ -418,12 +476,12 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     p.onGround = false;
   }
 
-  // ---- ledge grab (airborne, moving into a wall whose top is within reach) ----
-  if (!p.onGround && p.grabCooldown <= 0 && wantsMove) {
-    const w = wallAhead(blocks, p.x, p.z, wx, wz, p.y, STAND_H);
+  // ---- ledge grab: airborne, grab button held, a wall in front whose top is within reach ----
+  if (!p.onGround && inp.grab && p.grabCooldown <= 0) {
+    const w = wallAhead(blocks, p.x, p.z, aimX, aimZ, p.y, STAND_H);
     if (w) {
       const rise = blockTop(w.block) - p.y;
-      if (rise >= GRAB_MIN && rise <= GRAB_MAX && p.vy <= 4) {
+      if (rise >= GRAB_MIN && rise <= GRAB_MAX) {
         p.hanging = true;
         p.hangTime = 0;
         p.hangNx = w.nx;
@@ -431,12 +489,15 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
         p.hangTop = blockTop(w.block);
         p.hangX = w.block.x;
         p.hangZ = w.block.z;
-        p.x = w.cx + w.nx * (BODY_RADIUS + 0.03);
-        p.z = w.cz + w.nz * (BODY_RADIUS + 0.03);
-        p.y = p.hangTop - HANG_DROP;
+        p.hangFromX = p.x;
+        p.hangFromY = p.y;
+        p.hangFromZ = p.z;
+        p.hangToX = w.cx + w.nx * (BODY_RADIUS + 0.03);
+        p.hangToZ = w.cz + w.nz * (BODY_RADIUS + 0.03);
         p.vx = p.vy = p.vz = 0;
         p.sliding = false;
         p.crouching = false;
+        p.jumpBuffer = 0;
       }
     }
   }

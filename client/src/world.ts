@@ -5,6 +5,7 @@ import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } fr
 import { OBSTACLES, blockTop, type Block } from '../../shared/obstacles';
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
+import * as T from './textures';
 
 export const EYE_HEIGHT = EYE_STAND;
 
@@ -18,14 +19,19 @@ export type SoundEvent =
   | { kind: 'grab' }
   | { kind: 'mantle' }
   | { kind: 'splash'; strength: number };
-export const DEFAULT_FOV = 75;
-const THIRD_DISTANCE = 3.6; // metres behind the head in third person
-const THIRD_LIFT = 0.3; // and a little above, so you see over your own shoulders
 
-// ---------- look: low poly ----------
-// Everything is built from a small number of flat-shaded polygons: faceted spheres, cones and
-// boxes in clean colours, lit by one sun. It renders at full resolution with antialiasing so the
-// facets read as crisp, deliberate shapes rather than as blur or pixels.
+export const DEFAULT_FOV = 75;
+export const DEFAULT_RENDER_HEIGHT = 480;
+
+// Over-the-shoulder camera
+const SHOULDER_DISTANCE = 3.0; // metres behind the head
+const SHOULDER_OFFSET = 0.62; // and to the right of it, so the character sits left of the crosshair
+const SHOULDER_LIFT = 0.35; // and a little above
+
+// ---------- look: low poly + low-res textures ----------
+// Faceted, flat-shaded models wearing small hand-drawn textures with hard texels, drawn at a reduced
+// internal resolution and scaled up with no smoothing. Chunky and a bit gritty, in the manner of
+// late-90s 3D, without noise or dithering.
 const SEA_LEVEL = -0.35;
 const WATER_CELLS = 72; // the animated sea is a 72 x 72 grid of flat triangles...
 const WATER_SIZE = 360; // ...covering 360 m, with a plain disc of the same colour beyond it
@@ -58,23 +64,49 @@ function seeded(seed: number) {
 const flat = (color: number, extra: Partial<THREE.MeshLambertMaterialParameters> = {}) =>
   new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
 
-/** A 2x2 checker tile; the floor repeats it so every square is 3 m. Clean, filtered, antialiased. */
-function makeCheckerTexture(maxAniso: number): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#9bdc6e';
-  g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#7cc352';
-  g.fillRect(0, 0, 64, 64);
-  g.fillRect(64, 64, 64, 64);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set((MAP_RADIUS * 2) / 6, (MAP_RADIUS * 2) / 6);
-  tex.anisotropy = maxAniso;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+const textured = (map: THREE.Texture, color = 0xffffff, extra: Partial<THREE.MeshLambertMaterialParameters> = {}) =>
+  new THREE.MeshLambertMaterial({ map, color, flatShading: true, ...extra });
+
+/** The textures are built once, the first time the world needs them. */
+let texCache: {
+  grass: THREE.Texture;
+  sand: THREE.Texture;
+  concrete: THREE.Texture;
+  crate: THREE.Texture;
+  hazard: THREE.Texture;
+  orangeMetal: THREE.Texture;
+  barrier: THREE.Texture;
+  goal: THREE.Texture;
+  steel: THREE.Texture;
+  rock: THREE.Texture;
+  bark: THREE.Texture;
+  leaf: THREE.Texture;
+  glints: THREE.Texture;
+  armor: THREE.Texture;
+  dark: THREE.Texture;
+} | null = null;
+const tex = () => {
+  if (!texCache) {
+    texCache = {
+      grass: T.grassTile(),
+      sand: T.sand(),
+      concrete: T.concrete(),
+      crate: T.crate(),
+      hazard: T.hazard(),
+      orangeMetal: T.orangeMetal(),
+      barrier: T.barrier(),
+      goal: T.goalPanel(),
+      steel: T.steel(),
+      rock: T.rock(),
+      bark: T.bark(),
+      leaf: T.leaf(),
+      glints: T.waterGlints(),
+      armor: T.armor(),
+      dark: T.darkMetal(),
+    };
+  }
+  return texCache;
+};
 
 function makeNameSprite(name: string): THREE.Sprite {
   const c = document.createElement('canvas');
@@ -82,9 +114,7 @@ function makeNameSprite(name: string): THREE.Sprite {
   c.height = 64;
   const g = c.getContext('2d')!;
   g.fillStyle = 'rgba(8,16,40,0.7)';
-  g.beginPath();
-  g.roundRect(4, 8, 248, 48, 10);
-  g.fill();
+  g.fillRect(4, 8, 248, 48);
   g.fillStyle = '#fff';
   g.font = '700 30px system-ui, sans-serif';
   g.textAlign = 'center';
@@ -145,7 +175,7 @@ function makeSun(): THREE.Group {
 function makeClouds(): THREE.Group {
   const rnd = seeded(5);
   const root = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9db2cc, flatShading: true, fog: false }); // emissive lifts the shaded sides: clouds should look bright
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9db2cc, flatShading: true, fog: false });
   for (let i = 0; i < 11; i++) {
     const cloud = new THREE.Group();
     const blobs = 4 + Math.floor(rnd() * 3);
@@ -193,10 +223,10 @@ interface Water {
 /**
  * Low-poly sea: a grid of flat triangles whose heights follow three crossing swells. Each face
  * keeps its own colour (turquoise in the shallows, deep blue far out, a little random tint per
- * facet), so the surface shimmers in facets; the sun glints off the tilted faces; foam pulses
- * where the sea meets the beach.
+ * facet) and the whole thing wears a tiny ripple texture; the sun glints off the tilted faces and
+ * foam pulses where the sea meets the beach.
  */
-function makeWater(scene: THREE.Scene): Water {
+function makeWater(scene: THREE.Scene, glints: THREE.Texture): Water {
   const n = WATER_CELLS;
   const cell = WATER_SIZE / n;
   const half = WATER_SIZE / 2;
@@ -205,10 +235,12 @@ function makeWater(scene: THREE.Scene): Water {
   const vertCount = n * n * 6;
   const pos = new Float32Array(vertCount * 3);
   const col = new Float32Array(vertCount * 3);
+  const uv = new Float32Array(vertCount * 2);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vertCount * 3), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
   const shallow = new THREE.Color(0x4fe3d0);
   const mid = new THREE.Color(0x2b9ae8);
@@ -216,10 +248,24 @@ function makeWater(scene: THREE.Scene): Water {
   const foam = new THREE.Color(0xffffff);
   const tmp = new THREE.Color();
 
-  // per-face base colour, and the faces that foam
+  // per-face base colour, texture coordinates, and the faces that foam
   const foamFaces: { first: number; phase: number; base: THREE.Color }[] = [];
+  const texScale = 1 / 14; // one texture repeat covers 14 m of sea
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
+      const corners = [
+        [i, j],
+        [i, j + 1],
+        [i + 1, j],
+        [i + 1, j],
+        [i, j + 1],
+        [i + 1, j + 1],
+      ];
+      corners.forEach(([ci, cj], v) => {
+        const idx = (j * n + i) * 6 + v;
+        uv[idx * 2] = (ci * cell - half) * texScale;
+        uv[idx * 2 + 1] = (cj * cell - half) * texScale;
+      });
       for (let tri = 0; tri < 2; tri++) {
         const first = (j * n + i) * 6 + tri * 3;
         const cx = (i + (tri === 0 ? 0.33 : 0.67)) * cell - half;
@@ -228,8 +274,7 @@ function makeWater(scene: THREE.Scene): Water {
         const t = Math.min(1, Math.max(0, (r - SHORE_RADIUS) / 60));
         tmp.copy(shallow).lerp(mid, Math.min(1, t * 2.2));
         if (t > 0.45) tmp.lerp(deep, Math.min(1, (t - 0.45) / 0.55));
-        const tint = (rnd() - 0.5) * 0.09; // a little random brightness per facet
-        tmp.offsetHSL(0, 0, tint);
+        tmp.offsetHSL(0, 0, (rnd() - 0.5) * 0.09); // a little random brightness per facet
         const base = tmp.clone();
         for (let v = 0; v < 3; v++) {
           col[(first + v) * 3] = base.r;
@@ -242,6 +287,7 @@ function makeWater(scene: THREE.Scene): Water {
   }
 
   const mat = new THREE.MeshPhongMaterial({
+    map: glints,
     vertexColors: true,
     flatShading: true,
     shininess: 70,
@@ -271,9 +317,7 @@ function makeWater(scene: THREE.Scene): Water {
     update(t: number) {
       for (let j = 0; j <= n; j++) {
         for (let i = 0; i <= n; i++) {
-          const x = i * cell - half;
-          const z = j * cell - half;
-          heights[j * stride + i] = wave(x, z, t);
+          heights[j * stride + i] = wave(i * cell - half, j * cell - half, t);
         }
       }
       let p = 0;
@@ -295,6 +339,9 @@ function makeWater(scene: THREE.Scene): Water {
       }
       geo.attributes.position.needsUpdate = true;
       geo.computeVertexNormals(); // non-indexed, so every triangle gets its own flat normal
+
+      // the ripples drift slowly across the surface
+      glints.offset.set((t * 0.011) % 1, (t * 0.0065) % 1);
 
       // shore foam pulses in and out
       for (const f of foamFaces) {
@@ -348,10 +395,8 @@ class Ripples {
 }
 
 // ---------- props ----------
-function makePalm(rnd: () => number): THREE.Group {
+function makePalm(rnd: () => number, trunkMat: THREE.Material, leafMat: THREE.Material): THREE.Group {
   const palm = new THREE.Group();
-  const trunkMat = flat(0x9a7448);
-  const leafMat = flat(0x35a653, { side: THREE.DoubleSide });
   const nutMat = flat(0x6b4a2a);
   const height = 4 + rnd() * 1.6;
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.22, height, 5), trunkMat);
@@ -381,155 +426,232 @@ function makePalm(rnd: () => number): THREE.Group {
   return palm;
 }
 
-// ---------- the character ----------
-// One chunky, faceted character in the N64 mould: a big round head, a small round body, short
-// stubby limbs, white gloves and big shoes. It is used for every other player AND for your own
-// body, so what you see when you look down is the character everyone else sees walking around.
-// The build, hat, colours and features are rolled from the player's id.
+// ---------- the character: a mecha chameleon ----------
+// A robotic chameleon on two legs: a sleek armoured body in the player's colour (which slowly
+// shifts, like camouflage), a long snout with a screen for a face (your photo goes here), eyes on
+// independent swivelling turrets, clawed two-and-two hands and feet, a casque crest and a tightly
+// curled tail. The build, crest, tail and glow colour come from the player's id. It is used for
+// every other player AND for your own body, so what you see looking down is the same machine
+// everyone else sees. It is animated procedurally: walk and run cycles, a crouch, a slide lean,
+// a jump tuck, a ledge hang and a climb.
+
+/** What the body is doing, so it can pose itself. */
+interface AnimState {
+  speed: number; // horizontal speed, m/s
+  grounded: boolean;
+  vy: number;
+  crouch: boolean;
+  sliding: boolean;
+  hanging: boolean;
+  mantle: boolean;
+}
+
 interface Character {
   group: THREE.Group;
   head: THREE.Group; // hidden in first person so it can't block the view
-  shirt: THREE.MeshLambertMaterial;
+  shirt: THREE.MeshLambertMaterial; // the armour: its emissive lights up when the player speaks
   setHue(h: number): void;
   /** Height of the very top of this body (m), so a name tag can float above it. */
   height: number;
-  /** Put a (validated) data-URL photo on the front of the face, or null to go back to the plain face. */
+  /** Put a (validated) data-URL photo on the face screen, or null to go back to the default eyes. */
   setFace(url: string | null): void;
+  /** Pose the body for this frame. `t` is the shared clock in seconds. */
+  animate(a: AnimState, dt: number, t: number): void;
 }
 
-const SKIN_TONES = [0xf6dcc0, 0xf0c49a, 0xd9a273, 0xa8683f, 0x6b4129];
+const GLOW_COLORS = [0x3df2ff, 0xb6ff3c, 0xff4fd8, 0xffc23c, 0xff6a3d];
+const screenCache = new Map<string, THREE.CanvasTexture>();
+const screenFor = (glowHex: number) => {
+  const css = `#${glowHex.toString(16).padStart(6, '0')}`;
+  let t = screenCache.get(css);
+  if (!t) {
+    t = T.screenFace(css);
+    screenCache.set(css, t);
+  }
+  return t;
+};
 
 function makeCharacter(id: string): Character {
+  const textures = tex();
   const hue = hueFor(id);
   const r = seeded(hashId(id) ^ 0x9e3779b9);
-  const shirtColor = new THREE.Color().setHSL(hue / 360, 0.72, 0.5);
-  const accentColor = new THREE.Color().setHSL(((hue + 150) % 360) / 360, 0.8, 0.55);
-  const pantsColor = new THREE.Color().setHSL(((hue + 210) % 360) / 360, 0.5, 0.32);
+  const phase0 = r() * 6.28;
+  const glowHex = GLOW_COLORS[Math.floor(r() * GLOW_COLORS.length)];
+  const crestKind = Math.floor(r() * 4);
+  const tailSegs = 7 + Math.floor(r() * 3);
+  const eyeScale = 0.9 + r() * 0.3;
+  const bulk = 0.92 + r() * 0.22;
 
-  const shirt = new THREE.MeshLambertMaterial({ color: shirtColor, emissive: shirtColor, emissiveIntensity: 0, flatShading: true });
-  const accent = flat(accentColor.getHex());
-  const pants = flat(pantsColor.getHex());
-  const skin = flat(SKIN_TONES[Math.floor(r() * SKIN_TONES.length)]);
-  const glove = flat(r() < 0.7 ? 0xffffff : accentColor.getHex());
-  const shoe = flat(r() < 0.6 ? 0x6b4423 : accentColor.clone().multiplyScalar(0.6).getHex());
-  const hairMat = flat(0x2b1d14 + Math.floor(r() * 0x302010));
-  const black = flat(0x101018);
-  const white = flat(0xffffff);
-  const nose = flat(0xe89a8a);
+  const shirtColor = new THREE.Color().setHSL(hue / 360, 0.62, 0.5);
+  const accentColor = new THREE.Color().setHSL(((hue + 170) % 360) / 360, 0.7, 0.55);
+  const armor = new THREE.MeshLambertMaterial({
+    map: textures.armor,
+    color: shirtColor,
+    emissive: shirtColor,
+    emissiveIntensity: 0,
+    flatShading: true,
+  });
+  const trim = textured(textures.armor, accentColor.getHex());
+  const dark = textured(textures.dark);
+  const glow = new THREE.MeshBasicMaterial({ color: glowHex });
+  const defaultScreen = screenFor(glowHex);
+  const faceMat = new THREE.MeshBasicMaterial({ map: defaultScreen });
 
-  // proportions, all rolled from the id
-  const hs = 0.95 + r() * 0.25; // head size
-  const bodyH = 0.9 + r() * 0.25;
-  const bodyW = 0.92 + r() * 0.3;
-  const legLen = 0.9 + r() * 0.3;
-  const hat = Math.floor(r() * 5); // 0 cap, 1 beanie, 2 antenna, 3 ears, 4 crown
-  const overalls = r() < 0.55;
-  const mustache = r() < 0.4;
-  const hasTail = r() < 0.3;
-
-  const ico = (radius: number, detail = 1) => new THREE.IcosahedronGeometry(radius, detail);
-  const place = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number) => {
+  const cyl = (rt: number, rb: number, h: number, seg: number, m: THREE.Material) =>
+    new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m);
+  const ico = (rad: number, m: THREE.Material, detail = 0) => new THREE.Mesh(new THREE.IcosahedronGeometry(rad, detail), m);
+  const box = (w: number, h: number, d: number, m: THREE.Material) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const cone = (rad: number, h: number, seg: number, m: THREE.Material) => new THREE.Mesh(new THREE.ConeGeometry(rad, h, seg), m);
+  const at = <O extends THREE.Object3D>(o: O, x: number, y: number, z: number) => {
     o.position.set(x, y, z);
     return o;
   };
-  const ball = (radius: number, m: THREE.Material, sx = 1, sy = 1, sz = 1, detail = 1) => {
-    const mesh = new THREE.Mesh(ico(radius, detail), m);
-    mesh.scale.set(sx, sy, sz);
-    return mesh;
-  };
+  const group = (x = 0, y = 0, z = 0) => at(new THREE.Group(), x, y, z);
 
   const body = new THREE.Group();
 
-  // legs and big shoes
-  const legTop = 0.18 + 0.3 * legLen;
+  // pelvis
+  const pelvis = ico(0.2, dark);
+  pelvis.scale.set(1.1 * bulk, 0.8, 1.2);
+  body.add(at(pelvis, 0, 0.7, 0));
+
+  // legs: thigh, a backward-bending knee, a long shin, and a foot with two toes forward, two back
+  const legs: { hip: THREE.Group; knee: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.3 * legLen, 6), pants);
-    body.add(place(leg, side * 0.14, 0.18 + (0.3 * legLen) / 2, 0));
-    body.add(place(ball(0.15, shoe, 1.0, 0.7, 1.5), side * 0.15, 0.1, -0.06));
-  }
-  if (hasTail) {
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.4, 4), accent);
-    tail.rotation.x = Math.PI / 2 + 0.5;
-    body.add(place(tail, 0, legTop + 0.05, 0.3));
-  }
-
-  // round torso, with an optional pair of overalls
-  const torsoY = legTop + 0.28 * bodyH;
-  body.add(place(ball(0.3, shirt, bodyW, bodyH * 1.05, 0.85), 0, torsoY, 0));
-  if (overalls) body.add(place(ball(0.285, pants, bodyW * 1.02, bodyH * 0.62, 0.88), 0, torsoY - 0.12 * bodyH, 0));
-
-  // short arms with big gloves
-  for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.085, 0.3, 6), shirt);
-    arm.rotation.z = -side * 0.7;
-    const shoulderX = side * (0.3 * bodyW + 0.05);
-    const shoulderY = torsoY + 0.1 * bodyH;
-    body.add(place(arm, shoulderX + side * 0.09, shoulderY - 0.1, 0));
-    body.add(place(ball(0.12, glove), shoulderX + side * 0.2, shoulderY - 0.24, 0));
-  }
-
-  // head: a faceted ball, with ears, nose, eyes, an optional moustache, and a hat
-  const headY = torsoY + 0.3 * bodyH + 0.26 * hs;
-  const headR = 0.34 * hs;
-  const head = new THREE.Group();
-  head.add(place(ball(headR, skin, 1, 0.98, 0.98), 0, headY, 0));
-  for (const side of [-1, 1]) head.add(place(ball(0.07 * hs, skin, 0.7, 1, 0.7, 0), side * (headR * 0.95), headY - 0.02, 0.02));
-
-  const features = new THREE.Group(); // eyes, nose, moustache: hidden when there is a photo
-  for (const side of [-1, 1]) {
-    features.add(place(ball(0.052 * hs, white, 1, 1.2, 0.6, 0), side * 0.11 * hs, headY + 0.05 * hs, -headR * 0.9));
-    features.add(place(ball(0.03 * hs, black, 1, 1.2, 0.6, 0), side * 0.11 * hs, headY + 0.05 * hs, -headR * 0.96));
-  }
-  features.add(place(ball(0.075 * hs, nose, 1, 0.9, 1, 0), 0, headY - 0.04 * hs, -headR * 1.0));
-  if (mustache) features.add(place(new THREE.Mesh(new THREE.BoxGeometry(0.24 * hs, 0.05, 0.07), hairMat), 0, headY - 0.12 * hs, -headR * 0.95));
-  head.add(features);
-
-  // the photo: a flat decal on the front of the face
-  const photoMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.4 * hs, 0.4 * hs), photoMat);
-  photo.rotation.y = Math.PI; // plane faces +z; the character walks toward -z
-  photo.position.set(0, headY, -headR * 0.99);
-  photo.visible = false;
-  head.add(photo);
-
-  let topY = headY + headR;
-  if (hat === 0) {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.06, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), accent);
-    head.add(place(cap, 0, headY + headR * 0.12, 0));
-    head.add(place(new THREE.Mesh(new THREE.BoxGeometry(headR * 1.0, 0.04, headR * 0.9), accent), 0, headY + headR * 0.22, -headR * 1.05));
-    topY = headY + headR * 1.18;
-  } else if (hat === 1) {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(headR * 1.1, 7, 5, 0, Math.PI * 2, 0, Math.PI / 2), accent);
-    head.add(place(cap, 0, headY + headR * 0.2, 0));
-    head.add(place(ball(0.09, white, 1, 1, 1, 0), 0, headY + headR * 1.3, 0));
-    topY = headY + headR * 1.42;
-  } else if (hat === 2) {
-    head.add(place(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 4), black), 0, headY + headR + 0.12, 0));
-    head.add(place(ball(0.08, accent, 1, 1, 1, 0), 0, headY + headR + 0.3, 0));
-    topY = headY + headR + 0.4;
-  } else if (hat === 3) {
-    for (const side of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.1 * hs, 0.26, 4), accent);
-      ear.rotation.z = -side * 0.25;
-      head.add(place(ear, side * headR * 0.6, headY + headR * 0.95, 0));
+    const hip = group(side * 0.15 * bulk, 0.7, 0);
+    hip.add(ico(0.085, dark));
+    hip.add(at(cyl(0.085, 0.07, 0.34, 5, armor), 0, -0.17, 0));
+    const knee = group(0, -0.34, 0);
+    knee.add(ico(0.07, dark));
+    knee.add(at(cyl(0.06, 0.045, 0.34, 5, dark), 0, -0.17, 0));
+    const foot = group(0, -0.34, 0);
+    foot.add(at(box(0.17, 0.05, 0.26, dark), 0, 0.0, -0.03));
+    for (const tx of [-0.055, 0.055]) {
+      foot.add(at(box(0.05, 0.04, 0.14, trim), tx, 0, -0.19)); // toes forward
+      foot.add(at(box(0.05, 0.04, 0.1, trim), tx, 0, 0.13)); // toes back
     }
-    topY = headY + headR + 0.22;
+    knee.add(foot);
+    hip.add(knee);
+    body.add(hip);
+    legs.push({ hip, knee });
+  }
+
+  // torso group pivots at the hips so it can lean
+  const torsoG = group(0, 0.74, 0);
+  const torso = cyl(0.19 * bulk, 0.26 * bulk, 0.62, 6, armor);
+  torso.rotation.y = Math.PI / 6;
+  torsoG.add(at(torso, 0, 0.31, 0));
+  torsoG.add(at(box(0.3 * bulk, 0.26, 0.08, trim), 0, 0.42, -0.2));
+  torsoG.add(at(box(0.2, 0.03, 0.02, glow), 0, 0.46, -0.245));
+  torsoG.add(at(box(0.34 * bulk, 0.14, 0.07, dark), 0, 0.14, -0.2));
+  for (let i = 0; i < 4; i++) {
+    const spike = cone(0.05, 0.2 - i * 0.02, 4, trim); // a dorsal ridge
+    spike.rotation.x = Math.PI / 2 + 0.3;
+    torsoG.add(at(spike, 0, 0.12 + i * 0.14, 0.2));
+  }
+  torsoG.add(at(cyl(0.09, 0.11, 0.16, 5, dark), 0, 0.7, -0.02));
+
+  // head: snout, casque crest, turret eyes, and the face screen
+  const head = group(0, 0.92, -0.02);
+  const skull = cyl(0.13, 0.19, 0.44, 6, armor);
+  skull.rotation.x = -Math.PI / 2; // axis along z, narrow end forward
+  head.add(at(skull, 0, 0, -0.05));
+  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.23), faceMat);
+  screenPlane.rotation.y = Math.PI; // plane faces +z; the character faces -z
+  head.add(at(screenPlane, 0, -0.01, -0.285));
+  head.add(at(box(0.27, 0.025, 0.02, glow), 0, 0.125, -0.27)); // a glowing brow strip
+
+  let crestTop = 0.28;
+  if (crestKind === 0) {
+    const c = cone(0.14, 0.36, 4, trim);
+    c.rotation.x = -0.6;
+    head.add(at(c, 0, 0.27, 0.15));
+    crestTop = 0.42;
+  } else if (crestKind === 1) {
+    for (const s of [-1, 1]) {
+      const horn = cone(0.05, 0.3, 4, trim);
+      horn.rotation.set(-0.5, 0, -s * 0.3);
+      head.add(at(horn, s * 0.09, 0.22, 0.1));
+    }
+    crestTop = 0.4;
+  } else if (crestKind === 2) {
+    const fin = box(0.04, 0.28, 0.3, trim);
+    fin.rotation.x = -0.25;
+    head.add(at(fin, 0, 0.24, 0.12));
+    crestTop = 0.4;
   } else {
-    for (let i = 0; i < 5; i++) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), accent);
-      const a = (i / 5) * Math.PI * 2;
-      head.add(place(spike, Math.cos(a) * headR * 0.5, headY + headR * 0.85, Math.sin(a) * headR * 0.5));
-    }
-    topY = headY + headR + 0.18;
+    head.add(at(cyl(0.015, 0.015, 0.26, 4, dark), 0, 0.25, 0.1));
+    head.add(at(ico(0.07, glow), 0, 0.4, 0.1));
+    crestTop = 0.48;
   }
-  body.add(head);
+
+  const eyes: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const eye = group(side * 0.2 * bulk, 0.05, -0.02);
+    eye.add(ico(0.095 * eyeScale, dark));
+    const lens = cone(0.07 * eyeScale, 0.16, 6, dark);
+    lens.rotation.z = -side * (Math.PI / 2);
+    eye.add(at(lens, side * 0.1, 0, 0));
+    eye.add(at(ico(0.05 * eyeScale, glow), side * 0.2, 0, 0));
+    head.add(eye);
+    eyes.push(eye);
+  }
+  torsoG.add(head);
+
+  // arms: shoulder, upper arm, elbow, forearm, and a clawed hand (two fingers forward, two back)
+  const arms: { shoulder: THREE.Group; elbow: THREE.Group }[] = [];
+  for (const side of [-1, 1]) {
+    const shoulder = group(side * 0.31 * bulk, 0.56, 0);
+    shoulder.add(ico(0.085, dark));
+    shoulder.add(at(cyl(0.055, 0.05, 0.3, 5, armor), 0, -0.15, 0));
+    const elbow = group(0, -0.3, 0);
+    elbow.add(ico(0.05, dark));
+    elbow.add(at(cyl(0.045, 0.04, 0.28, 5, dark), 0, -0.14, 0));
+    const hand = group(0, -0.28, 0);
+    hand.add(at(box(0.09, 0.06, 0.1, armor), 0, -0.02, 0));
+    for (const fx of [-0.025, 0.025]) {
+      const front = cone(0.022, 0.13, 4, trim);
+      front.rotation.x = -Math.PI / 2;
+      hand.add(at(front, fx, -0.045, -0.1));
+      const back = cone(0.022, 0.1, 4, trim);
+      back.rotation.x = Math.PI / 2;
+      hand.add(at(back, fx, -0.045, 0.09));
+    }
+    elbow.add(hand);
+    shoulder.add(elbow);
+    torsoG.add(shoulder);
+    arms.push({ shoulder, elbow });
+  }
+  body.add(torsoG);
+
+  // the tail: a chain of tapering segments, each turned a little more, so it curls into a spiral
+  const tail = group(0, 0.72, 0.2);
+  {
+    let parent: THREE.Object3D = tail;
+    let radius = 0.075;
+    const seg = 0.15;
+    for (let i = 0; i < tailSegs; i++) {
+      const holder = group(0, 0, i === 0 ? 0 : seg);
+      holder.rotation.x = -0.42;
+      const m = cyl(radius, radius * 0.82, seg, 5, i % 2 ? armor : dark);
+      m.rotation.x = Math.PI / 2;
+      holder.add(at(m, 0, 0, seg / 2));
+      parent.add(holder);
+      parent = holder;
+      radius *= 0.84;
+    }
+    parent.add(at(ico(0.04, glow), 0, 0, seg + 0.02));
+  }
+  body.add(tail);
 
   // Normalise so the head sits at eye height whatever the proportions, so the camera always matches.
-  const root = new THREE.Group();
+  const headY = 0.74 + 0.92;
   const s = 1.62 / headY;
+  const root = new THREE.Group();
   body.scale.setScalar(s);
   root.add(body);
 
+  // ----- face photo -----
   let faceTex: THREE.Texture | null = null;
   let faceRequest = 0;
   const setFace = (url: string | null) => {
@@ -537,47 +659,203 @@ function makeCharacter(id: string): Character {
     const mine = faceRequest;
     faceTex?.dispose();
     faceTex = null;
-    photoMat.map = null;
-    photoMat.needsUpdate = true;
-    photo.visible = false;
-    features.visible = true;
+    faceMat.map = defaultScreen;
+    faceMat.needsUpdate = true;
     if (!url || !validAvatar(url)) return; // photos from other players are untrusted: re-validate
     new THREE.TextureLoader().load(
       url,
-      (tex) => {
+      (t) => {
         if (mine !== faceRequest) {
-          tex.dispose(); // replaced or cleared while it was loading
+          t.dispose(); // replaced or cleared while it was loading
           return;
         }
-        tex.magFilter = THREE.NearestFilter; // keep the 32x32 photo crisp and chunky
-        tex.minFilter = THREE.NearestFilter;
-        tex.generateMipmaps = false;
-        tex.colorSpace = THREE.SRGBColorSpace;
-        faceTex = tex;
-        photoMat.map = tex;
-        photoMat.needsUpdate = true;
-        photo.visible = true;
-        features.visible = false; // the photo is the face now
+        t.magFilter = THREE.NearestFilter; // keep the 32x32 photo crisp and chunky
+        t.minFilter = THREE.NearestFilter;
+        t.generateMipmaps = false;
+        t.colorSpace = THREE.SRGBColorSpace;
+        faceTex = t;
+        faceMat.map = t;
+        faceMat.needsUpdate = true;
       },
       undefined,
       () => {
-        /* undecodable image: keep the plain face */
+        /* undecodable image: keep the default screen */
       },
     );
+  };
+
+  // ----- procedural animation -----
+  const P = {
+    phase: 0,
+    legL: 0,
+    legR: 0,
+    kneeL: 0,
+    kneeR: 0,
+    armL: 0,
+    armR: 0,
+    elbow: 0.2,
+    lean: 0,
+    twist: 0,
+    tilt: 0,
+    bob: 0,
+  };
+  const lerp = (cur: number, target: number, k: number) => cur + (target - cur) * k;
+
+  const animate = (a: AnimState, dt: number, t: number) => {
+    const k = 1 - Math.exp(-16 * dt);
+    const run = Math.min(1, a.speed / 9);
+    const moving = a.speed > 0.6;
+    const walking = a.grounded && moving && !a.sliding && !a.hanging && !a.mantle;
+    if (walking) P.phase += dt * (4.2 + a.speed * 0.95);
+    const sw = Math.sin(P.phase);
+
+    let legL = 0;
+    let legR = 0;
+    let kneeL = 0;
+    let kneeR = 0;
+    let armL = 0;
+    let armR = 0;
+    let elbow = 0.2;
+    let lean = 0;
+    let twist = 0;
+    let tilt = 0;
+    let bob = 0;
+
+    if (a.hanging) {
+      // hands on the ledge, body dangling
+      armL = armR = 3.0;
+      elbow = 0.1;
+      legL = 0.15 + Math.sin(t * 2) * 0.08;
+      legR = -0.05 + Math.sin(t * 2 + 1) * 0.06;
+      kneeL = -0.3;
+      kneeR = -0.2;
+    } else if (a.mantle) {
+      // pushing up and scrambling over
+      armL = armR = 1.0;
+      elbow = 1.0;
+      legL = 1.15;
+      legR = 0.35;
+      kneeL = -1.3;
+      kneeR = -0.8;
+      lean = -0.5;
+    } else if (a.sliding) {
+      // leaning back with the legs out in front
+      legL = 1.5;
+      legR = 1.3;
+      kneeL = -0.15;
+      kneeR = -0.1;
+      armL = -0.9;
+      armR = -0.6;
+      elbow = 0.3;
+      lean = 0.55;
+    } else if (!a.grounded) {
+      if (a.vy > 0.5) {
+        // rising: knees up, arms thrown up
+        legL = 0.9;
+        legR = 0.15;
+        kneeL = -1.4;
+        kneeR = -0.5;
+        armL = armR = 2.2;
+        elbow = 0.4;
+        lean = -0.12;
+      } else {
+        // falling: legs reaching for the ground, arms out
+        legL = 0.4;
+        legR = -0.1;
+        kneeL = -0.3;
+        kneeR = -0.15;
+        armL = armR = 1.2;
+        elbow = 0.2;
+        lean = -0.05;
+      }
+    } else if (a.crouch) {
+      const amp = 0.25 * Math.min(1, a.speed / 3);
+      legL = 1.1 + sw * amp;
+      legR = 1.1 - sw * amp;
+      kneeL = -1.9;
+      kneeR = -1.9;
+      armL = 0.5;
+      armR = 0.5;
+      elbow = 0.9;
+      lean = -0.45;
+    } else if (moving) {
+      const amp = 0.18 + 0.75 * run;
+      legL = sw * amp;
+      legR = -sw * amp;
+      kneeL = -Math.max(0, Math.sin(P.phase + 1.2)) * amp * 1.2;
+      kneeR = -Math.max(0, Math.sin(P.phase + 1.2 + Math.PI)) * amp * 1.2;
+      armL = -sw * amp * 0.95;
+      armR = sw * amp * 0.95;
+      elbow = 0.25 + run * 0.9;
+      lean = -0.1 - 0.25 * run;
+      twist = sw * 0.14 * run;
+      tilt = sw * 0.06 * run;
+      bob = Math.abs(sw) * 0.045 * run;
+    } else {
+      // idle: a slow weight shift
+      armL = Math.sin(t * 1.3 + phase0) * 0.05;
+      armR = -Math.sin(t * 1.3 + phase0) * 0.05;
+      lean = Math.sin(t * 1.1 + phase0) * 0.02;
+    }
+
+    P.legL = lerp(P.legL, legL, k);
+    P.legR = lerp(P.legR, legR, k);
+    P.kneeL = lerp(P.kneeL, kneeL, k);
+    P.kneeR = lerp(P.kneeR, kneeR, k);
+    P.armL = lerp(P.armL, armL, k);
+    P.armR = lerp(P.armR, armR, k);
+    P.elbow = lerp(P.elbow, elbow, k);
+    P.lean = lerp(P.lean, lean, k);
+    P.twist = lerp(P.twist, twist, k);
+    P.tilt = lerp(P.tilt, tilt, k);
+    P.bob = lerp(P.bob, bob, k);
+
+    legs[0].hip.rotation.x = P.legL;
+    legs[1].hip.rotation.x = P.legR;
+    legs[0].knee.rotation.x = P.kneeL;
+    legs[1].knee.rotation.x = P.kneeR;
+    arms[0].shoulder.rotation.x = P.armL;
+    arms[1].shoulder.rotation.x = P.armR;
+    arms[0].shoulder.rotation.z = 0.12; // a slight outward hang
+    arms[1].shoulder.rotation.z = -0.12;
+    arms[0].elbow.rotation.x = P.elbow;
+    arms[1].elbow.rotation.x = P.elbow;
+    torsoG.rotation.x = P.lean;
+    torsoG.rotation.y = P.twist;
+    torsoG.rotation.z = P.tilt;
+    torsoG.scale.y = 1 + Math.sin(t * 2.2 + phase0) * 0.012; // breathing
+    body.position.y = P.bob;
+
+    // the tail sways, and lifts as you run or jump
+    tail.rotation.y = Math.sin(t * 1.3 + phase0) * 0.2 + sw * 0.1 * run;
+    tail.rotation.x = -0.05 - run * 0.25 - (a.grounded ? 0 : 0.3);
+
+    // chameleon eyes: each one swivels on its own, then both lock forward when running
+    const free = 1 - run * 0.85;
+    eyes[0].rotation.y = Math.sin(t * 0.9 + phase0) * 0.9 * free;
+    eyes[1].rotation.y = Math.sin(t * 0.8 + phase0 + 2.1) * 0.9 * free;
+    eyes[0].rotation.x = Math.sin(t * 0.6 + phase0) * 0.25 * free;
+    eyes[1].rotation.x = Math.sin(t * 0.55 + phase0 + 1.3) * 0.25 * free;
+
+    // camouflage: the armour colour slowly drifts around the player's hue
+    const h2 = (hue + 22 * Math.sin(t * 0.4 + phase0) + 360) % 360;
+    armor.color.setHSL(h2 / 360, 0.62, 0.5);
+    armor.emissive.copy(armor.color);
   };
 
   return {
     group: root,
     head,
-    shirt,
-    height: topY * s,
+    shirt: armor,
+    height: (headY + crestTop) * s,
     setHue(h: number) {
-      shirt.color.setHSL(h / 360, 0.72, 0.5);
-      shirt.emissive.copy(shirt.color);
-      accent.color.setHSL(((h + 150) % 360) / 360, 0.8, 0.55);
-      pants.color.setHSL(((h + 210) % 360) / 360, 0.5, 0.32);
+      shirtColor.setHSL(h / 360, 0.62, 0.5);
+      armor.color.copy(shirtColor);
+      armor.emissive.copy(shirtColor);
+      trim.color.setHSL(((h + 170) % 360) / 360, 0.7, 0.55);
     },
     setFace,
+    animate,
   };
 }
 
@@ -597,6 +875,11 @@ class Avatar {
   private ty: number;
   private try_: number;
   private crouch: boolean;
+  private lastX: number;
+  private lastY: number;
+  private lastZ: number;
+  private speed = 0; // smoothed, derived from how far they actually move
+  private vy = 0;
   stepAccum = 0; // metres this player has walked since their last audible footstep
 
   constructor(p: PlayerState) {
@@ -605,9 +888,9 @@ class Avatar {
     this.nameHeight = ch.height + 0.3;
     this.body = ch.shirt;
     if (p.avatar) ch.setFace(p.avatar);
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.4, 0.8), new THREE.MeshBasicMaterial());
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.2, 0.8), new THREE.MeshBasicMaterial());
     hit.visible = false;
-    hit.position.y = 1.2;
+    hit.position.y = 1.1;
     hit.userData.id = p.id;
     this.hit = hit;
     this.shell.add(ch.group, hit);
@@ -619,6 +902,9 @@ class Avatar {
     this.tz = p.z;
     this.ty = p.y ?? 0;
     this.try_ = p.ry;
+    this.lastX = p.x;
+    this.lastY = p.y ?? 0;
+    this.lastZ = p.z;
     this.crouch = p.crouch ?? false;
     const s = this.crouch ? CROUCH_SCALE : 1;
     this.shell.scale.y = s;
@@ -641,7 +927,7 @@ class Avatar {
     this.character.setFace(url);
   }
 
-  update(dt: number) {
+  update(dt: number, t: number) {
     const k = 1 - Math.exp(-15 * dt);
     const g = this.group;
     g.position.x += (this.tx - g.position.x) * k;
@@ -653,6 +939,31 @@ class Avatar {
     let d = this.try_ - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d)); // shortest angle
     g.rotation.y += d * k;
+
+    // what are they doing? Work it out from how they actually moved.
+    if (dt > 0) {
+      const sp = Math.hypot(g.position.x - this.lastX, g.position.z - this.lastZ) / dt;
+      const vy = (g.position.y - this.lastY) / dt;
+      this.speed += (sp - this.speed) * (1 - Math.exp(-10 * dt));
+      this.vy += (vy - this.vy) * (1 - Math.exp(-10 * dt));
+    }
+    this.lastX = g.position.x;
+    this.lastY = g.position.y;
+    this.lastZ = g.position.z;
+    const airborne = Math.abs(this.vy) > 1.6;
+    this.character.animate(
+      {
+        speed: this.speed,
+        grounded: !airborne,
+        vy: this.vy,
+        crouch: this.crouch,
+        sliding: this.crouch && this.speed > 3.6, // crouched but moving fast is a slide
+        hanging: false,
+        mantle: false,
+      },
+      dt,
+      t,
+    );
   }
 
   dispose() {
@@ -663,7 +974,7 @@ class Avatar {
       // some meshes may carry several materials
       const mats = ([] as (THREE.Material | undefined)[]).concat(m.material as THREE.Material | THREE.Material[] | undefined);
       for (const mat of mats) {
-        (mat as THREE.SpriteMaterial | undefined)?.map?.dispose();
+        // textures are shared across players: only the photo is freed (by setFace above)
         mat?.dispose();
       }
     });
@@ -680,8 +991,8 @@ export class World {
   pitch = 0;
   feetY = 0; // height of our feet above the floor; > 0 while jumping
   orbit = true; // slow fly-around of the arena behind the main screen; off once we join
-  // 0 = first person, 1 = third person behind you, 2 = third person in front of you (T cycles, like Minecraft F5)
-  viewMode: 0 | 1 | 2 = 0;
+  // 0 = first person, 1 = over the shoulder (the default), 2 = in front of you (T cycles)
+  viewMode: 0 | 1 | 2 = 1;
   crouching = false;
   inputEnabled = true;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
@@ -695,9 +1006,11 @@ export class World {
   private sim = newSim(0, 0); // the movement controller's state (see shared/movement.ts)
   private prevJump = false;
   private prevCrouch = false;
+  private prevGrab = false;
   private orbitAngle = Math.random() * Math.PI * 2;
-  private tpBlend = 0; // 0 = camera at the head, 1 = fully pulled back
+  private tpBlend = 1; // 0 = camera at the head, 1 = pulled back (the default is third person)
   private frontBlend = 0; // 0 = camera behind you, 1 = camera in front, facing you
+  private camFrac = 1; // how much of the pull-back distance is clear of walls
   private selfThird = new THREE.Group(); // our full character, shown while the camera is pulled back
   private selfBody = new THREE.Group(); // the same character, minus head, seen when looking down
   private selfChars: Character[] = [];
@@ -710,9 +1023,20 @@ export class World {
   private rippleTimer = 0;
   private stepAccum = 0; // metres walked since the last footstep
 
+  // camera feel
+  private baseFov = DEFAULT_FOV;
+  private fovKick = 0;
+  private bobPhase = 0;
+  private roll = 0;
+  private dip = 0; // a downward jolt on hard landings
+  private moveSide = 0; // -1..1, for the strafe lean
+
+  // internal render resolution: height in pixels, scaled up with hard pixels. >= 1080 = native.
+  private renderHeight = DEFAULT_RENDER_HEIGHT;
+
   constructor(private canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+    this.renderer.setPixelRatio(1);
     this.renderer.toneMapping = THREE.NoToneMapping;
 
     // Light haze in the horizon colour so the sea and hills melt into the sky.
@@ -728,7 +1052,7 @@ export class World {
 
     this.clouds = makeClouds();
     this.scene.add(makeSkyDome(), makeSun(), this.clouds, makeHills());
-    this.water = makeWater(this.scene);
+    this.water = makeWater(this.scene, tex().glints);
     this.ripples = new Ripples(this.scene);
     this.buildIsland();
     this.buildSelfBody();
@@ -779,16 +1103,22 @@ export class World {
     this.onSentHome?.();
   }
 
+  /** Over the shoulder -> in front of you -> first person -> over the shoulder. */
   cycleView() {
-    this.viewMode = ((this.viewMode + 1) % 3) as 0 | 1 | 2;
+    this.viewMode = ({ 1: 2, 2: 0, 0: 1 } as const)[this.viewMode];
   }
 
   setFov(deg: number) {
-    this.camera.fov = deg;
-    this.camera.updateProjectionMatrix();
+    this.baseFov = deg;
   }
 
-  /** Your own photo on your own face (visible in third / front view). */
+  /** Internal resolution (pixels tall). The picture is scaled to the window with hard pixels; 1080+ is native. */
+  setRenderHeight(h: number) {
+    this.renderHeight = h;
+    this.resize();
+  }
+
+  /** Your own photo on your own face. */
   setSelfAvatar(url: string | null) {
     this.selfAvatar = url;
     for (const c of this.selfChars) c.setFace(url);
@@ -798,7 +1128,7 @@ export class World {
     this.avatars.get(id)?.setAvatar(url);
   }
 
-  /** Colour our own body like the character other players see us as. */
+  /** Colour and build our own body like the character other players see us as. */
   setSelfId(id: string) {
     this.rebuildSelf(id); // your colour AND your build come from your id, like everyone else's
   }
@@ -811,22 +1141,22 @@ export class World {
     return hits.length ? (hits[0].object.userData.id as string) : null;
   }
 
-  /** A tiled arena on a sandy island in a bright sea, with palms, rocks and a ring of buoys. */
+  /** A grass arena on a sandy island in a bright sea, with palms, rocks and a ring of buoys. */
   private buildIsland() {
     const R = MAP_RADIUS;
     const rnd = seeded(1337);
+    const t = tex();
 
-    const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(R, 40),
-      new THREE.MeshLambertMaterial({ map: makeCheckerTexture(this.renderer.capabilities.getMaxAnisotropy()) }),
-    );
+    t.grass.repeat.set((R * 2) / 6, (R * 2) / 6); // one texture = 6 m, so each big square is 3 m
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 40), textured(t.grass));
     floor.rotation.x = -Math.PI / 2;
 
     const rim = new THREE.Mesh(new THREE.RingGeometry(R - 0.45, R, 40), new THREE.MeshBasicMaterial({ color: 0xfff6c0 }));
     rim.rotation.x = -Math.PI / 2;
     rim.position.y = 0.01;
 
-    const beach = new THREE.Mesh(new THREE.RingGeometry(R, R + 7, 40), flat(0xf0dc9c));
+    t.sand.repeat.set(((R + 7) * 2) / 5, ((R + 7) * 2) / 5);
+    const beach = new THREE.Mesh(new THREE.RingGeometry(R, R + 7, 40), textured(t.sand));
     beach.rotation.x = -Math.PI / 2;
     beach.position.y = -0.02;
 
@@ -850,20 +1180,22 @@ export class World {
     const nearObstacle = (x: number, z: number, margin: number) =>
       OBSTACLES.some((k) => Math.abs(x - k.x) < k.w / 2 + margin && Math.abs(z - k.z) < k.d / 2 + margin);
 
-    // Palms along the beach. Decoration only: they sit outside the tiled arena.
+    // Palms along the beach. Decoration only: they sit outside the grass arena.
+    const trunkMat = textured(t.bark);
+    const leafMat = textured(t.leaf, 0xffffff, { side: THREE.DoubleSide });
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2 + (rnd() - 0.5) * 0.25;
       const r = R + 1.8 + rnd() * 3.4;
       const x = Math.cos(angle) * r;
       const z = Math.sin(angle) * r;
-      const palm = makePalm(rnd);
+      const palm = makePalm(rnd, trunkMat, leafMat);
       if (nearObstacle(x, z, 2.5)) continue; // keep the parkour course clear of scenery
       palm.position.set(x, 0, z);
       this.scene.add(palm);
     }
 
     // Rocks on the beach and out in the shallows.
-    const rockMat = flat(0x8d98ad);
+    const rockMat = textured(t.rock);
     for (let i = 0; i < 16; i++) {
       const angle = rnd() * Math.PI * 2;
       const r = R + 3 + rnd() * 24;
@@ -879,30 +1211,32 @@ export class World {
 
   /** Crates, walls, steps, beams and the parkour course, all from shared/obstacles.ts. */
   private buildObstacles() {
-    const colors: Record<Block['kind'], number> = {
-      crate: 0xc99560,
-      wall: 0x8e9cc0,
-      step: 0xf6c84f,
-      platform: 0xff9f43,
-      beam: 0xe85a4a,
-      pillar: 0xb4bdd2,
-      goal: 0x58c23a,
+    const t = tex();
+    // texture and how many metres one repeat covers, per kind
+    const look: Record<Block['kind'], { map: THREE.Texture; tile: number }> = {
+      crate: { map: t.crate, tile: 1 },
+      wall: { map: t.concrete, tile: 3 },
+      step: { map: t.hazard, tile: 1.5 },
+      platform: { map: t.orangeMetal, tile: 2 },
+      beam: { map: t.barrier, tile: 1 },
+      pillar: { map: t.steel, tile: 2 },
+      goal: { map: t.goal, tile: 2 },
     };
-    const mats = new Map<number, THREE.Material>();
-    const cap = flat(0xffffff);
+    const mats = new Map<THREE.Texture, THREE.Material>();
+    const cap = flat(0xe8e6dc);
     for (const k of OBSTACLES) {
-      const color = colors[k.kind];
-      let mat = mats.get(color);
+      const { map, tile } = look[k.kind];
+      let mat = mats.get(map);
       if (!mat) {
-        mat = flat(color);
-        mats.set(color, mat);
+        mat = textured(map);
+        mats.set(map, mat);
       }
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(k.w, k.h, k.d), mat);
+      const mesh = new THREE.Mesh(T.worldBox(k.w, k.h, k.d, tile), mat);
       mesh.position.set(k.x, k.y0 + k.h / 2, k.z);
       this.scene.add(mesh);
       // a pale rim on the walkable surfaces, so edges read clearly
       if (k.kind !== 'pillar' && k.kind !== 'beam') {
-        const rim = new THREE.Mesh(new THREE.BoxGeometry(k.w + 0.04, 0.06, k.d + 0.04), cap);
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(k.w + 0.04, 0.05, k.d + 0.04), cap);
         rim.position.set(k.x, blockTop(k) + 0.01, k.z);
         this.scene.add(rim);
       }
@@ -923,7 +1257,7 @@ export class World {
   /**
    * Your own body: the same character other players see. In first person the head is hidden (and
    * the model sits a little behind the camera) so you only see arms, torso and legs when you look
-   * down; once the camera pulls back the full character takes over.
+   * down; in third person the full character is shown.
    */
   private buildSelfBody() {
     this.scene.add(this.selfBody, this.selfThird);
@@ -969,14 +1303,16 @@ export class World {
   private resize = () => {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
+    // Render at a reduced internal height and let the browser scale the canvas up with hard pixels.
+    const scale = this.renderHeight >= 1080 ? 1 : Math.min(1, this.renderHeight / Math.max(1, h));
+    this.renderer.setSize(Math.max(2, Math.round(w * scale)), Math.max(2, Math.round(h * scale)), false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
 
   /**
    * Keys -> inputs for the shared controller (walk, Shift sprint, C crouch / slide, Space jump,
-   * ledge grab and vault). All of the actual movement rules live in shared/movement.ts.
+   * hold E to grab a ledge, vault). All of the actual movement rules live in shared/movement.ts.
    */
   private move(dt: number) {
     const k = this.keys;
@@ -985,6 +1321,7 @@ export class World {
     const side = on ? (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) : 0;
     const jump = on && k.has('Space');
     const crouch = on && k.has('KeyC');
+    const grab = on && k.has('KeyE');
     const input: Input = {
       f,
       s: side,
@@ -994,9 +1331,13 @@ export class World {
       crouch,
       crouchPressed: crouch && !this.prevCrouch,
       sprint: on && (k.has('ShiftLeft') || k.has('ShiftRight')),
+      grab,
+      grabPressed: grab && !this.prevGrab,
     };
     this.prevJump = jump;
     this.prevCrouch = crouch;
+    this.prevGrab = grab;
+    this.moveSide = side;
 
     const s = this.sim;
     const was = {
@@ -1078,6 +1419,27 @@ export class World {
     this.sim.z = q.z;
   }
 
+  /** Is this point inside (or within `m` of) a solid block? Used to keep the camera out of walls. */
+  private insideScenery(x: number, y: number, z: number, m: number) {
+    for (const k of OBSTACLES) {
+      if (y < k.y0 - m || y > k.y0 + k.h + m) continue;
+      if (Math.abs(x - k.x) <= k.w / 2 + m && Math.abs(z - k.z) <= k.d / 2 + m) return true;
+    }
+    return false;
+  }
+
+  /** How far along head -> camera (0..1) the view stays clear of scenery. */
+  private clearFraction(hx: number, hy: number, hz: number, cx: number, cy: number, cz: number) {
+    const steps = 14;
+    let clear = 0;
+    for (let i = 1; i <= steps; i++) {
+      const f = i / steps;
+      if (this.insideScenery(hx + (cx - hx) * f, hy + (cy - hy) * f, hz + (cz - hz) * f, 0.28)) break;
+      clear = f;
+    }
+    return clear;
+  }
+
   // three.js only schedules the next frame after this callback returns, so an exception here
   // would freeze the game for good. Each stage is isolated: one bad value cannot stop the rest.
   private tick = () => {
@@ -1109,7 +1471,7 @@ export class World {
     for (const a of this.avatars.values()) {
       const px = a.group.position.x;
       const pz = a.group.position.z;
-      a.update(dt);
+      a.update(dt, this.clock);
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
     this.collide();
@@ -1126,7 +1488,20 @@ export class World {
       }
     }
 
-    this.pos.y = this.feetY + this.sim.eye;
+    // pose our own body
+    const sim = this.sim;
+    const state: AnimState = {
+      speed: Math.hypot(sim.vx, sim.vz),
+      grounded: sim.onGround,
+      vy: sim.vy,
+      crouch: sim.crouching,
+      sliding: sim.sliding,
+      hanging: sim.hanging,
+      mantle: sim.mantle !== null,
+    };
+    for (const c of this.selfChars) c.animate(state, dt, this.clock);
+
+    this.pos.y = this.feetY + sim.eye;
     const ease = 1 - Math.exp(-7 * dt);
     const wantBack = this.viewMode > 0 ? 1 : 0;
     const wantFront = this.viewMode === 2 ? 1 : 0;
@@ -1134,6 +1509,29 @@ export class World {
     this.frontBlend += (wantFront - this.frontBlend) * ease;
     if (Math.abs(this.tpBlend - wantBack) < 0.001) this.tpBlend = wantBack;
     if (Math.abs(this.frontBlend - wantFront) < 0.001) this.frontBlend = wantFront;
+
+    // ---- camera feel: head bob, strafe lean, slide tilt, sprint FOV kick, landing dip ----
+    const speed = state.speed;
+    const stepping = sim.onGround && !sim.sliding && !sim.hanging && sim.mantle === null;
+    const bobAmt = stepping ? Math.min(1, speed / 7) : 0;
+    this.bobPhase += dt * (4 + speed * 0.9) * (stepping ? 1 : 0);
+    const bobY = Math.sin(this.bobPhase * 2) * 0.032 * bobAmt;
+    const bobX = Math.sin(this.bobPhase) * 0.026 * bobAmt;
+    const wantRoll = -this.moveSide * 0.035 * (speed > 1 ? 1 : 0) + (sim.sliding ? 0.09 : 0) + (sim.hanging ? 0 : 0);
+    this.roll += (wantRoll - this.roll) * (1 - Math.exp(-9 * dt));
+    const wantKick = sim.sliding ? 9 : speed > 6.5 ? 6 : 0;
+    this.fovKick += (wantKick - this.fovKick) * (1 - Math.exp(-7 * dt));
+    if (sim.landImpact > 0) {
+      this.dip = Math.max(this.dip, Math.min(0.3, sim.landImpact * 0.022));
+      sim.landImpact = 0;
+    }
+    this.dip *= Math.exp(-9 * dt);
+    const fov = this.baseFov + this.fovKick;
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+
     if (this.orbit) {
       this.orbitAngle += dt * 0.06;
       const r = MAP_RADIUS * 0.7;
@@ -1141,26 +1539,45 @@ export class World {
       this.camera.lookAt(0, 5, 0); // slightly down, so the horizon, sun and clouds frame the menu
     } else {
       // Smoothstep so moves start and end gently. The camera orbits the head: pulling back is a
-      // change of distance, and going to the front view swings it 180 degrees around you (yaw + PI)
-      // with the pitch mirrored, so it always looks at you. The head itself never moves.
+      // change of distance (with a shoulder offset), and going to the front view swings it 180
+      // degrees around you (yaw + PI) with the pitch mirrored, so it always looks at you.
       const t = this.tpBlend * this.tpBlend * (3 - 2 * this.tpBlend);
       const f = this.frontBlend * this.frontBlend * (3 - 2 * this.frontBlend);
       const camYaw = this.yaw + Math.PI * f;
       const camPitch = this.pitch * (1 - 2 * f);
       const cp = Math.cos(camPitch);
-      const back = THIRD_DISTANCE * t;
-      this.camera.position.set(
-        this.pos.x + Math.sin(camYaw) * cp * back,
-        Math.max(0.35, this.pos.y - Math.sin(camPitch) * back + THIRD_LIFT * t),
-        this.pos.z + Math.cos(camYaw) * cp * back,
-      );
-      this.camera.rotation.set(camPitch, camYaw, 0);
+      const back = SHOULDER_DISTANCE * t;
+      const shoulder = SHOULDER_OFFSET * t * (1 - f);
+      const rx = Math.cos(camYaw);
+      const rz = -Math.sin(camYaw);
+      const hx = this.pos.x;
+      const hy = this.pos.y;
+      const hz = this.pos.z;
+      let cx = hx + Math.sin(camYaw) * cp * back + rx * shoulder;
+      let cy = hy - Math.sin(camPitch) * back + SHOULDER_LIFT * t;
+      let cz = hz + Math.cos(camYaw) * cp * back + rz * shoulder;
+
+      // keep the camera out of walls: pull it in along the line from the head, smoothly
+      const clear = t > 0.02 ? this.clearFraction(hx, hy, hz, cx, cy, cz) : 1;
+      this.camFrac += (clear - this.camFrac) * (1 - Math.exp(-(clear < this.camFrac ? 30 : 5) * dt));
+      cx = hx + (cx - hx) * this.camFrac;
+      cy = hy + (cy - hy) * this.camFrac;
+      cz = hz + (cz - hz) * this.camFrac;
+
+      // first-person-only feel
+      const fp = 1 - t;
+      cy += (bobY - this.dip) * (0.35 + 0.65 * fp);
+      cx += rx * bobX * fp;
+      cz += rz * bobX * fp;
+      this.camera.position.set(cx, Math.max(0.35, cy), cz);
+      this.camera.rotation.set(camPitch, camYaw, this.roll * (0.5 + 0.5 * fp));
     }
+
     // The headless first-person body only while the camera is at the head; the full character
-    // (identical model, with its head) takes over as the camera pulls back.
+    // takes over as the camera pulls back.
     this.selfBody.visible = !this.orbit && this.tpBlend < 0.02;
     this.selfThird.visible = !this.orbit && this.tpBlend >= 0.02;
-    const squash = 0.7 + 0.3 * Math.min(1, Math.max(0, (this.sim.eye - EYE_CROUCH) / (EYE_HEIGHT - EYE_CROUCH)));
+    const squash = 0.7 + 0.3 * Math.min(1, Math.max(0, (sim.eye - EYE_CROUCH) / (EYE_HEIGHT - EYE_CROUCH)));
     this.selfThird.position.set(this.pos.x, this.feetY, this.pos.z);
     this.selfThird.rotation.y = this.yaw;
     this.selfThird.scale.y = squash;

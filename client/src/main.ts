@@ -1,5 +1,5 @@
 import { Net } from './net';
-import { DEFAULT_FOV, EYE_HEIGHT, World } from './world';
+import { DEFAULT_FOV, DEFAULT_RENDER_HEIGHT, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
@@ -145,6 +145,27 @@ try {
 }
 setFov(Number(fovInput.value), false);
 fovInput.addEventListener('input', () => setFov(Number(fovInput.value), true));
+
+// Render resolution (internal height; 1080 = native)
+const resInput = $<HTMLInputElement>('res');
+function setRes(v: number, save: boolean) {
+  world.setRenderHeight(v);
+  $('res-val').textContent = v >= 1080 ? 'Native' : `${v}p`;
+  if (!save) return;
+  try {
+    localStorage.setItem('renderH', String(v));
+  } catch {
+    /* storage unavailable */
+  }
+}
+try {
+  const saved = Number(localStorage.getItem('renderH'));
+  resInput.value = String(saved >= 240 && saved <= 1080 ? saved : DEFAULT_RENDER_HEIGHT);
+} catch {
+  resInput.value = String(DEFAULT_RENDER_HEIGHT);
+}
+setRes(Number(resInput.value), false);
+resInput.addEventListener('input', () => setRes(Number(resInput.value), true));
 
 // Per-player volume: what *you* hear from each player, remembered by their username.
 const VOL_KEY = 'voiceVolumes';

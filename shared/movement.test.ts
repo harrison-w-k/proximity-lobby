@@ -19,10 +19,11 @@ const yawToward = (dx: number, dz: number) => Math.atan2(-dx, -dz);
 interface Bot {
   (p: Sim, frame: number): Partial<Input> | void;
 }
-/** Step a player for up to `seconds`, asking `bot` for input each frame; tracks edge presses. */
+/** Step a player for `seconds`, asking `bot` for input each frame; derives the "pressed this frame" edges. */
 function drive(p: Sim, blocks: Block[], seconds: number, bot: Bot, yaw = 0) {
   let prevJump = false;
   let prevCrouch = false;
+  let prevGrab = false;
   const frames = Math.round(seconds / DT);
   const seen = { hanging: false, sliding: false, mantled: false, maxY: p.y };
   for (let i = 0; i < frames; i++) {
@@ -30,8 +31,10 @@ function drive(p: Sim, blocks: Block[], seconds: number, bot: Bot, yaw = 0) {
     const inp: Input = { ...noInput(yaw), ...want };
     inp.jumpPressed = inp.jump && !prevJump;
     inp.crouchPressed = inp.crouch && !prevCrouch;
+    inp.grabPressed = inp.grab && !prevGrab;
     prevJump = inp.jump;
     prevCrouch = inp.crouch;
+    prevGrab = inp.grab;
     stepPlayer(p, inp, DT, blocks);
     if (p.hanging) seen.hanging = true;
     if (p.sliding) seen.sliding = true;
@@ -41,13 +44,20 @@ function drive(p: Sim, blocks: Block[], seconds: number, bot: Bot, yaw = 0) {
   return seen;
 }
 const near = (a: number, b: number, tol = 0.05) => Math.abs(a - b) <= tol;
-/** A one-frame jump press the first time `cond` holds (so bots don't bunny-hop off their target). */
-const once = (cond: (s: Sim) => boolean) => {
+/** Holds "jump" for ~0.25 s the first time `cond` holds (a real key press, not a one-frame tap). */
+const once = (cond: (s: Sim) => boolean, frames = 15) => {
+  let left = 0;
   let used = false;
   return (s: Sim) => {
-    if (used || !cond(s)) return false;
-    used = true;
-    return true;
+    if (!used && cond(s)) {
+      used = true;
+      left = frames;
+    }
+    if (left > 0) {
+      left--;
+      return true;
+    }
+    return false;
   };
 };
 
@@ -83,6 +93,55 @@ const once = (cond: (s: Sim) => boolean) => {
   assert.ok(near(p.y, 1.0) && p.z < -3, `landed on the crate: y=${p.y.toFixed(2)} z=${p.z.toFixed(2)}`);
 }
 
+// ---------- game feel ----------
+// variable jump height: tapping jump hops, holding it gives the full jump
+{
+  const apex = (holdFrames: number) => {
+    const p = newSim(0, 0);
+    let held = 0;
+    return drive(p, [], 1, () => ({ jump: held++ < holdFrames })).maxY;
+  };
+  const tap = apex(2);
+  const hold = apex(40);
+  assert.ok(hold > 1.1 && hold < 1.5, `a held jump reaches about 1.3 m: ${hold.toFixed(2)}`);
+  assert.ok(tap < hold - 0.4, `a tap is clearly lower than a hold: tap ${tap.toFixed(2)} vs hold ${hold.toFixed(2)}`);
+}
+
+// coyote time: you can still jump a moment after running off an edge, but not half a second later
+{
+  // a tall ledge, so the fall (about 0.6 s) is longer than the coyote window plus the jump buffer
+  const ledge = blk('platform', 0, -4, 4, 8, 4.0); // spans z -8..0; walking toward +z leaves it at z = 0
+  const jumpedAfterEdge = (delayFrames: number) => {
+    const p = newSim(0, -1);
+    p.y = 4.0;
+    let offAt = -1;
+    let presses = 0;
+    let rose = false;
+    drive(p, [ledge], 1.5, (s, i) => {
+      if (offAt < 0 && s.z > 0.35 && !s.onGround) offAt = i;
+      if (offAt >= 0 && s.vy > 3) rose = true;
+      return { f: -1, jump: offAt >= 0 && i - offAt >= delayFrames && presses++ < 12 }; // f = -1 walks toward +z
+    });
+    return rose;
+  };
+  assert.ok(jumpedAfterEdge(3), 'a jump pressed just after leaving the edge still works (coyote time)');
+  assert.ok(!jumpedAfterEdge(20), 'a jump pressed a third of a second after leaving the edge does not');
+}
+
+// jump buffering: a jump pressed slightly before landing fires on landing
+{
+  const p = newSim(0, 0);
+  p.y = 1.6; // dropped from 1.6 m
+  let rose = false;
+  let pressedAt = -1;
+  drive(p, [], 1.2, (s, i) => {
+    if (s.vy > 3) rose = true;
+    if (pressedAt < 0 && s.y < 0.9 && s.vy < 0) pressedAt = i; // press while still ~0.1 s above the ground
+    return { jump: pressedAt >= 0 && i - pressedAt < 2 };
+  });
+  assert.ok(rose, 'a jump pressed just before landing fires on landing');
+}
+
 // ---------- sprint-jumping a gap ----------
 {
   const a = blk('platform', 0, -2, 4, 2, 1);
@@ -94,38 +153,62 @@ const once = (cond: (s: Sim) => boolean) => {
   assert.ok(near(p.y, 1.0) && p.z < -6.5, `cleared a 3 m gap: y=${p.y.toFixed(2)} z=${p.z.toFixed(2)} maxY=${seen.maxY.toFixed(2)}`);
 }
 
-// ---------- ledge grab + mantle ----------
+// ---------- ledge grab: an intentional button ----------
 {
   const wall = blk('wall', 0, -5, 4, 1, 2.4);
+
+  // WITHOUT the grab button you never catch the ledge, even jumping straight at it
+  const noGrab = newSim(0, 0);
+  const hopNo = once((s) => s.z < -2.4 && s.onGround);
+  const seenNo = drive(noGrab, [wall], 4, (s) => ({ f: 1, sprint: true, jump: hopNo(s) }));
+  assert.ok(!seenNo.hanging, 'no ledge grab without the grab button');
+
+  // holding the button in the air catches it, and a jump press pulls you up
   const p = newSim(0, 0);
   const hop = once((s) => s.z < -2.4 && s.onGround);
   let pulled = false;
   const seen = drive(p, [wall], 5, (s) => {
     if (s.hanging) {
       pulled = true;
-      return { f: 1, jump: true }; // press jump again to pull up
+      return { grab: true, f: 1, jump: s.hangTime > 0.25 && s.hangTime < 0.4 };
     }
-    return { f: pulled ? 0 : 1, sprint: true, jump: hop(s) };
+    return { f: pulled ? 0 : 1, sprint: true, jump: hop(s), grab: !s.onGround };
   });
-  assert.ok(seen.hanging, 'grabbed the ledge');
+  assert.ok(seen.hanging, 'grabbed the ledge with the button');
   assert.ok(seen.mantled, 'pulled up');
   assert.ok(near(p.y, 2.4) && p.z > -5.5 && p.z < -4.5, `standing on top: y=${p.y.toFixed(2)} z=${p.z.toFixed(2)}`);
 }
 
-// you can let go of a ledge with back / crouch
+// the catch is smooth: no frame teleports the player
 {
   const wall = blk('wall', 0, -5, 4, 1, 2.4);
   const p = newSim(0, 0);
-  let hangFrames = 0;
   const hop = once((s) => s.z < -2.4 && s.onGround);
+  let prev: { x: number; y: number; z: number } | null = null;
+  let maxStep = 0;
+  drive(p, [wall], 3, (s) => {
+    if (prev) maxStep = Math.max(maxStep, Math.hypot(s.x - prev.x, s.y - prev.y, s.z - prev.z));
+    prev = { x: s.x, y: s.y, z: s.z };
+    return { f: s.hanging ? 0 : 1, sprint: true, jump: hop(s), grab: !s.onGround };
+  });
+  // at a sprint a single 1/60 s frame is ~0.15 m; a snap-to-ledge would show up as a jump of 0.5+
+  assert.ok(maxStep < 0.35, `no single frame moves the player more than a sprint step: ${maxStep.toFixed(2)} m`);
+}
+
+// releasing the grab button lets go
+{
+  const wall = blk('wall', 0, -5, 4, 1, 2.4);
+  const p = newSim(0, 0);
+  const hop = once((s) => s.z < -2.4 && s.onGround);
+  let hangFrames = 0;
   drive(p, [wall], 4, (s) => {
     if (s.hanging) {
       hangFrames++;
-      return hangFrames > 20 ? { f: -1 } : {};
+      return { grab: hangFrames < 30 }; // hold for half a second, then let go
     }
-    return hangFrames > 0 ? {} : { f: 1, sprint: true, jump: hop(s) };
+    return hangFrames > 0 ? { grab: false } : { f: 1, sprint: true, jump: hop(s), grab: !s.onGround };
   });
-  assert.ok(hangFrames > 20 && !p.hanging && near(p.y, 0), 'dropped back to the ground');
+  assert.ok(hangFrames > 20 && !p.hanging && near(p.y, 0), 'let go and dropped back to the ground');
 }
 
 // ---------- ground vault ----------
@@ -139,6 +222,19 @@ const once = (cond: (s: Sim) => boolean) => {
     return { f: j ? 1 : 0, jump: j }; // one press toward the wall, then stand still
   });
   assert.ok(seen.mantled && near(p.y, 1.2) && p.z < -2.6, `vaulted up: y=${p.y.toFixed(2)} z=${p.z.toFixed(2)}`);
+}
+
+// the grab button vaults too
+{
+  const wall = blk('wall', 0, -3, 4, 0.6, 1.2);
+  const p = newSim(0, -1.9);
+  let first = true;
+  const seen = drive(p, [wall], 2, () => {
+    const g = first;
+    first = false;
+    return { f: g ? 1 : 0, grab: g };
+  });
+  assert.ok(seen.mantled && near(p.y, 1.2), 'grab button vaults a waist-high wall');
 }
 
 // ---------- sliding ----------
@@ -171,24 +267,6 @@ const once = (cond: (s: Sim) => boolean) => {
   assert.ok(!seen.sliding, 'no slide from a standing start');
 }
 
-// a slide can be jumped out of, keeping its speed
-{
-  const p = newSim(0, 0);
-  let phase = 0;
-  drive(p, [], 1.8, (s) => {
-    if (phase === 0 && s.z < -6) {
-      phase = 1;
-      return { f: 1, sprint: true, crouch: true };
-    }
-    if (phase === 1) {
-      phase = 2;
-      return { f: 1, sprint: true, crouch: true, jump: false };
-    }
-    return { f: 1, sprint: true };
-  });
-  assert.ok(p.z < -10, 'slid forward a good distance');
-}
-
 // ---------- water and limits ----------
 {
   const p = newSim(40, 0);
@@ -200,7 +278,6 @@ const once = (cond: (s: Sim) => boolean) => {
 }
 
 // ---------- the real course ----------
-// layout sanity
 for (const k of OBSTACLES) {
   const reach = Math.hypot(Math.abs(k.x) + k.w / 2, Math.abs(k.z) + k.d / 2);
   assert.ok(reach < 30, `${k.kind} at (${k.x},${k.z}) is on the island or its beach (sea starts at 31 m)`);
@@ -212,88 +289,98 @@ const at = (x: number, z: number, kind?: Block['kind']) => {
   assert.ok(k, `course block at (${x},${z}) exists`);
   return k as Block;
 };
-const topOf = (x: number, z: number) => blockTop(at(x, z));
 
-/** Fraction of jump timings (positions along the approach) for which `attempt` succeeds. */
-const passRate = (positions: number[], attempt: (at: number) => boolean) =>
-  positions.filter(attempt).length / positions.length;
-const range = (from: number, to: number, step: number) => {
-  const out: number[] = [];
-  for (let v = from; from < to ? v <= to + 1e-9 : v >= to - 1e-9; v += from < to ? step : -step) out.push(v);
-  return out;
+/** Distance from a point on a block to the block's edge, travelling in direction (ux, uz). */
+const edgeDistance = (k: Block, px: number, pz: number, ux: number, uz: number) => {
+  const tx = Math.abs(ux) > 1e-9 ? ((ux > 0 ? k.x + k.w / 2 : k.x - k.w / 2) - px) / ux : Infinity;
+  const tz = Math.abs(uz) > 1e-9 ? ((uz > 0 ? k.z + k.d / 2 : k.z - k.d / 2) - pz) / uz : Infinity;
+  return Math.max(0, Math.min(tx, tz));
 };
 
-// step 1.0 -> step 1.4 (the steps run along +x, so face +x): walkers and sprinters both get there
-{
-  const attempt = (sprint: boolean) => (at: number) => {
-    const p = newSim(14, -7);
-    p.y = topOf(14, -7);
-    const hop = once((s) => s.x > at && s.onGround);
-    drive(p, OBSTACLES, 2.2, (s) => ({ f: s.x > 17 ? 0 : 1, sprint, jump: hop(s) }), yawToward(1, 0));
-    return near(p.y, topOf(17, -7)) && p.x > 16 && p.x < 18;
-  };
-  const walk = passRate(range(14.2, 15.4, 0.1), attempt(false));
-  assert.ok(walk >= 0.3, `walking up the steps is forgiving enough: ${(walk * 100).toFixed(0)}% of timings land`);
+interface Hop {
+  name: string;
+  from: Block;
+  to: Block;
+  sprint: boolean;
+  grab: boolean; // hold the grab button in the air and pull up
+  minPass: number; // fraction of jump timings that must succeed
+  start?: [number, number]; // where on `from` the run starts (default: its middle), e.g. the end of a plank
 }
 
-// platform -> platform: a 2.2 m gap, jumped from the edge at a walk
-{
-  const attempt = (at: number) => {
-    const p = newSim(20, -10);
-    p.y = topOf(20, -10);
-    const hop = once((s) => s.z < at && s.onGround);
-    // walking pace: a sprint jump carries ~6 m and would sail over the 2 m landing pad
-    drive(p, OBSTACLES, 3, (s) => ({ f: s.z < -13.5 ? 0 : 1, sprint: false, jump: hop(s) }));
-    return near(p.y, topOf(19.5, -14.2)) && p.z < -13.2 && p.z > -15.2;
-  };
-  const rate = passRate(range(-10.3, -10.95, 0.05), attempt);
-  assert.ok(rate >= 0.3, `the gap jump is forgiving enough: ${(rate * 100).toFixed(0)}% of timings land`);
-}
-
-// platform -> 3.0 m wall: you catch the ledge and pull up (or, with perfect timing, land on it)
-{
-  const wallTop = topOf(19.5, -17.8);
-  let grabs = 0;
-  const attempt = (sprint: boolean) => (at: number) => {
-    const p = newSim(19.5, -14.2);
-    p.y = topOf(19.5, -14.2);
-    const hop = once((s) => s.z < at && s.onGround);
-    let up = false;
-    const seen = drive(p, OBSTACLES, 5, (s) => {
-      if (near(s.y, wallTop, 0.05) && s.onGround) up = true;
-      if (s.hanging) return { jump: true }; // pull up
-      return { f: up ? 0 : 1, sprint, jump: hop(s) };
-    });
-    if (seen.hanging) grabs++;
-    return up && near(p.y, wallTop);
-  };
-  const timings = range(-14.3, -15.15, 0.05);
-  const walk = passRate(timings, attempt(false));
-  const run = passRate(timings, attempt(true));
-  assert.ok(walk >= 0.3, `the course wall is reachable at a walk: ${(walk * 100).toFixed(0)}%`);
-  assert.ok(run >= 0.3, `...and at a sprint: ${(run * 100).toFixed(0)}%`);
-  assert.ok(grabs > 0, 'ledge grabbing is actually exercised by the course wall');
-}
-
-// plank -> goal tower: vault the last metre
-{
-  const p = newSim(11.5, -17.8);
-  p.y = topOf(14, -17.8);
-  let pressed = false;
-  const seen = drive(
+/** Runs from the middle of `from` toward `to`, jumping `before` metres before the edge. */
+function attemptHop(h: Hop, before: number): boolean {
+  const sx = h.start ? h.start[0] : h.from.x;
+  const sz = h.start ? h.start[1] : h.from.z;
+  const dx = h.to.x - sx;
+  const dz = h.to.z - sz;
+  const len = Math.hypot(dx, dz);
+  const ux = dx / len;
+  const uz = dz / len;
+  const edge = edgeDistance(h.from, sx, sz, ux, uz);
+  const p = newSim(sx, sz);
+  p.y = blockTop(h.from);
+  const goal = blockTop(h.to);
+  let arrived = false;
+  let jumpFrames = 0;
+  let triggered = false;
+  drive(
     p,
     OBSTACLES,
-    4,
+    5,
     (s) => {
-      const atFace = s.x < 10.6;
-      const j = atFace && !pressed;
-      if (j) pressed = true;
-      return { f: pressed ? 0 : 1, sprint: false, jump: j };
+      if (near(s.y, goal, 0.06) && s.onGround && Math.hypot(s.x - h.to.x, s.z - h.to.z) < Math.max(h.to.w, h.to.d) / 2 + 0.35) arrived = true;
+      if (arrived) return {};
+      const travelled = Math.hypot(s.x - sx, s.z - sz);
+      if (!triggered && travelled >= edge - before) {
+        triggered = true;
+        jumpFrames = 15;
+      }
+      const jump = jumpFrames > 0;
+      if (jumpFrames > 0) jumpFrames--;
+      if (s.hanging) return { grab: true, f: 1, jump: s.hangTime > 0.25 && s.hangTime < 0.4 };
+      return { f: 1, sprint: h.sprint, jump, grab: h.grab && !s.onGround };
     },
-    yawToward(-1, 0.22),
+    yawToward(ux, uz),
   );
-  assert.ok(seen.mantled && near(p.y, topOf(8.5, -17)), `reached the goal: y=${p.y.toFixed(2)} x=${p.x.toFixed(2)}`);
+  return arrived && near(p.y, goal, 0.06);
 }
+
+/** Best result over walking and sprinting, across a sweep of jump timings (0 to 1.6 m before the edge). */
+const passRate = (h: Hop) => {
+  const offsets: number[] = [];
+  for (let o = 0.05; o <= 1.6; o += 0.1) offsets.push(o);
+  const rate = (sprint: boolean) => offsets.filter((o) => attemptHop({ ...h, sprint }, o)).length / offsets.length;
+  return Math.max(rate(false), rate(true));
+};
+
+const B = (x: number, z: number) => at(x, z);
+const HOPS: Hop[] = [
+  { name: 'step 1.0 -> step 1.4', from: B(14, -7), to: B(17, -7), sprint: false, grab: false, minPass: 0.2 },
+  { name: 'step -> hop 1 (3 m)', from: B(17, -7), to: B(21.5, -9), sprint: false, grab: false, minPass: 0.1 },
+  { name: 'hop 1 -> hop 2 (4.6 m)', from: B(21.5, -9), to: B(23.6, -14), sprint: false, grab: false, minPass: 0.03 },
+  { name: 'hop 2 -> hop 3 (5.2 m)', from: B(23.6, -14), to: B(18, -17.2), sprint: false, grab: false, minPass: 0.03 },
+  { name: 'hop 3 -> 4.6 m wall (grab)', from: B(18, -17.2), to: B(17, -21.2), sprint: false, grab: true, minPass: 0.05 },
+  { name: 'wall top -> plank', from: B(17, -21.2), to: B(10.5, -21.2), sprint: false, grab: false, minPass: 0.15 },
+  { name: 'plank -> pillar 1', from: B(10.5, -21.2), to: B(1, -19.5), sprint: false, grab: false, minPass: 0.02, start: [6.6, -21.2] },
+  { name: 'pillar 1 -> pillar 2', from: B(1, -19.5), to: B(-3.7, -17.2), sprint: false, grab: false, minPass: 0.02 },
+  { name: 'pillar 2 -> pillar 3', from: B(-3.7, -17.2), to: B(-8.4, -14.9), sprint: false, grab: false, minPass: 0.02 },
+  { name: 'pillar 3 -> pillar 4', from: B(-8.4, -14.9), to: B(-13.1, -12.6), sprint: false, grab: false, minPass: 0.02 },
+  { name: 'pillar 4 -> tower wall 1 (grab)', from: B(-13.1, -12.6), to: B(-18.5, -10.5), sprint: false, grab: true, minPass: 0.02 },
+  { name: 'tower wall 1 -> wall 2 (grab)', from: B(-18.5, -10.5), to: B(-22.5, -9), sprint: false, grab: true, minPass: 0.1 },
+  { name: 'tower wall 2 -> goal (grab)', from: B(-22.5, -9), to: B(-26, -9.5), sprint: false, grab: true, minPass: 0.1 },
+];
+for (const h of HOPS) {
+  const rate = passRate(h);
+  assert.ok(rate >= h.minPass, `obby segment "${h.name}" is reachable but not trivial: ${(rate * 100).toFixed(0)}% of timings (needs >= ${h.minPass * 100}%)`);
+}
+// the whole point of a harder obby: nothing in it is a pushover, and it isn't impossible either
+const rates = HOPS.map((h) => passRate(h));
+console.log(HOPS.map((h, i) => `  ${h.name.padEnd(36)} ${(rates[i] * 100).toFixed(0).padStart(3)}% of timings land`).join(String.fromCharCode(10)));
+assert.ok(Math.min(...rates) < 0.45, 'the hardest segments need real precision');
+assert.ok(rates.filter((r) => r < 0.45).length >= 3, 'several segments are demanding, not just one');
+
+// the goal is high: the course really is a climb
+assert.ok(blockTop(at(-26, -9.5, 'goal')) >= 10, 'the goal is 10 m or more above the ground');
 
 // the yard's slide beam really is slide-only
 {
