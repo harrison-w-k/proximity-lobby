@@ -24,6 +24,7 @@ export type ClientMsg =
   | { t: 'join'; name: string; token?: string }
   | { t: 'pos'; x: number; z: number; ry: number; y?: number; crouch?: boolean }
   | { t: 'chat'; text: string }
+  | { t: 'dm'; to: string; text: string } // private message to a player id
   | { t: 'signal'; to: string; data: unknown };
 
 export type ServerMsg =
@@ -40,4 +41,7 @@ export type ServerMsg =
   | { t: 'left'; id: string }
   | { t: 'state'; p: [id: string, x: number, z: number, ry: number, y: number, crouch: 0 | 1][] }
   | { t: 'chat'; id: string; name: string; text: string }
+  // Sent to both the sender and the recipient, so each sees the same line.
+  | { t: 'dm'; fromId: string; from: string; toId: string; to: string; text: string }
+  | { t: 'notice'; text: string }
   | { t: 'signal'; from: string; data: unknown };

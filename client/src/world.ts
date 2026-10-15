@@ -29,9 +29,9 @@ function makeCheckerTexture(maxAniso: number): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#e9e9e9';
+  g.fillStyle = '#f1f6fc';
   g.fillRect(0, 0, 64, 64);
-  g.fillStyle = '#3b3f4a';
+  g.fillStyle = '#7fa8d6';
   g.fillRect(0, 0, 32, 32);
   g.fillRect(32, 32, 32, 32);
   const tex = new THREE.CanvasTexture(c);
@@ -66,7 +66,7 @@ function makeNameSprite(name: string): THREE.Sprite {
 }
 
 // ---------- scenery: twilight sky, sea and island ----------
-const SKY_HORIZON = 0x2a2552; // fog and sea fade into this, so the horizon is seamless
+const SKY_HORIZON = 0xa6dcf8; // fog and sea fade into this, so the horizon is seamless
 
 function seeded(seed: number) {
   let a = seed >>> 0;
@@ -85,10 +85,10 @@ function makeSkyDome(): THREE.Mesh {
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x03050d) },
-      mid: { value: new THREE.Color(0x0d1432) },
+      top: { value: new THREE.Color(0x0a2e7a) },
+      mid: { value: new THREE.Color(0x1c78d8) },
       horizon: { value: new THREE.Color(SKY_HORIZON) },
-      glow: { value: new THREE.Color(0x7a4a86) },
+      glow: { value: new THREE.Color(0xfff3d2) },
     },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `
@@ -98,8 +98,8 @@ function makeSkyDome(): THREE.Mesh {
         float h = vDir.y;
         vec3 c = mix(horizon, mid, smoothstep(0.0, 0.28, h));
         c = mix(c, top, smoothstep(0.22, 0.85, h));
-        c = mix(c, glow, (1.0 - smoothstep(0.0, 0.09, abs(h))) * 0.55);   // faint warm band at the horizon
-        c = mix(c, horizon * 0.55, smoothstep(0.0, -0.25, h));            // below the horizon: deeper
+        c = mix(c, glow, (1.0 - smoothstep(0.0, 0.12, abs(h))) * 0.4);    // soft sunlit band at the horizon
+        c = mix(c, horizon * 0.82, smoothstep(0.0, -0.25, h));            // below the horizon: slightly deeper
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
@@ -108,57 +108,58 @@ function makeSkyDome(): THREE.Mesh {
   return dome;
 }
 
-function makeStars(): THREE.Group {
-  const rnd = seeded(7);
-  const group = new THREE.Group();
-  const layer = (count: number, size: number, color: number, opacity: number) => {
-    const pos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const y = 0.03 + rnd() * 0.97; // upper hemisphere only
-      const a = rnd() * Math.PI * 2;
-      const r = Math.sqrt(1 - y * y);
-      pos.set([Math.cos(a) * r * 800, y * 800, Math.sin(a) * r * 800], i * 3);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const m = new THREE.PointsMaterial({
-      color,
-      size,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      fog: false,
-    });
-    group.add(new THREE.Points(g, m));
-  };
-  layer(1600, 1.3, 0xffffff, 0.75);
-  layer(140, 2.4, 0xcfe0ff, 0.95);
-  return group;
-}
-
-function makeMoon(): THREE.Sprite {
+function makeSun(): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d')!;
-  const halo = g.createRadialGradient(128, 128, 10, 128, 128, 128);
-  halo.addColorStop(0, 'rgba(235,242,255,0.55)');
-  halo.addColorStop(0.35, 'rgba(160,185,255,0.18)');
-  halo.addColorStop(1, 'rgba(160,185,255,0)');
+  const halo = g.createRadialGradient(128, 128, 6, 128, 128, 128);
+  halo.addColorStop(0, 'rgba(255,255,255,1)');
+  halo.addColorStop(0.12, 'rgba(255,248,214,0.95)');
+  halo.addColorStop(0.4, 'rgba(255,236,170,0.28)');
+  halo.addColorStop(1, 'rgba(255,236,170,0)');
   g.fillStyle = halo;
   g.fillRect(0, 0, 256, 256);
-  g.fillStyle = '#f4f7ff';
-  g.beginPath();
-  g.arc(128, 128, 30, 0, Math.PI * 2);
-  g.fill();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const moon = new THREE.Sprite(
+  const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }),
   );
-  moon.scale.set(220, 220, 1);
-  moon.position.set(-340, 300, -460);
-  return moon;
+  sun.scale.set(420, 420, 1);
+  sun.position.set(-300, 250, -520);
+  return sun;
+}
+
+function makeClouds(): THREE.Sprite[] {
+  const rnd = seeded(5);
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  for (let i = 0; i < 9; i++) {
+    const x = 40 + rnd() * 176;
+    const y = 50 + rnd() * 36;
+    const r = 22 + rnd() * 30;
+    const blob = g.createRadialGradient(x, y, 2, x, y, r);
+    blob.addColorStop(0, 'rgba(255,255,255,0.95)');
+    blob.addColorStop(0.6, 'rgba(255,255,255,0.45)');
+    blob.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = blob;
+    g.fillRect(0, 0, 256, 128);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const clouds: THREE.Sprite[] = [];
+  for (let i = 0; i < 11; i++) {
+    const m = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.55 + rnd() * 0.35, fog: false, depthWrite: false });
+    const cloud = new THREE.Sprite(m);
+    const angle = (i / 11) * Math.PI * 2 + rnd() * 0.4;
+    const radius = 560 + rnd() * 160;
+    cloud.position.set(Math.cos(angle) * radius, 110 + rnd() * 170, Math.sin(angle) * radius);
+    const w = 300 + rnd() * 260;
+    cloud.scale.set(w, w * 0.4, 1);
+    clouds.push(cloud);
+  }
+  return clouds;
 }
 
 function makeWaterTexture(): THREE.CanvasTexture {
@@ -166,14 +167,14 @@ function makeWaterTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#0a1733';
+  g.fillStyle = '#0c68ba';
   g.fillRect(0, 0, 256, 256);
   g.lineCap = 'round';
   for (let i = 0; i < 260; i++) {
     const x = rnd() * 256;
     const y = rnd() * 256;
     const len = 6 + rnd() * 22;
-    g.strokeStyle = `rgba(120,160,255,${0.05 + rnd() * 0.14})`;
+    g.strokeStyle = `rgba(205,242,255,${0.08 + rnd() * 0.22})`;
     g.lineWidth = 1 + rnd() * 1.6;
     for (const dx of [-256, 0, 256]) {
       // draw wrapped copies so the texture tiles without a seam
@@ -192,8 +193,8 @@ function makeWaterTexture(): THREE.CanvasTexture {
 
 function makePalm(rnd: () => number): THREE.Group {
   const palm = new THREE.Group();
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d4d3b });
-  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2c6b57, side: THREE.DoubleSide });
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a45 });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2aa56a, side: THREE.DoubleSide });
   const height = 4 + rnd() * 1.6;
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.2, height, 6), trunkMat);
   trunk.position.y = height / 2;
@@ -306,7 +307,8 @@ export class World {
   pitch = 0;
   feetY = 0; // height of our feet above the floor; > 0 while jumping
   orbit = true; // slow fly-around of the arena behind the main screen; off once we join
-  thirdPerson = false; // toggled with T; the camera eases between the two views
+  // 0 = first person, 1 = third person behind you, 2 = third person in front of you (T cycles, like Minecraft F5)
+  viewMode: 0 | 1 | 2 = 0;
   crouching = false;
   inputEnabled = true;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
@@ -319,7 +321,8 @@ export class World {
   private vz = 0;
   private eye = EYE_HEIGHT; // current eye height, eased toward standing/crouching
   private orbitAngle = Math.random() * Math.PI * 2;
-  private tpBlend = 0; // 0 = first person, 1 = fully third person
+  private tpBlend = 0; // 0 = camera at the head, 1 = fully pulled back
+  private frontBlend = 0; // 0 = camera behind you, 1 = camera in front, facing you
   private selfThird = new THREE.Group(); // our full avatar, shown only in third person
   private selfBody = new THREE.Group();
   private selfSkin = new THREE.MeshLambertMaterial({ color: 0x6b7bd6 });
@@ -334,17 +337,17 @@ export class World {
     // Twilight over a dark sea: the fog is the horizon colour, so the water melts into the sky.
     const horizon = new THREE.Color(SKY_HORIZON);
     this.scene.background = horizon;
-    this.scene.fog = new THREE.Fog(horizon, 70, 340);
+    this.scene.fog = new THREE.Fog(horizon, 90, 380);
     this.camera.rotation.order = 'YXZ';
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.0;
 
-    this.scene.add(new THREE.HemisphereLight(0x8fa0ff, 0x151a2b, 1.0));
-    const moonlight = new THREE.DirectionalLight(0xb9c8ff, 1.0);
-    moonlight.position.set(-34, 60, -46); // from the moon's side of the sky
-    this.scene.add(moonlight);
+    this.scene.add(new THREE.HemisphereLight(0xdff2ff, 0x6f90b3, 1.3));
+    const sunlight = new THREE.DirectionalLight(0xfff1d0, 1.5);
+    sunlight.position.set(-34, 70, -46); // from the sun's side of the sky
+    this.scene.add(sunlight);
 
-    this.scene.add(makeSkyDome(), makeStars(), makeMoon());
+    this.scene.add(makeSkyDome(), makeSun(), ...makeClouds());
     this.buildIsland();
     this.buildSelfBody();
 
@@ -391,6 +394,10 @@ export class World {
     this.pos.set(x, EYE_HEIGHT, z);
   }
 
+  cycleView() {
+    this.viewMode = ((this.viewMode + 1) % 3) as 0 | 1 | 2;
+  }
+
   setFov(deg: number) {
     this.camera.fov = deg;
     this.camera.updateProjectionMatrix();
@@ -422,21 +429,21 @@ export class World {
 
     const rim = new THREE.Mesh(
       new THREE.RingGeometry(R - 0.5, R, 96),
-      new THREE.MeshBasicMaterial({ color: 0x4f7cff }),
+      new THREE.MeshBasicMaterial({ color: 0x35c8ff }),
     );
     rim.rotation.x = -Math.PI / 2;
     rim.position.y = 0.01;
 
     const beach = new THREE.Mesh(
       new THREE.RingGeometry(R, R + 7, 96),
-      new THREE.MeshLambertMaterial({ color: 0x8f836d }),
+      new THREE.MeshLambertMaterial({ color: 0xe9d8a8 }),
     );
     beach.rotation.x = -Math.PI / 2;
     beach.position.y = -0.02;
 
     const foam = new THREE.Mesh(
       new THREE.RingGeometry(R + 6.6, R + 8.2, 96),
-      new THREE.MeshBasicMaterial({ color: 0xbcd0ff, transparent: true, opacity: 0.35 }),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
     );
     foam.rotation.x = -Math.PI / 2;
     foam.position.y = -0.3;
@@ -461,7 +468,7 @@ export class World {
     }
 
     // Rocks on the beach and out in the shallows.
-    const rockMat = new THREE.MeshLambertMaterial({ color: 0x4a4f66 });
+    const rockMat = new THREE.MeshLambertMaterial({ color: 0x8493ad });
     for (let i = 0; i < 16; i++) {
       const angle = rnd() * Math.PI * 2;
       const r = R + 3 + rnd() * 24;
@@ -618,24 +625,34 @@ export class World {
     for (const a of this.avatars.values()) a.update(dt);
     this.collide();
     this.pos.y = this.feetY + this.eye;
-    this.tpBlend += ((this.thirdPerson ? 1 : 0) - this.tpBlend) * (1 - Math.exp(-7 * dt));
-    if (Math.abs(this.tpBlend - (this.thirdPerson ? 1 : 0)) < 0.001) this.tpBlend = this.thirdPerson ? 1 : 0;
+    const ease = 1 - Math.exp(-7 * dt);
+    const wantBack = this.viewMode > 0 ? 1 : 0;
+    const wantFront = this.viewMode === 2 ? 1 : 0;
+    this.tpBlend += (wantBack - this.tpBlend) * ease;
+    this.frontBlend += (wantFront - this.frontBlend) * ease;
+    if (Math.abs(this.tpBlend - wantBack) < 0.001) this.tpBlend = wantBack;
+    if (Math.abs(this.frontBlend - wantFront) < 0.001) this.frontBlend = wantFront;
     if (this.orbit) {
       this.orbitAngle += dt * 0.06;
       const r = MAP_RADIUS * 0.7;
       this.camera.position.set(Math.cos(this.orbitAngle) * r, 6, Math.sin(this.orbitAngle) * r);
       this.camera.lookAt(0, 5, 0); // slightly down, so the horizon, moon and stars frame the menu
     } else {
-      // Smoothstep so the pull-back starts and ends gently; the head position never moves.
+      // Smoothstep so moves start and end gently. The camera orbits the head: pulling back is a
+      // change of distance, and going to the front view swings it 180 degrees around you (yaw + PI)
+      // with the pitch mirrored, so it always looks at you. The head itself never moves.
       const t = this.tpBlend * this.tpBlend * (3 - 2 * this.tpBlend);
-      const cp = Math.cos(this.pitch);
+      const f = this.frontBlend * this.frontBlend * (3 - 2 * this.frontBlend);
+      const camYaw = this.yaw + Math.PI * f;
+      const camPitch = this.pitch * (1 - 2 * f);
+      const cp = Math.cos(camPitch);
       const back = THIRD_DISTANCE * t;
       this.camera.position.set(
-        this.pos.x + Math.sin(this.yaw) * cp * back,
-        Math.max(0.35, this.pos.y - Math.sin(this.pitch) * back + THIRD_LIFT * t),
-        this.pos.z + Math.cos(this.yaw) * cp * back,
+        this.pos.x + Math.sin(camYaw) * cp * back,
+        Math.max(0.35, this.pos.y - Math.sin(camPitch) * back + THIRD_LIFT * t),
+        this.pos.z + Math.cos(camYaw) * cp * back,
       );
-      this.camera.rotation.set(this.pitch, this.yaw, 0);
+      this.camera.rotation.set(camPitch, camYaw, 0);
     }
     // First-person torso and legs only while the camera is at the head; the capsule takes over as it pulls back.
     this.selfBody.visible = !this.orbit && this.tpBlend < 0.02;

@@ -24,8 +24,18 @@ export class Voice {
   readonly speaking = new Set<string>(); // peer ids, plus 'me'
   muted = false;
 
-  private local: MediaStream | null = null;
-  private localAnalyser: AnalyserNode | null = null;
+  // Send path: mic -> inputGain -> sendDest. Peers always get sendDest's track, so changing the
+  // microphone or its volume never needs a renegotiation. Receive path: peer -> gain -> master -> speakers.
+  private rawMic: MediaStream | null = null;
+  private micSource: MediaStreamAudioSourceNode | null = null;
+  private inputGain = this.ctx.createGain();
+  private sendDest = this.ctx.createMediaStreamDestination();
+  private meter = this.ctx.createAnalyser();
+  private monitor = this.ctx.createGain(); // "hear myself" for the mic test; 0 = off
+  private master = this.ctx.createGain();
+  private meterBuf = new Uint8Array(1024);
+  currentInputId = '';
+  currentOutputId = '';
   private lastLocalLoud = 0;
   private peers = new Map<string, Peer>();
   private volumes = new Map<string, number>(); // peer id -> volume multiplier (1 = normal)
@@ -37,10 +47,23 @@ export class Voice {
     l.upX.value = 0;
     l.upY.value = 1;
     l.upZ.value = 0;
+
+    this.meter.fftSize = 1024;
+    this.monitor.gain.value = 0;
+    this.inputGain.connect(this.sendDest);
+    this.inputGain.connect(this.meter);
+    this.inputGain.connect(this.monitor);
+    this.monitor.connect(this.master);
+    this.master.connect(this.ctx.destination);
   }
 
   get hasMic() {
-    return this.local !== null;
+    return this.rawMic !== null;
+  }
+
+  /** Output device switching needs AudioContext.setSinkId (Chromium browsers). */
+  get canChooseOutput() {
+    return typeof (this.ctx as unknown as { setSinkId?: unknown }).setSinkId === 'function';
   }
 
   setIce(servers: RTCIceServer[]) {
@@ -48,25 +71,91 @@ export class Voice {
   }
 
   /** Must be called from a user gesture (join click). Returns false if there's no mic. */
-  async init(): Promise<boolean> {
+  async init(preferredInput?: string): Promise<boolean> {
     await this.ctx.resume().catch(() => {});
+    return this.openMic(preferredInput);
+  }
+
+  /** (Re)open the microphone, optionally a specific device. Keeps the old one if the new one fails. */
+  private async openMic(deviceId?: string): Promise<boolean> {
     if (!navigator.mediaDevices?.getUserMedia) return false;
+    let stream: MediaStream;
     try {
-      this.local = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { ideal: deviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
     } catch {
       return false;
     }
-    this.localAnalyser = this.ctx.createAnalyser();
-    this.localAnalyser.fftSize = 512;
-    this.ctx.createMediaStreamSource(this.local).connect(this.localAnalyser);
+    this.micSource?.disconnect();
+    this.rawMic?.getTracks().forEach((t) => t.stop());
+    this.rawMic = stream;
+    this.micSource = this.ctx.createMediaStreamSource(stream);
+    this.micSource.connect(this.inputGain);
+    this.currentInputId = stream.getAudioTracks()[0]?.getSettings().deviceId ?? '';
     return true;
   }
 
   setMuted(m: boolean) {
     this.muted = m;
-    this.local?.getAudioTracks().forEach((t) => (t.enabled = !m));
+    this.sendDest.stream.getAudioTracks().forEach((t) => (t.enabled = !m));
+  }
+
+  async setInputDevice(id: string): Promise<boolean> {
+    return this.openMic(id);
+  }
+
+  async setOutputDevice(id: string): Promise<boolean> {
+    if (!this.canChooseOutput) return false;
+    try {
+      await (this.ctx as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(id === 'default' ? '' : id);
+      this.currentOutputId = id;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** What you send, as a multiplier (1 = unchanged). */
+  setInputVolume(v: number) {
+    this.inputGain.gain.value = v;
+  }
+
+  /** Everything you hear, as a multiplier (1 = unchanged). */
+  setOutputVolume(v: number) {
+    this.master.gain.value = v;
+  }
+
+  /** Mic test: play your own (post-volume) voice back to you. Use headphones. */
+  setMonitor(on: boolean) {
+    this.monitor.gain.value = on ? 1 : 0;
+  }
+
+  /** Current microphone level after the input volume, 0..1 (perceptual). Cheap enough to call often. */
+  inputLevel(): number {
+    this.meter.getByteTimeDomainData(this.meterBuf);
+    let sum = 0;
+    for (const v of this.meterBuf) sum += ((v - 128) / 128) ** 2;
+    const rms = Math.sqrt(sum / this.meterBuf.length);
+    const db = 20 * Math.log10(Math.max(rms, 1e-4));
+    return Math.min(1, Math.max(0, (db + 60) / 60));
+  }
+
+  async listDevices(): Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }> {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      return {
+        inputs: all.filter((d) => d.kind === 'audioinput'),
+        outputs: all.filter((d) => d.kind === 'audiooutput'),
+      };
+    } catch {
+      return { inputs: [], outputs: [] };
+    }
   }
 
   connectedCount(): number {
@@ -158,7 +247,7 @@ export class Voice {
       for (const v of this.buf) sum += ((v - 128) / 128) ** 2;
       return Math.sqrt(sum / this.buf.length);
     };
-    if (this.localAnalyser && !this.muted && level(this.localAnalyser) > SPEAK_THRESHOLD) this.lastLocalLoud = now;
+    if (this.hasMic && !this.muted && level(this.meter) > SPEAK_THRESHOLD) this.lastLocalLoud = now;
     this.setSpeaking('me', now - this.lastLocalLoud < SPEAK_HOLD_MS);
     for (const [id, p] of this.peers) {
       if (p.analyser && level(p.analyser) > SPEAK_THRESHOLD) p.lastLoud = now;
@@ -185,8 +274,8 @@ export class Voice {
     };
     pc.ontrack = (e) => this.attach(peer, id, e.streams[0] ?? new MediaStream([e.track]));
 
-    if (this.local) this.local.getTracks().forEach((t) => pc.addTrack(t, this.local!));
-    else pc.addTransceiver('audio', { direction: 'recvonly' });
+    // Always send the gain-stage output: silent until a microphone is connected.
+    this.sendDest.stream.getTracks().forEach((t) => pc.addTrack(t, this.sendDest.stream));
     return peer;
   }
 
@@ -213,7 +302,7 @@ export class Voice {
     src.connect(analyser); // analyser taps the raw voice, so the speaking glow ignores your volume setting
     src.connect(panner);
     panner.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.master);
     peer.nodes = [src, analyser, panner, gain];
     peer.panner = panner;
     peer.gain = gain;

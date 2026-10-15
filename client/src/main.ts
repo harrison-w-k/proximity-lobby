@@ -13,6 +13,8 @@ const net = new Net();
 let voice: Voice | null = null;
 let joined = false;
 let typing = false;
+let myId = '';
+let lastDmPeer = ''; // who last whispered to us, for /r
 const names = new Map<string, string>(); // other players: id -> name
 
 // ---------- HUD ----------
@@ -76,6 +78,8 @@ function openMenu() {
   settings.hidden = false;
   refreshMenu();
   renderPlayerList();
+  syncAudioControls();
+  void refreshDevices();
   refreshRanges();
   updatePaused();
 }
@@ -83,6 +87,7 @@ function openMenu() {
 function closeMenu(relock: boolean) {
   if (!menuOpen) return;
   menuOpen = false;
+  setTesting(false);
   settings.hidden = true;
   world.inputEnabled = true;
   if (relock) world.lock();
@@ -221,9 +226,117 @@ window.addEventListener(
   { passive: false },
 );
 
+// ---- Audio: devices, volumes and a mic test ----
+const store = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* storage unavailable */
+    }
+  },
+};
+function savedVolume(key: string): number {
+  const raw = store.get(key);
+  const v = raw === null ? NaN : Number(raw);
+  return v >= 0 && v <= 2 ? v : 1;
+}
+
+const inDevice = $<HTMLSelectElement>('in-device');
+const outDevice = $<HTMLSelectElement>('out-device');
+const inVol = $<HTMLInputElement>('in-vol');
+const outVol = $<HTMLInputElement>('out-vol');
+const meterFill = $('meter-fill');
+const testBtn = $<HTMLButtonElement>('test-btn');
+let testing = false;
+
+/** Apply remembered volumes and output device once the voice engine exists. */
+function applyAudioPrefs() {
+  if (!voice) return;
+  voice.setInputVolume(savedVolume('inVol'));
+  voice.setOutputVolume(savedVolume('outVol'));
+  const out = store.get('audioOut');
+  if (out) void voice.setOutputDevice(out);
+}
+
+function syncAudioControls() {
+  inVol.value = String(Math.round(savedVolume('inVol') * 100));
+  outVol.value = String(Math.round(savedVolume('outVol') * 100));
+  $('in-vol-val').textContent = pct(savedVolume('inVol'));
+  $('out-vol-val').textContent = pct(savedVolume('outVol'));
+}
+
+async function refreshDevices() {
+  if (!voice) return;
+  const { inputs, outputs } = await voice.listDevices();
+  const fill = (sel: HTMLSelectElement, devs: MediaDeviceInfo[], current: string, fallback: string) => {
+    sel.replaceChildren();
+    devs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `${fallback} ${i + 1}`; // labels are empty until the mic is allowed
+      sel.append(opt);
+    });
+    if (current && devs.some((d) => d.deviceId === current)) sel.value = current;
+    sel.disabled = devs.length === 0;
+  };
+  fill(inDevice, inputs, voice.currentInputId, 'Microphone');
+  fill(outDevice, outputs, voice.currentOutputId || 'default', 'Speakers');
+  outDevice.disabled = !voice.canChooseOutput || outputs.length === 0;
+  $('out-note').hidden = voice.canChooseOutput;
+}
+
+function setTesting(on: boolean) {
+  testing = on;
+  voice?.setMonitor(on);
+  testBtn.textContent = on ? 'Stop testing' : 'Test microphone';
+  testBtn.classList.toggle('active', on);
+}
+
+inVol.addEventListener('input', () => {
+  const v = Number(inVol.value) / 100;
+  voice?.setInputVolume(v);
+  $('in-vol-val').textContent = pct(v);
+  store.set('inVol', String(v));
+});
+outVol.addEventListener('input', () => {
+  const v = Number(outVol.value) / 100;
+  voice?.setOutputVolume(v);
+  $('out-vol-val').textContent = pct(v);
+  store.set('outVol', String(v));
+});
+inDevice.addEventListener('change', async () => {
+  if (!voice) return;
+  if (await voice.setInputDevice(inDevice.value)) store.set('audioIn', inDevice.value);
+  else void refreshDevices(); // that device failed; show what is actually in use
+  refreshMenu();
+  updateHud();
+});
+outDevice.addEventListener('change', async () => {
+  if (!voice) return;
+  if (await voice.setOutputDevice(outDevice.value)) store.set('audioOut', outDevice.value);
+  else void refreshDevices();
+});
+testBtn.addEventListener('click', () => setTesting(!testing));
+navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+  if (menuOpen) void refreshDevices();
+});
+setInterval(() => {
+  if (menuOpen && voice) meterFill.style.width = `${Math.round(voice.inputLevel() * 100)}%`;
+}, 50);
+syncAudioControls();
+
 // Settings tabs
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
 function showTab(name: string) {
+  if (name !== 'audio') setTesting(false); // never leave "hear myself" running unseen
   tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll<HTMLElement>('.pane').forEach((p) => (p.hidden = p.dataset.pane !== name));
 }
@@ -268,9 +381,9 @@ const chatBox = $('chat');
 const chatLog = $('chat-log');
 const chatInput = $<HTMLInputElement>('chat-input');
 
-function addChat(name: string, text: string) {
+function addChat(name: string, text: string, kind = '') {
   const line = document.createElement('div');
-  line.className = 'line';
+  line.className = kind ? `line ${kind}` : 'line';
   const who = document.createElement('b');
   who.textContent = `${name}: `;
   line.append(who, document.createTextNode(text)); // textContent only: no HTML injection
@@ -292,9 +405,46 @@ function openChat() {
   updatePaused();
 }
 
+const DM_USAGE = 'Private message: /msg @name your message   (reply with /r your message)';
+
+/** Plain text goes to everyone; /msg @name text, /w and /r are private. */
+function submitChat(text: string) {
+  if (!text.startsWith('/')) {
+    net.send({ t: 'chat', text });
+    return;
+  }
+  const cmd = /^\/(msg|w|whisper|r|reply)\b\s*(.*)$/i.exec(text);
+  if (!cmd) {
+    addChat('•', `Unknown command. ${DM_USAGE}`);
+    return;
+  }
+  const rest = cmd[2].trim();
+  if (/^(r|reply)$/i.test(cmd[1])) {
+    if (!lastDmPeer || !names.has(lastDmPeer)) addChat('•', 'Nobody has messaged you yet, or they left.');
+    else if (!rest) addChat('•', 'Type a message after /r.');
+    else net.send({ t: 'dm', to: lastDmPeer, text: rest });
+    return;
+  }
+  // Names can contain spaces, so match the longest player name the text starts with.
+  const target = rest.replace(/^@/, '');
+  const lower = target.toLowerCase();
+  let best = '';
+  for (const [id, name] of names) {
+    const n = name.toLowerCase();
+    if ((lower === n || lower.startsWith(`${n} `)) && (!best || name.length > (names.get(best)?.length ?? 0))) best = id;
+  }
+  if (!best) {
+    addChat('•', `No player like that is here. ${DM_USAGE}`);
+    return;
+  }
+  const body = target.slice((names.get(best) ?? '').length).trim();
+  if (!body) addChat('•', `Type a message after @${names.get(best)}.`);
+  else net.send({ t: 'dm', to: best, text: body });
+}
+
 function closeChat(send: boolean) {
   const text = chatInput.value.trim();
-  if (send && text) net.send({ t: 'chat', text });
+  if (send && text) submitChat(text);
   typing = false;
   chatBox.classList.remove('open');
   chatInput.hidden = true;
@@ -319,7 +469,7 @@ window.addEventListener('keydown', (e) => {
     refreshMenu();
     updateHud();
   } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
-    world.thirdPerson = !world.thirdPerson;
+    world.cycleView();
   }
 });
 
@@ -356,10 +506,11 @@ world.onFrame = () => {
   }
 
   if (voice) {
-    const e = world.camera.matrixWorld.elements; // third column = camera +Z, so forward = -Z
-    fwd.x = -e[8];
-    fwd.y = -e[9];
-    fwd.z = -e[10];
+    // Hear in the direction *you* face, not where the camera is (the front view looks back at you).
+    const cp = Math.cos(world.pitch);
+    fwd.x = -Math.sin(world.yaw) * cp;
+    fwd.y = Math.sin(world.pitch);
+    fwd.z = -Math.cos(world.yaw) * cp;
     voice.updateListener(world.pos.x, world.pos.y, world.pos.z, fwd.x, fwd.y, fwd.z);
     for (const [id, a] of world.avatars) voice.setPeerPosition(id, a.group.position.x, a.group.position.y + EYE_HEIGHT, a.group.position.z);
     voice.tick(now);
@@ -385,6 +536,7 @@ net.onMessage = (m: ServerMsg) => {
   switch (m.t) {
     case 'welcome':
       joined = true;
+      myId = m.id;
       world.orbit = false;
       world.setSelfId(m.id);
       world.teleport(m.spawn.x, m.spawn.z);
@@ -436,6 +588,15 @@ net.onMessage = (m: ServerMsg) => {
       break;
     case 'chat':
       addChat(m.name, m.text);
+      break;
+    case 'dm': {
+      const mine = m.fromId === myId;
+      if (!mine) lastDmPeer = m.fromId;
+      addChat(mine ? `You → ${m.to}` : `${m.from} → you`, m.text, 'dm');
+      break;
+    }
+    case 'notice':
+      addChat('•', m.text);
       break;
     case 'signal':
       void voice?.handleSignal(m.from, m.data);
@@ -598,7 +759,8 @@ async function enterLobby(name: string, token?: string) {
   // repeated join used to leak another one.
   if (!voice) {
     voice = new Voice((to, data) => net.send({ t: 'signal', to, data }));
-    await voice.init(); // continues without a mic if denied
+    await voice.init(store.get('audioIn') ?? undefined); // continues without a mic if denied
+    applyAudioPrefs();
   }
 
   setStatus('Connecting…');

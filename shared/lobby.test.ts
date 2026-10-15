@@ -60,6 +60,25 @@ assert.equal(b.inbox.filter((m) => m.t === 'chat').length, 5);
 a.tx({ t: 'signal', to: b.s.id, data: { x: 1 } });
 assert.ok(b.inbox.some((m) => m.t === 'signal'));
 
+// private messages: both ends get one copy, nobody else does, and they share the chat rate limit
+const dmLobby = new Lobby([]);
+const p1 = client(dmLobby);
+const p2 = client(dmLobby);
+const p3 = client(dmLobby);
+for (const [c, n] of [[p1, 'ann'], [p2, 'bo'], [p3, 'cy']] as const) c.tx({ t: 'join', name: n });
+p1.tx({ t: 'dm', to: p2.s.id, text: '  psst  ' });
+const dmTo = p2.inbox.find((m) => m.t === 'dm');
+const dmFrom = p1.inbox.find((m) => m.t === 'dm');
+assert.deepEqual(dmTo, { t: 'dm', fromId: p1.s.id, from: 'ann', toId: p2.s.id, to: 'bo', text: 'psst' });
+assert.deepEqual(dmFrom, dmTo);
+assert.ok(!p3.inbox.some((m) => m.t === 'dm')); // the third player sees nothing
+p1.tx({ t: 'dm', to: 'nope', text: 'hi' });
+assert.ok(p1.inbox.some((m) => m.t === 'notice'));
+p1.tx({ t: 'dm', to: p1.s.id, text: 'me' }); // can't message yourself
+assert.equal(p1.inbox.filter((m) => m.t === 'notice').length, 2);
+for (let i = 0; i < 8; i++) p1.tx({ t: 'dm', to: p2.s.id, text: `n${i}` });
+assert.ok(p2.inbox.filter((m) => m.t === 'dm').length <= 5); // rate limited (shared with chat)
+
 // leaving is announced; lobby cap at MAX_PLAYERS
 lobby.close(b.s);
 assert.ok(a.inbox.some((m) => m.t === 'left'));

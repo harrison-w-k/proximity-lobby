@@ -173,12 +173,22 @@ export class Lobby {
       case 'chat': {
         if (!c.joined || typeof msg.text !== 'string') return;
         const text = msg.text.trim().slice(0, MAX_CHAT);
-        if (!text) return;
-        const now = Date.now();
-        c.chatTimes = c.chatTimes.filter((t) => now - t < 5000);
-        if (c.chatTimes.length >= 5) return; // rate limit: 5 msgs / 5 s
-        c.chatTimes.push(now);
+        if (!text || !this.allowChat(c)) return;
         this.broadcast({ t: 'chat', id: c.id, name: c.name, text });
+        break;
+      }
+      case 'dm': {
+        if (!c.joined || typeof msg.text !== 'string' || typeof msg.to !== 'string') return;
+        const text = msg.text.trim().slice(0, MAX_CHAT);
+        if (!text || !this.allowChat(c)) return;
+        const target = this.conns.get(msg.to);
+        if (!target?.joined || target.id === c.id) {
+          this.send(c, { t: 'notice', text: 'That player is not here.' });
+          return;
+        }
+        const out: ServerMsg = { t: 'dm', fromId: c.id, from: c.name, toId: target.id, to: target.name, text };
+        this.send(target, out);
+        this.send(c, out);
         break;
       }
       case 'signal': {
@@ -211,6 +221,15 @@ export class Lobby {
       const mine = p.filter((e) => e[0] !== c.id);
       if (mine.length) this.send(c, { t: 'state', p: mine });
     }
+    return true;
+  }
+
+  /** Shared rate limit for public and private chat: 5 messages / 5 s. */
+  private allowChat(c: Session): boolean {
+    const now = Date.now();
+    c.chatTimes = c.chatTimes.filter((t) => now - t < 5000);
+    if (c.chatTimes.length >= 5) return false;
+    c.chatTimes.push(now);
     return true;
   }
 
