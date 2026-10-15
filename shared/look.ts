@@ -1,23 +1,24 @@
-// Character customisation: a clay colour and a hat. Named after Windows colour schemes and themes.
+// Character customisation: a shade of grey for the clay and a hat. The figures are colourless
+// artist's mannequins, so the "colour scheme" is only how light or dark the finish is.
 
 export interface Look {
-  c: number; // index into LOOK_COLORS, or -1 for the colour picked from your id
+  c: number; // index into LOOK_COLORS, or -1 for the shade picked from your id
   h: number; // index into HATS
 }
 
 export const LOOK_COLORS: { name: string; hex: number }[] = [
-  { name: 'Luna Blue', hex: 0x6f9bf0 },
-  { name: 'Olive Green', hex: 0xa9b87a },
-  { name: 'Silver', hex: 0xd2d6dd },
-  { name: 'Bliss Green', hex: 0x8bd35a },
-  { name: 'Royal', hex: 0x4a4fb8 },
-  { name: 'Energy Orange', hex: 0xf4a14a },
-  { name: 'Media Center', hex: 0x3fae7a },
-  { name: 'Rose', hex: 0xf08fb4 },
-  { name: 'Aero Glass', hex: 0x9fe3f5 },
-  { name: 'Classic Beige', hex: 0xece9d8 },
-  { name: 'Hotmail Red', hex: 0xe0584a },
-  { name: 'Graphite', hex: 0x6a7080 },
+  { name: 'Chalk', hex: 0xf4f4f2 },
+  { name: 'Alabaster', hex: 0xe6e6e2 },
+  { name: 'Marble', hex: 0xd6d6d6 },
+  { name: 'Silver', hex: 0xc4c6ca },
+  { name: 'Platinum', hex: 0xb4b6ba },
+  { name: 'Steel', hex: 0x9a9da3 },
+  { name: 'Pewter', hex: 0x84878d },
+  { name: 'Slate', hex: 0x6e7176 },
+  { name: 'Graphite', hex: 0x56585d },
+  { name: 'Smoke', hex: 0x44464a },
+  { name: 'Charcoal', hex: 0x303236 },
+  { name: 'Onyx', hex: 0x1e1f22 },
 ];
 
 export const HATS = ['None', 'Baseball cap', 'Top hat', 'Party hat', 'Crown', 'Headphones'];

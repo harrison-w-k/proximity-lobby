@@ -475,24 +475,22 @@ function makeCharacter(id: string): Character {
   const r = seeded(hashId(id) ^ 0x9e3779b9);
   const phase0 = r() * 6.28;
   const bulk = 0.92 + r() * 0.22;
-  const SKIN_TONES = [0xf6d3b8, 0xefc09a, 0xdba67c, 0xc58a5e, 0x9a6540, 0x6e4529];
-  const HAIR_COLORS = [0x1c1410, 0x3b2616, 0x6a4423, 0xa8742e, 0xd8b45a, 0x8a2a1c, 0x2c2c34, 0xcfcfd6];
-  const skinColor = new THREE.Color(SKIN_TONES[Math.floor(r() * SKIN_TONES.length)]);
-  const clayColor = new THREE.Color().setHSL(hue / 360, 0.5, 0.62); // the shirt, unless a look is chosen
-  const lit = (c: THREE.Color) => new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.18 });
-  const skin = lit(skinColor);
-  // the shirt (also what lights up when the player speaks)
-  const armor = new THREE.MeshLambertMaterial({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.3 });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x33415c, emissive: 0x33415c, emissiveIntensity: 0.15 });
-  const shoeM = new THREE.MeshLambertMaterial({ color: 0xf2f2f2, emissive: 0xf2f2f2, emissiveIntensity: 0.15 });
-  const hairColor = new THREE.Color(HAIR_COLORS[Math.floor(r() * HAIR_COLORS.length)]);
-  const hairM = lit(hairColor);
-  const darkM = new THREE.MeshLambertMaterial({ color: 0x15151c });
+  // Colourless: one clay finish (a light-to-mid grey picked from the id, or from the character menu),
+  // slightly darker ball joints, and neutral black and white for the eyes.
+  const SHADES = [0xf4f4f2, 0xe6e6e2, 0xd6d6d6, 0xc4c6ca, 0xb4b6ba];
+  const clayColor = new THREE.Color(SHADES[Math.floor(r() * SHADES.length)]);
+  const baseShade = clayColor.clone();
+  const lit = (c: THREE.Color) => new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.22 });
+  // the clay (also what lights up when the player speaks)
+  const armor = new THREE.MeshLambertMaterial({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.25 });
+  const skin = armor;
+  const jointCol = clayColor.clone().multiplyScalar(0.78);
+  const jointM = lit(jointCol);
+  const darkM = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
   const whiteM = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 });
-  const lipM = new THREE.MeshLambertMaterial({ color: 0xb85a52 });
-  const beltM = new THREE.MeshLambertMaterial({ color: 0x2a1c12 });
+  const lipM = new THREE.MeshLambertMaterial({ color: 0x77777a });
   const hairKind = Math.floor(r() * 6);
-  const blank = new THREE.Color(skinColor);
+  const blank = new THREE.Color(clayColor);
   // the photo (if any) is drawn over the face; without one the plane is hidden and the features show
   const faceMat = new THREE.MeshBasicMaterial({ color: blank });
 
@@ -509,6 +507,9 @@ function makeCharacter(id: string): Character {
 
   const body = new THREE.Group();
   const caps = (rad: number, len: number, m: THREE.Material = skin) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 12), m);
+  /** A tapered limb segment of `len` metres, radius rt at the top and rb at the bottom, centred on its middle. */
+  const seg = (rt: number, rb: number, len: number, m: THREE.Material = armor) =>
+    new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, len, 14, 1), m);
   /** A smooth ellipsoid with half-extents (rx, ry, rz) metres. */
   const blob = (rx: number, ry: number, rz: number, mat: THREE.Material = skin) => {
     const m = ico(1, mat, 2);
@@ -522,68 +523,89 @@ function makeCharacter(id: string): Character {
   const THIGH = 0.43;
   const SHIN = 0.43;
 
-  // pelvis (trousers)
-  body.add(at(blob(0.2 * bulk, 0.11, 0.125, pants), 0, HIP + 0.02, 0));
+  // pelvis: a block with hip bones, and two glutes behind
+  body.add(at(blob(0.19 * bulk, 0.105, 0.12), 0, HIP + 0.025, 0));
+  for (const side of [-1, 1]) body.add(at(blob(0.095, 0.1, 0.085), side * 0.085 * bulk, HIP - 0.01, 0.075));
 
-  // legs: trousers down to the ankle, white shoes with a sole
-  const legs: { hip: THREE.Group; knee: THREE.Group }[] = [];
+  // legs: hip ball, tapered thigh with a quad bulge, knee ball and kneecap, calf with a muscle,
+  // ankle ball, foot (heel + arch) and a toe block on its own hinge
+  type Leg = { hip: THREE.Group; knee: THREE.Group; ankle: THREE.Group; toe: THREE.Group };
+  const legs: Leg[] = [];
   for (const side of [-1, 1]) {
     const hip = group(side * 0.1 * bulk, HIP, 0);
-    hip.add(at(blob(0.1, 0.1, 0.1, pants), 0, 0, 0));
-    const thigh = caps(0.092, THIGH - 0.18, pants);
-    thigh.scale.set(1, 1, 1.05);
-    hip.add(at(thigh, 0, -THIGH / 2, 0));
+    hip.add(at(blob(0.088, 0.088, 0.088, jointM), 0, 0, 0));
+    hip.add(at(seg(0.092, 0.066, THIGH - 0.06), 0, -THIGH / 2 + 0.01, 0));
+    hip.add(at(blob(0.08, 0.17, 0.085), 0, -0.2, -0.02)); // the quad
     const knee = group(0, -THIGH, 0);
-    knee.add(at(blob(0.07, 0.07, 0.07, pants), 0, 0, 0));
-    knee.add(at(caps(0.062, SHIN - 0.17, pants), 0, -SHIN / 2 + 0.01, 0)); // a slightly narrower calf
+    knee.add(at(blob(0.068, 0.068, 0.068, jointM), 0, 0, 0));
+    knee.add(at(blob(0.04, 0.045, 0.03), 0, 0, -0.06)); // kneecap
+    knee.add(at(seg(0.064, 0.042, SHIN - 0.05), 0, -SHIN / 2 + 0.005, 0));
+    knee.add(at(blob(0.062, 0.1, 0.07), 0, -0.14, 0.03)); // the calf
     const ankle = group(0, -SHIN, 0);
-    ankle.add(at(blob(0.05, 0.05, 0.05, skin), 0, 0.01, 0)); // a bit of ankle above the shoe
-    ankle.add(at(blob(0.062, 0.05, 0.135, shoeM), 0, -0.035, -0.05)); // the shoe, pointing forward (-z)
-    ankle.add(at(blob(0.064, 0.012, 0.14, darkM), 0, -0.073, -0.05)); // the sole
+    ankle.add(at(blob(0.048, 0.048, 0.048, jointM), 0, 0.005, 0));
+    ankle.add(at(blob(0.05, 0.035, 0.09), 0, -0.04, -0.02)); // heel and arch
+    ankle.add(at(blob(0.04, 0.03, 0.045), 0, -0.04, 0.045)); // the heel itself
+    const toe = group(0, -0.05, -0.1);
+    toe.add(at(blob(0.056, 0.026, 0.05), 0, 0, -0.03)); // the toe block
+    for (let t = 0; t < 5; t++) toe.add(at(blob(0.011, 0.012, 0.016, jointM), -0.04 + t * 0.02, -0.004, -0.075));
+    ankle.add(toe);
     knee.add(ankle);
     hip.add(knee);
     body.add(hip);
-    legs.push({ hip, knee });
+    legs.push({ hip, knee, ankle, toe });
   }
 
-  // torso group pivots at the hips so it can lean and twist
+  // torso: hips pivot -> lumbar (waist) -> ribcage group (shoulders, neck, head)
   const torsoG = group(0, HIP, 0);
-  torsoG.add(at(blob(0.17 * bulk, 0.11, 0.115, armor), 0, 0.15, 0)); // belly / waist
-  torsoG.add(at(blob(0.215 * bulk, 0.2, 0.135, armor), 0, 0.34, 0)); // chest and ribcage
-  torsoG.add(at(blob(0.23 * bulk, 0.065, 0.115, armor), 0, 0.46, 0)); // shoulder line
-  torsoG.add(at(blob(0.176 * bulk, 0.022, 0.121, beltM), 0, 0.06, 0)); // belt
-  torsoG.add(at(blob(0.026, 0.02, 0.01, shoeM), 0, 0.06, -0.12)); // buckle
-  torsoG.add(at(cyl(0.052, 0.065, 0.1, 10, skin), 0, 0.56, 0)); // neck
-  const collar = at(new THREE.Mesh(new THREE.TorusGeometry(0.066, 0.016, 6, 14), armor), 0, 0.51, 0);
-  collar.rotation.x = Math.PI / 2;
-  torsoG.add(collar);
+  torsoG.add(at(blob(0.165 * bulk, 0.1, 0.11), 0, 0.1, 0)); // abdomen
+  torsoG.add(at(blob(0.07, 0.07, 0.07, jointM), 0, 0.2, 0)); // lumbar joint
+  const chestG = group(0, 0.2, 0); // ribcage
+  torsoG.add(chestG);
+  chestG.add(at(blob(0.2 * bulk, 0.19, 0.13), 0, 0.14, 0)); // ribs
+  for (const side of [-1, 1]) {
+    chestG.add(at(blob(0.09 * bulk, 0.075, 0.06), side * 0.085 * bulk, 0.17, -0.09)); // pecs
+    const clav = at(blob(0.1, 0.015, 0.018), side * 0.1 * bulk, 0.27, -0.03);
+    clav.rotation.z = side * -0.18;
+    chestG.add(clav); // collar bone
+  }
+  chestG.add(at(blob(0.12 * bulk, 0.06, 0.08), 0, 0.28, 0.06)); // upper back / traps
+
+  // neck: two segments with a joint between, so the head can nod and turn
+  const neckG = group(0, 0.31, 0);
+  chestG.add(neckG);
+  neckG.add(at(blob(0.058, 0.058, 0.058, jointM), 0, 0, 0));
+  neckG.add(at(seg(0.046, 0.04, 0.09), 0, 0.05, 0));
 
   // head: a human-proportioned egg (about 15 cm wide, 23 cm tall)
-  const head = group(0, 0.7, -0.005);
+  const head = group(0, 0.2, -0.005);
+  neckG.add(head);
   head.add(at(blob(0.088, 0.122, 0.105), 0, 0.0, 0));
   head.add(at(blob(0.07, 0.055, 0.078), 0, -0.07, -0.015)); // jaw
+  head.add(at(blob(0.03, 0.02, 0.025), 0, -0.095, -0.07)); // chin
+  head.add(at(blob(0.09, 0.03, 0.1), 0, 0.045, -0.01)); // brow ridge
   for (const side of [-1, 1]) {
     head.add(at(blob(0.011, 0.028, 0.02), side * 0.088, -0.005, 0.005)); // ears
     head.add(at(blob(0.018, 0.012, 0.01, whiteM), side * 0.034, 0.028, -0.094)); // eye whites
     head.add(at(blob(0.0085, 0.0085, 0.006, darkM), side * 0.034, 0.028, -0.1)); // pupils
-    const brow = at(blob(0.022, 0.0055, 0.008, hairM), side * 0.035, 0.056, -0.093);
+    const brow = at(blob(0.022, 0.0055, 0.008, jointM), side * 0.035, 0.056, -0.093);
     brow.rotation.z = side * -0.12;
     head.add(brow);
+    head.add(at(blob(0.016, 0.02, 0.012), side * 0.05, -0.04, -0.085)); // cheeks
   }
   head.add(at(blob(0.011, 0.026, 0.02), 0, -0.015, -0.103)); // nose
   head.add(at(blob(0.027, 0.0055, 0.008, lipM), 0, -0.058, -0.097)); // mouth
 
-  // hair: six styles, picked from the id
+  // hair, sculpted in the same clay: six styles picked from the id
   const hairAt = (m: THREE.Object3D) => head.add(m);
   if (hairKind === 0 || hairKind === 1 || hairKind === 5) {
-    hairAt(at(blob(0.094, 0.082, 0.112, hairM), 0, 0.05, 0.012)); // the crown
-    hairAt(at(blob(0.1, 0.04, 0.05, hairM), 0, 0.085, -0.075)); // a fringe over the forehead
+    hairAt(at(blob(0.094, 0.082, 0.112), 0, 0.05, 0.012)); // the crown
+    hairAt(at(blob(0.1, 0.04, 0.05), 0, 0.085, -0.075)); // a fringe over the forehead
   }
-  if (hairKind === 1) hairAt(at(blob(0.092, 0.14, 0.05, hairM), 0, -0.04, 0.075)); // long, down the back
-  if (hairKind === 5) hairAt(at(blob(0.036, 0.036, 0.036, hairM), 0, 0.13, 0.03)); // a bun
-  if (hairKind === 2) hairAt(at(blob(0.09, 0.07, 0.105, hairM), 0, 0.055, 0.005)); // buzz cut
+  if (hairKind === 1) hairAt(at(blob(0.092, 0.14, 0.05), 0, -0.04, 0.075)); // long, down the back
+  if (hairKind === 5) hairAt(at(blob(0.036, 0.036, 0.036), 0, 0.13, 0.03)); // a bun
+  if (hairKind === 2) hairAt(at(blob(0.09, 0.07, 0.105), 0, 0.055, 0.005)); // buzz cut
   if (hairKind === 3) {
-    for (let i = 0; i < 4; i++) hairAt(at(blob(0.014, 0.05, 0.026, hairM), 0, 0.1 - i * 0.002, 0.07 - i * 0.045)); // mohawk
+    for (let i = 0; i < 4; i++) hairAt(at(blob(0.014, 0.05, 0.026), 0, 0.1 - i * 0.002, 0.07 - i * 0.045)); // mohawk
   }
   // kind 4: bald
 
@@ -594,34 +616,53 @@ function makeCharacter(id: string): Character {
   head.add(at(screenPlane, 0, 0.0, -0.11));
   const crestTop = 0.13;
   const eyes: THREE.Group[] = [];
-  torsoG.add(head);
 
-  // arms: short sleeves to the elbow, bare forearms, hands with four fingers and a thumb
-  const arms: { shoulder: THREE.Group; elbow: THREE.Group }[] = [];
+  // arms: shoulder ball + deltoid, bicep, elbow ball, forearm, wrist, hand with jointed fingers
+  type Arm = { shoulder: THREE.Group; elbow: THREE.Group; wrist: THREE.Group; fingers: THREE.Group[] };
+  const arms: Arm[] = [];
   for (const side of [-1, 1]) {
-    const shoulder = group(side * 0.25 * bulk, 0.47, 0);
-    shoulder.add(at(blob(0.07, 0.07, 0.07, armor), 0, 0, 0));
-    shoulder.add(at(caps(0.058, 0.17, armor), 0, -0.14, 0)); // sleeve
+    const shoulder = group(side * 0.25 * bulk, 0.27, 0);
+    chestG.add(shoulder);
+    shoulder.add(at(blob(0.072, 0.072, 0.072, jointM), 0, 0, 0));
+    shoulder.add(at(blob(0.062, 0.085, 0.066), side * 0.012, -0.04, 0)); // deltoid
+    shoulder.add(at(seg(0.055, 0.042, 0.26), 0, -0.15, 0)); // upper arm
+    shoulder.add(at(blob(0.04, 0.08, 0.04), 0, -0.13, -0.025)); // bicep
     const elbow = group(0, -0.29, 0);
-    elbow.add(at(blob(0.047, 0.047, 0.047), 0, 0, 0));
-    elbow.add(at(caps(0.043, 0.17), 0, -0.13, 0));
-    const hand = group(0, -0.27, 0);
-    hand.add(at(blob(0.046, 0.05, 0.026), 0, -0.04, 0)); // palm
+    elbow.add(at(blob(0.046, 0.046, 0.046, jointM), 0, 0, 0));
+    elbow.add(at(seg(0.044, 0.03, 0.22), 0, -0.125, 0)); // forearm
+    elbow.add(at(blob(0.038, 0.07, 0.04), 0, -0.07, 0)); // forearm muscle
+    const wrist = group(0, -0.265, 0);
+    wrist.add(at(blob(0.03, 0.03, 0.03, jointM), 0, 0, 0));
+    wrist.add(at(blob(0.047, 0.05, 0.022), 0, -0.05, 0)); // palm
+    // four fingers, each with a knuckle ball and two segments that curl independently
+    const fingers: THREE.Group[] = [];
+    const lens = [0.038, 0.043, 0.04, 0.032];
     for (let f = 0; f < 4; f++) {
-      const finger = blob(0.0095, 0.04, 0.0095);
-      hand.add(at(finger, -0.033 + f * 0.022, -0.1 - (f === 1 || f === 2 ? 0.01 : 0), 0));
+      const prox = group(-0.033 + f * 0.022, -0.1, 0);
+      prox.add(at(blob(0.0095, 0.0095, 0.0095, jointM), 0, 0, 0));
+      prox.add(at(blob(0.0085, lens[f] / 2, 0.0085), 0, -lens[f] / 2, 0));
+      const mid = group(0, -lens[f], 0);
+      mid.add(at(blob(0.0078, lens[f] / 2.2, 0.0078), 0, -lens[f] / 2.2, 0));
+      prox.add(mid);
+      wrist.add(prox);
+      fingers.push(prox, mid);
     }
-    hand.add(at(blob(0.014, 0.04, 0.016), side * -0.05, -0.065, -0.012)); // thumb
-    elbow.add(hand);
+    const thumb = group(side * -0.045, -0.04, -0.01);
+    thumb.add(at(blob(0.011, 0.025, 0.012), 0, -0.02, 0));
+    const thumb2 = group(0, -0.04, 0);
+    thumb2.add(at(blob(0.009, 0.02, 0.01), 0, -0.016, 0));
+    thumb.add(thumb2);
+    thumb.rotation.z = side * 0.4;
+    wrist.add(thumb);
+    elbow.add(wrist);
     shoulder.add(elbow);
-    torsoG.add(shoulder);
-    arms.push({ shoulder, elbow });
+    arms.push({ shoulder, elbow, wrist, fingers });
   }
   body.add(torsoG);
   const tail = group(0, 0.72, 0.2); // (kept so the animation code below has nothing to special-case)
 
   // Normalise so the head sits at eye height whatever the proportions, so the camera always matches.
-  const headY = HIP + 0.7 + 0.04; // eye height of the unscaled figure
+  const headY = HIP + 0.2 + 0.31 + 0.2 + 0.04; // eye height of the unscaled figure
   const s = 1.62 / headY;
   const root = new THREE.Group();
   body.scale.setScalar(s);
@@ -640,33 +681,37 @@ function makeCharacter(id: string): Character {
       return m;
     };
     if (kind === 1) {
-      add(new THREE.SphereGeometry(0.225, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0x2a6bd8, 0, 0.08, 0);
-      add(new THREE.BoxGeometry(0.3, 0.025, 0.2), 0x1b4ba0, 0, 0.09, -0.26);
+      add(new THREE.SphereGeometry(0.225, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0x8d9096, 0, 0.08, 0);
+      add(new THREE.BoxGeometry(0.3, 0.025, 0.2), 0x5d6066, 0, 0.09, -0.26);
     } else if (kind === 2) {
-      add(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 12), 0x16161c, 0, 0.4, 0);
-      add(new THREE.CylinderGeometry(0.27, 0.27, 0.025, 14), 0x16161c, 0, 0.24, 0);
-      add(new THREE.CylinderGeometry(0.152, 0.152, 0.06, 12), 0xc82828, 0, 0.3, 0);
+      add(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 12), 0x26262a, 0, 0.4, 0);
+      add(new THREE.CylinderGeometry(0.27, 0.27, 0.025, 14), 0x26262a, 0, 0.24, 0);
+      add(new THREE.CylinderGeometry(0.152, 0.152, 0.06, 12), 0x8a8a8e, 0, 0.3, 0);
     } else if (kind === 3) {
-      add(new THREE.ConeGeometry(0.15, 0.36, 10), 0xffd23f, 0, 0.42, 0);
-      add(new THREE.SphereGeometry(0.045, 8, 6), 0xe85aa8, 0, 0.62, 0);
+      add(new THREE.ConeGeometry(0.15, 0.36, 10), 0xe4e4e6, 0, 0.42, 0);
+      add(new THREE.SphereGeometry(0.045, 8, 6), 0x9a9ca0, 0, 0.62, 0);
     } else if (kind === 4) {
-      add(new THREE.CylinderGeometry(0.18, 0.2, 0.16, 8), 0xf2c230, 0, 0.3, 0);
+      add(new THREE.CylinderGeometry(0.18, 0.2, 0.16, 8), 0xcfd0d4, 0, 0.3, 0);
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        add(new THREE.ConeGeometry(0.045, 0.14, 4), 0xf2c230, Math.cos(a) * 0.17, 0.43, Math.sin(a) * 0.17);
+        add(new THREE.ConeGeometry(0.045, 0.14, 4), 0xcfd0d4, Math.cos(a) * 0.17, 0.43, Math.sin(a) * 0.17);
       }
     } else {
-      const band = add(new THREE.TorusGeometry(0.24, 0.025, 6, 16, Math.PI), 0x303848, 0, 0.04, 0);
+      const band = add(new THREE.TorusGeometry(0.24, 0.025, 6, 16, Math.PI), 0x44464a, 0, 0.04, 0);
       band.rotation.z = 0;
-      for (const side of [-1, 1]) add(new THREE.CylinderGeometry(0.08, 0.08, 0.07, 10), 0x2a6bd8, side * 0.24, 0.04, 0).rotation.z = Math.PI / 2;
+      for (const side of [-1, 1]) add(new THREE.CylinderGeometry(0.08, 0.08, 0.07, 10), 0x77797e, side * 0.24, 0.04, 0).rotation.z = Math.PI / 2;
     }
     return g;
   };
   const setLook = (look: Look | null) => {
-    const c = look && look.c >= 0 && look.c < LOOK_COLORS.length ? new THREE.Color(LOOK_COLORS[look.c].hex) : new THREE.Color().setHSL(hue / 360, 0.5, 0.62);
+    const c = look && look.c >= 0 && look.c < LOOK_COLORS.length ? new THREE.Color(LOOK_COLORS[look.c].hex) : baseShade;
     clayColor.copy(c);
     armor.color.copy(c);
     armor.emissive.copy(c);
+    blank.copy(c);
+    jointM.color.copy(c).multiplyScalar(0.78);
+    jointM.emissive.copy(jointM.color);
+    if (!faceMat.map) faceMat.color.copy(c);
     if (hat) {
       head.remove(hat);
       hat.traverse((o) => ((o as THREE.Mesh).geometry?.dispose?.(), ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.()));
@@ -863,6 +908,26 @@ function makeCharacter(id: string): Character {
     root.rotation.x = -rag * 1.45; // falls over backwards, about the feet
     root.position.y = rag * 0.22;
 
+    // extra articulation: ankles roll through the step, toes lift off, wrists relax, fingers curl
+    const swingL = P.legL;
+    const swingR = P.legR;
+    legs[0].ankle.rotation.x = Math.max(-0.5, Math.min(0.5, -swingL * 0.35 - P.kneeL * 0.25));
+    legs[1].ankle.rotation.x = Math.max(-0.5, Math.min(0.5, -swingR * 0.35 - P.kneeR * 0.25));
+    legs[0].toe.rotation.x = Math.max(0, -swingL) * 0.7;
+    legs[1].toe.rotation.x = Math.max(0, -swingR) * 0.7;
+    const curl = a.carrying ? 1.15 : 0.32 + run * 0.5;
+    for (let ai = 0; ai < 2; ai++) {
+      const arm = arms[ai];
+      arm.wrist.rotation.x = -(ai === 0 ? P.armL : P.armR) * 0.12 - 0.08;
+      arm.fingers.forEach((f, fi) => {
+        f.rotation.x = lerp(f.rotation.x, curl * (fi % 2 ? 1.05 : 0.85) + (Math.floor(fi / 2) % 2) * 0.06, 0.2);
+      });
+    }
+    // the ribcage twists against the hips, and the head stays level as the body leans
+    chestG.rotation.y = P.twist * 0.6;
+    neckG.rotation.x = -P.lean * 0.5 + Math.sin(t * 0.7 + phase0) * 0.02;
+    head.rotation.y = -P.twist * 0.5 + Math.sin(t * 0.45 + phase0) * 0.05;
+
     legs[0].hip.rotation.x = P.legL;
     legs[1].hip.rotation.x = P.legR;
     legs[0].knee.rotation.x = P.kneeL;
@@ -874,7 +939,7 @@ function makeCharacter(id: string): Character {
     arms[0].elbow.rotation.x = P.elbow;
     arms[1].elbow.rotation.x = P.elbow;
     torsoG.rotation.x = P.lean;
-    torsoG.rotation.y = P.twist;
+    torsoG.rotation.y = P.twist * 0.4;
     torsoG.rotation.z = P.tilt;
     torsoG.scale.y = 1 + Math.sin(t * 2.2 + phase0) * 0.012; // breathing
     body.position.y = P.bob;
@@ -885,10 +950,8 @@ function makeCharacter(id: string): Character {
     head,
     shirt: armor,
     height: (headY + crestTop) * s,
-    setHue(h: number) {
-      clayColor.setHSL(h / 360, 0.5, 0.62);
-      armor.color.copy(clayColor);
-      armor.emissive.copy(clayColor);
+    setHue() {
+      /* the figures are colourless: nothing to tint */
     },
     setFace,
     setLook,
