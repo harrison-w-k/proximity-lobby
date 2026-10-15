@@ -164,8 +164,8 @@ export class Lobby {
         let unique = base;
         for (let i = 2; taken.has(unique.toLowerCase()); i++) unique = `${base.slice(0, MAX_NAME - 3)}_${i}`;
         c.name = unique;
-        c.x = (Math.random() - 0.5) * 16;
-        c.z = (Math.random() - 0.5) * 16;
+        c.x = (Math.random() - 0.5) * 10; // +-5 m: clear of every obstacle (see shared/obstacles.ts)
+        c.z = (Math.random() - 0.5) * 10;
         c.joined = true;
         const others = [...this.conns.values()].filter((o) => o.joined).map(publicState);
         this.conns.set(c.id, c);

@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "tsx --env-file-if-exists=client/.env.local server/index.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p worker/tsconfig.json",
-    "test": "tsx client/src/collision.test.ts && tsx shared/lobby.test.ts",
+    "test": "tsx client/src/collision.test.ts && tsx shared/lobby.test.ts && tsx shared/movement.test.ts",
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run build && wrangler deploy"
   },

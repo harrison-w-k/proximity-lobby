@@ -2,7 +2,7 @@
 
 export const MAX_PLAYERS = 20;
 export const MAP_RADIUS = 24; // the arena is a circle of this radius (m) centred on the origin
-export const JUMP_MAX_Y = 3; // server sanity limit on a reported feet height (m)
+export const JUMP_MAX_Y = 6; // server sanity limit on a reported feet height (m): tall obstacles plus a jump
 export const SWIM_LIMIT = 56; // you can wade out this far from the centre (m); past it you are sent back
 export const WATER_MIN_Y = -1.5; // lowest feet height the server accepts (wading in the sea)
 export const VOICE_REF = 3; // within this distance (m) voices are full volume

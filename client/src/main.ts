@@ -2,6 +2,7 @@ import { Net } from './net';
 import { DEFAULT_FOV, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
+import { Sfx } from './sfx';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
@@ -11,6 +12,19 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const canvas = $<HTMLCanvasElement>('scene');
 const world = new World(canvas);
 const net = new Net();
+const sfx = new Sfx();
+world.onSound = (e) => sfx.handle(e);
+// browsers only allow audio after a gesture, so wake it on the first click or key press
+for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, () => sfx.resume(), { once: true });
+// every button, tab and link clicks
+document.addEventListener(
+  'click',
+  (e) => {
+    const t = e.target;
+    if (t instanceof Element && t.closest('.btn, .tab, .linkbtn')) sfx.click();
+  },
+  true,
+);
 // Dev server only (stripped from production builds): lets automated checks pose the scene.
 if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = world;
 let voice: Voice | null = null;
@@ -247,10 +261,10 @@ const store = {
     }
   },
 };
-function savedVolume(key: string): number {
+function savedVolume(key: string, fallback = 1): number {
   const raw = store.get(key);
   const v = raw === null ? NaN : Number(raw);
-  return v >= 0 && v <= 2 ? v : 1;
+  return v >= 0 && v <= 2 ? v : fallback;
 }
 
 const inDevice = $<HTMLSelectElement>('in-device');
@@ -270,7 +284,18 @@ function applyAudioPrefs() {
   if (out) void voice.setOutputDevice(out);
 }
 
+const sfxVol = $<HTMLInputElement>('sfx-vol');
+sfx.setVolume(savedVolume('sfxVol', 0.6));
+sfxVol.addEventListener('input', () => {
+  const v = Number(sfxVol.value) / 100;
+  sfx.setVolume(v);
+  $('sfx-vol-val').textContent = pct(v);
+  store.set('sfxVol', String(v));
+});
+
 function syncAudioControls() {
+  sfxVol.value = String(Math.round(savedVolume('sfxVol', 0.6) * 100));
+  $('sfx-vol-val').textContent = pct(savedVolume('sfxVol', 0.6));
   inVol.value = String(Math.round(savedVolume('inVol') * 100));
   outVol.value = String(Math.round(savedVolume('outVol') * 100));
   $('in-vol-val').textContent = pct(savedVolume('inVol'));
@@ -457,14 +482,7 @@ $('leave-btn').addEventListener('click', () => {
   location.reload();
 });
 
-// Ctrl is sprint, and Ctrl+W closes the tab: ask first so one slip doesn't drop you from the lobby.
 let leaving = false;
-window.addEventListener('beforeunload', (e) => {
-  if (joined && !leaving && $('dead').hidden) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
 
 // ---------- chat ----------
 const chatBox = $('chat');
@@ -629,6 +647,7 @@ net.onMessage = (m: ServerMsg) => {
     case 'welcome':
       joined = true;
       myId = m.id;
+      sfx.join();
       if (avatarUrl) net.send({ t: 'avatar', img: avatarUrl }); // share our photo with the lobby
       world.orbit = false;
       world.setSelfId(m.id);
@@ -649,10 +668,12 @@ net.onMessage = (m: ServerMsg) => {
       updatePaused();
       break;
     case 'full':
+      sfx.error();
       $('status').textContent = 'The lobby is full (20/20). Try again soon.';
       ($('join-btn') as HTMLButtonElement).disabled = false;
       break;
     case 'denied':
+      sfx.error();
       $('status').textContent = m.reason;
       ($('join-btn') as HTMLButtonElement).disabled = false;
       break;
@@ -661,6 +682,7 @@ net.onMessage = (m: ServerMsg) => {
       applySavedVolume(m.player.id, m.player.name);
       world.addPlayer(m.player);
       addChat('•', `${m.player.name} joined`);
+      sfx.playerJoin();
       updateHud();
       if (menuOpen) {
         renderPlayerList();
@@ -669,6 +691,7 @@ net.onMessage = (m: ServerMsg) => {
       break;
     case 'left':
       addChat('•', `${names.get(m.id) ?? 'Someone'} left`);
+      sfx.playerLeave();
       names.delete(m.id);
       volumes.delete(m.id);
       world.removePlayer(m.id);
@@ -681,10 +704,14 @@ net.onMessage = (m: ServerMsg) => {
       break;
     case 'chat':
       addChat(m.name, m.text);
+      if (m.id !== myId) sfx.message();
       break;
     case 'dm': {
       const mine = m.fromId === myId;
-      if (!mine) lastDmPeer = m.fromId;
+      if (!mine) {
+        lastDmPeer = m.fromId;
+        sfx.dm();
+      }
       addChat(mine ? `You → ${m.to}` : `${m.from} → you`, m.text, 'dm');
       break;
     }
