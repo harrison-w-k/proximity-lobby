@@ -3,6 +3,10 @@ import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol'
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
 import { OBSTACLES, blockTop, type Block } from '../../shared/obstacles';
+import { buildAquarium, type Aquarium } from './aquarium';
+
+// The aquarium stands just past the island's northern beach (its entrance faces the island).
+const AQUARIUM_Z = -37;
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
 import * as T from './textures';
@@ -1019,6 +1023,7 @@ export class World {
   private centre = new THREE.Vector2(0, 0);
   private water?: Water;
   private clouds?: THREE.Group;
+  private aquarium?: Aquarium;
   private ripples?: Ripples;
   private rippleTimer = 0;
   private stepAccum = 0; // metres walked since the last footstep
@@ -1055,6 +1060,7 @@ export class World {
     this.water = makeWater(this.scene, tex().glints);
     this.ripples = new Ripples(this.scene);
     this.buildIsland();
+    this.buildAquarium();
     this.buildSelfBody();
 
     window.addEventListener('resize', this.resize);
@@ -1207,6 +1213,21 @@ export class World {
       rock.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3);
       this.scene.add(rock);
     }
+  }
+
+  /** The aquarium: building, tanks and plaza, with its walls and tanks made solid for movement. */
+  private buildAquarium() {
+    const aq = buildAquarium(this.renderer.capabilities.getMaxAnisotropy());
+    aq.root.position.z = AQUARIUM_Z;
+    this.scene.add(aq.root);
+    this.aquarium = aq;
+    // Movement collides against OBSTACLES, so the exhibits join it (after the scenery was built).
+    const solid = (k: Pick<Block, 'x' | 'z' | 'w' | 'd'>) =>
+      OBSTACLES.push({ kind: 'wall', x: k.x, z: k.z + AQUARIUM_Z, w: k.w, d: k.d, h: 7, y0: 0 });
+    for (const b of aq.boxes) {
+      solid({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2, w: b.maxX - b.minX, d: b.maxZ - b.minZ });
+    }
+    for (const d of aq.discs) solid({ x: d.x, z: d.z, w: d.r * 2, d: d.r * 2 });
   }
 
   /** Crates, walls, steps, beams and the parkour course, all from shared/obstacles.ts. */
@@ -1448,6 +1469,7 @@ export class World {
     this.last = now;
     this.clock += dt;
     this.safe('update', () => this.update(dt));
+    this.aquarium?.update(this.clock, dt);
     this.safe('render', () => this.renderer.render(this.scene, this.camera));
     this.safe('frame', () => this.onFrame?.(dt));
   };
