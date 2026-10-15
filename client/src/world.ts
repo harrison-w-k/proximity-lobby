@@ -20,11 +20,11 @@ const THIRD_DISTANCE = 3.6; // metres behind the head in third person
 const THIRD_LIFT = 0.3; // and a little above, so you see over your own shoulders
 
 // ---------- retro look ----------
-// The scene is drawn small (about 512x288) and scaled up with nearest-neighbour filtering, then
-// reduced to 16 levels per channel with an ordered (Bayer) dither: the chunky, gritty look of
-// late-90s 3D. Models are low-poly and flat shaded; textures are tiny and unfiltered.
-const RT_HEIGHT = 288;
-const COLOR_LEVELS = 15; // 16 shades per channel
+// The scene is drawn small (about 640x360) and scaled up with nearest-neighbour filtering, then
+// reduced to 32 shades per channel with only a whisper of ordered dither: chunky pixels like
+// late-90s 3D, without visible noise. Models are low-poly and flat shaded; textures are tiny.
+const RT_HEIGHT = 360;
+const COLOR_LEVELS = 31; // 32 shades per channel
 
 export function hueFor(id: string): number {
   let h = 0;
@@ -58,7 +58,6 @@ function pixelTexture(c: HTMLCanvasElement, repeat = 0): THREE.CanvasTexture {
 }
 
 function makeCheckerTexture(): THREE.CanvasTexture {
-  const rnd = seeded(11);
   const c = document.createElement('canvas');
   c.width = c.height = 16;
   const g = c.getContext('2d')!;
@@ -67,11 +66,6 @@ function makeCheckerTexture(): THREE.CanvasTexture {
   g.fillStyle = '#58a83c';
   g.fillRect(0, 0, 8, 8);
   g.fillRect(8, 8, 8, 8);
-  // a few speckles so big flat tiles don't look like vector fills
-  for (let i = 0; i < 26; i++) {
-    g.fillStyle = rnd() < 0.5 ? 'rgba(20,70,20,0.35)' : 'rgba(210,255,170,0.35)';
-    g.fillRect(Math.floor(rnd() * 16), Math.floor(rnd() * 16), 1, 1);
-  }
   return pixelTexture(c, (MAP_RADIUS * 2) / 6); // one texture tile = 6 m, so squares are 3 m
 }
 
@@ -182,7 +176,7 @@ function makeWaterTexture(): THREE.CanvasTexture {
   g.fillStyle = '#1f7ce0';
   g.fillRect(0, 0, 64, 64);
   const colors = ['#4aa3f5', '#6cbcff', '#1966c4'];
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 36; i++) {
     g.fillStyle = colors[Math.floor(rnd() * colors.length)];
     const x = Math.floor(rnd() * 64);
     const y = Math.floor(rnd() * 64);
@@ -408,8 +402,8 @@ export class World {
         vec3 c = texture2D(tDiffuse, vUv).rgb;
         c = pow(max(c, 0.0), vec3(1.0 / 2.2));                 // linear -> display
         float levels = ${COLOR_LEVELS}.0;
-        float d = (bayer4(vUv * size) - 0.5) / levels;          // ordered dither at the low-res pixel grid
-        c = floor((c + d) * levels + 0.5) / levels;             // 16 shades per channel
+        float d = (bayer4(vUv * size) - 0.5) * 0.35 / levels;   // light ordered dither: breaks up banding only
+        c = floor((c + d) * levels + 0.5) / levels;             // 32 shades per channel
         gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
       }`,
   });
