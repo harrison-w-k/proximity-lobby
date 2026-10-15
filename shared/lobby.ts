@@ -53,6 +53,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 export class Lobby {
   private conns = new Map<string, Session>(); // joined players only
   private dirty = new Set<string>();
+  private shoved = new Map<number, number>(); // item id -> last time it was shoved (ms)
   private items = new Map<number, ItemState>(ITEM_SPAWNS.map((i) => [i.id, { ...i, holder: null }]));
   /** Hosts that outlive a restart (the Durable Object) persist photos here: null = removed. */
   onAvatar?: (id: string, img: string | null) => void;
@@ -276,6 +277,25 @@ export class Lobby {
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, end[1]));
         it.z = at.z;
         it.holder = null;
+        this.itemsChanged();
+        this.broadcast({ t: 'item', item: it, fly: launch });
+        break;
+      }
+      case 'shove': {
+        const it = this.items.get(msg.id);
+        if (!c.joined || !it || it.holder || !finite(msg.vx) || !finite(msg.vz)) return;
+        if (Math.hypot(it.x - c.x, it.z - c.z) > 3 || Math.abs(it.y - c.y) > 2.5) return;
+        const now = Date.now();
+        if (now - (this.shoved.get(it.id) ?? 0) < 250) return; // one push at a time
+        this.shoved.set(it.id, now);
+        const sp = Math.hypot(msg.vx, msg.vz);
+        const k = sp > 8 ? 8 / sp : 1;
+        const launch: [number, number, number, number, number, number] = [it.x, it.y + 0.02, it.z, msg.vx * k, 1.2, msg.vz * k];
+        const end = throwPath(launch).at(-1)!;
+        const at = clampToArena(end[0], end[2], SWIM_LIMIT);
+        it.x = at.x;
+        it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, end[1]));
+        it.z = at.z;
         this.itemsChanged();
         this.broadcast({ t: 'item', item: it, fly: launch });
         break;

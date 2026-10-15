@@ -916,6 +916,8 @@ export class World {
   inputEnabled = true;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
   onFrame?: (dt: number) => void;
+  onShove?: (id: number, vx: number, vz: number) => void; // you ran into a loose item
+  private shoveAt = new Map<number, number>();
   onSentHome?: () => void; // fired when you drift past the swim limit and are returned to the centre
   onSound?: (e: SoundEvent) => void;
 
@@ -1547,13 +1549,28 @@ export class World {
   /** Players are solid: slide around others and get nudged if someone walks into you. */
   private collide() {
     const p = pushOut(this.pos.x, this.pos.z, [...this.avatars.values()].map((a) => a.group.position), BODY_RADIUS * 2);
-    // loose items are solid too (the ones lying at about your height)
-    const loose: { x: number; z: number }[] = [];
-    for (const it of this.items.values()) {
+    // loose items are pushed, not walked through: shove whatever you run into
+    const reach = BODY_RADIUS + 0.25;
+    const sp = Math.hypot(this.sim.vx, this.sim.vz);
+    for (const [id, it] of this.items) {
       if (it.state.holder || it.flight) continue;
-      if (Math.abs(it.group.position.y - this.feetY) < 1.2) loose.push(it.group.position);
+      const g = it.group.position;
+      if (Math.abs(g.y - this.feetY) > 1.2) continue;
+      const dx = g.x - p.x;
+      const dz = g.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > reach || d < 1e-4) continue;
+      const nowMs = performance.now();
+      if (nowMs - (this.shoveAt.get(id) ?? 0) < 300) continue;
+      this.shoveAt.set(id, nowMs);
+      // away from you, with some of your own momentum behind it
+      const push = Math.max(2.2, sp * 0.9);
+      const toward = (this.sim.vx * dx + this.sim.vz * dz) / Math.max(1e-4, d); // how much you are moving into it
+      const along = Math.max(0, toward) / Math.max(1e-4, sp);
+      const mix = 0.6 * along;
+      this.onShove?.(id, (dx / d) * push * (1 - mix) + this.sim.vx * mix, (dz / d) * push * (1 - mix) + this.sim.vz * mix);
     }
-    const p2 = pushOut(p.x, p.z, loose, BODY_RADIUS + 0.22);
+    const p2 = p;
     const q = clampToArena(p2.x, p2.z, SWIM_LIMIT);
     this.pos.x = q.x;
     this.pos.z = q.z;

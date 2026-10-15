@@ -33,6 +33,7 @@ export type ClientMsg =
   | { t: 'take'; id: number } // pick an item up
   | { t: 'drop'; id: number; x: number; y: number; z: number } // put the item you carry down here
   | { t: 'throw'; id: number; f: Flight } // throw the item you carry
+  | { t: 'shove'; id: number; vx: number; vz: number } // walk into a loose item and push it
   | { t: 'signal'; to: string; data: unknown };
 
 export type ServerMsg =

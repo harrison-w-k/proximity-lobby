@@ -271,4 +271,19 @@ await malformedTests();
   assert.ok(m.t === 'item' && m.item.z < 0, 'it travelled in the throw direction');
 }
 
+// shoving: walking into a loose item sends it rolling, but only from close by
+{
+  const L = new Lobby([]);
+  const p = client(L);
+  p.tx({ t: 'join', name: 'p' });
+  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  p.tx({ t: 'shove', id: 0, vx: 0, vz: -5 }); // ball at (4, 3)
+  const m = p.inbox.filter((x) => x.t === 'item').pop();
+  assert.ok(m && m.t === 'item' && m.fly && m.item.z < 3 - 1, 'the ball rolled away');
+  p.tx({ t: 'pos', x: -30, z: 30, ry: 0 });
+  const n = p.inbox.length;
+  p.tx({ t: 'shove', id: 4, vx: 3, vz: 0 }); // far away
+  assert.equal(p.inbox.length, n, 'too far to push');
+}
+
 console.log('lobby tests passed');

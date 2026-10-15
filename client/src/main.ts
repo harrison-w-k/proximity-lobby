@@ -699,6 +699,8 @@ world.onFrame = () => {
 };
 
 // ---------- networking ----------
+world.onShove = (id, vx, vz) => net.send({ t: 'shove', id, vx, vz });
+
 net.onClose = () => {
   if (joined) $('dead').hidden = false;
 };
