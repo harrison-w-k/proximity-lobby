@@ -938,7 +938,8 @@ export class World {
   private centre = new THREE.Vector2(0, 0);
   private water?: Water;
   private clouds?: THREE.Group;
-  /** The bright rim on every ledge you can climb onto; it pulses gently so it reads at a glance. */
+  /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
+  private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
   private items = new Map<number, { state: ItemState; group: THREE.Group }>();
   private selfId = '';
@@ -1147,7 +1148,6 @@ export class World {
       goal: { map: t.goal, tile: 2 },
     };
     const mats = new Map<THREE.Texture, THREE.Material>();
-    const cap = this.ledgeMat;
     for (const k of OBSTACLES) {
       const { map, tile } = look[k.kind];
       let mat = mats.get(map);
@@ -1158,13 +1158,11 @@ export class World {
       const mesh = new THREE.Mesh(T.worldBox(k.w, k.h, k.d, tile), mat);
       mesh.position.set(k.x, k.y0 + k.h / 2, k.z);
       this.scene.add(mesh);
-      // a pale rim on the walkable surfaces, so edges read clearly
-      if (k.kind !== 'pillar' && k.kind !== 'beam') {
-        const rim = new THREE.Mesh(new THREE.BoxGeometry(k.w + 0.08, 0.09, k.d + 0.08), cap);
-        rim.position.set(k.x, blockTop(k) + 0.01, k.z);
-        this.scene.add(rim);
-      }
     }
+    // One bright bar, moved each frame onto the nearest climbable edge (see updateLedgeHint).
+    this.ledgeHint = new THREE.Mesh(new THREE.BoxGeometry(1, 0.1, 0.1), this.ledgeMat);
+    this.ledgeHint.visible = false;
+    this.scene.add(this.ledgeHint);
     // a flag on the goal tower
     const goal = OBSTACLES.find((k) => k.kind === 'goal');
     if (goal) {
@@ -1250,6 +1248,43 @@ export class World {
       y: this.feetY,
       z: this.pos.z - Math.cos(this.yaw) * 0.9,
     };
+  }
+
+  /** Highlight only the single nearest edge you could climb onto: the face of the block closest to you. */
+  private updateLedgeHint() {
+    const bar = this.ledgeHint;
+    if (!bar) return;
+    const px = this.pos.x;
+    const pz = this.pos.z;
+    let best: { k: Block; dx: number; dz: number; d: number } | null = null;
+    for (const k of OBSTACLES) {
+      if (k.kind === 'beam') continue;
+      const rise = blockTop(k) - this.feetY;
+      if (rise < 0.45 || rise > 2.2) continue; // out of vaulting / grabbing reach
+      const cx = Math.max(k.x - k.w / 2, Math.min(k.x + k.w / 2, px));
+      const cz = Math.max(k.z - k.d / 2, Math.min(k.z + k.d / 2, pz));
+      const dx = px - cx;
+      const dz = pz - cz;
+      const d = Math.hypot(dx, dz);
+      if (d > 6 || d < 1e-6) continue; // too far, or standing on it
+      if (!best || d < best.d) best = { k, dx, dz, d };
+    }
+    if (!best) {
+      bar.visible = false;
+      return;
+    }
+    const { k, dx, dz } = best;
+    const alongX = Math.abs(dx) < Math.abs(dz); // nearest face is on the z side: the edge runs along x
+    const len = alongX ? k.w : k.d;
+    const top = blockTop(k) + 0.06;
+    bar.visible = true;
+    if (alongX) {
+      bar.scale.set(len + 0.08, 1, 1);
+      bar.position.set(k.x, top, k.z + Math.sign(dz) * (k.d / 2));
+    } else {
+      bar.scale.set(1, 1, len + 0.08);
+      bar.position.set(k.x + Math.sign(dx) * (k.w / 2), top, k.z);
+    }
   }
 
   private updateItems(dt: number) {
@@ -1492,6 +1527,7 @@ export class World {
     this.collide();
     this.updateItems(dt);
     this.ledgeMat.color.setHSL(0.19, 1, 0.55 + 0.1 * Math.sin(this.clock * 3));
+    this.updateLedgeHint();
 
     // ripples where anyone wades through the water
     this.ripples?.update(dt);
