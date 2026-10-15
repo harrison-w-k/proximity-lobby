@@ -249,8 +249,9 @@ export class Lobby {
         if (now - (c.hitAt ?? 0) < 1200) return; // one knock-down at a time
         c.hitAt = now;
         const sp = Math.hypot(msg.vx, msg.vz);
-        const k = sp > 12 ? 12 / sp : 1;
-        this.broadcast({ t: 'ragdoll', id: c.id, vx: msg.vx * k, vz: msg.vz * k }, c.id);
+        const k = sp > 16 ? 16 / sp : 1;
+        const sev = finite(msg.sev) ? Math.max(0, Math.min(1, msg.sev)) : 0.5;
+        this.broadcast({ t: 'ragdoll', id: c.id, vx: msg.vx * k, vz: msg.vz * k, sev }, c.id);
         break;
       }
       case 'take': {

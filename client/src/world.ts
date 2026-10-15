@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
-import { OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
+import { HOOP, OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
 import { HATS, LOOK_COLORS, type Look } from '../../shared/look';
-import { REACH, THROW_GRAVITY, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
+import { REACH, throughHoop, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
 
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
@@ -25,7 +25,8 @@ export type SoundEvent =
   | { kind: 'pickup' }
   | { kind: 'drop' }
   | { kind: 'throw'; power: number }
-  | { kind: 'hit' };
+  | { kind: 'hit' }
+  | { kind: 'score' };
 
 export const DEFAULT_FOV = 75;
 export const DEFAULT_RENDER_HEIGHT = 480;
@@ -452,6 +453,9 @@ interface AnimState {
   hanging: boolean;
   mantle: boolean;
   ragdoll?: number; // 0..1: knocked down and limp
+  ragFall?: number; // +1 falls forwards, -1 backwards
+  ragSpin?: number; // radians of twist accumulated while tumbling
+  ragSev?: number; // 0..1 how hard the hit was
   carrying?: boolean; // holding something out in front
 }
 
@@ -897,16 +901,23 @@ function makeCharacter(id: string): Character {
     // knocked down: the whole body topples and the limbs go limp and flail
     const rag = a.ragdoll ?? 0;
     if (rag > 0.01) {
-      const flail = Math.sin(t * 9 + phase0);
-      P.legL = lerp(P.legL, 0.6 + flail * 0.5, rag);
-      P.legR = lerp(P.legR, -0.4 - flail * 0.5, rag);
-      P.kneeL = lerp(P.kneeL, -0.7, rag);
-      P.kneeR = lerp(P.kneeR, -0.3, rag);
-      P.armL = lerp(P.armL, 2.2 + flail * 0.7, rag);
-      P.armR = lerp(P.armR, 1.8 - flail * 0.7, rag);
+      const sevF = a.ragSev ?? 0.5;
+      const flail = Math.sin(t * (7 + 6 * sevF) + phase0) * (0.5 + 0.8 * sevF);
+      P.legL = lerp(P.legL, 0.9 + flail, rag);
+      P.legR = lerp(P.legR, -0.7 - flail, rag);
+      P.kneeL = lerp(P.kneeL, -1.1 - flail * 0.3, rag);
+      P.kneeR = lerp(P.kneeR, -0.5 + flail * 0.3, rag);
+      P.armL = lerp(P.armL, 2.6 + flail, rag);
+      P.armR = lerp(P.armR, 2.1 - flail, rag);
+      P.elbow = lerp(P.elbow, 0.5 + Math.abs(flail) * 0.5, rag);
     }
-    root.rotation.x = -rag * 1.45; // falls over backwards, about the feet
-    root.position.y = rag * 0.22;
+    // the tumble: pitched over in the direction of the blow, twisting and rolling harder the harder it was
+    const sev = a.ragSev ?? 0.5;
+    const fall = a.ragFall ?? -1;
+    root.rotation.x = fall * rag * 1.5 + fall * Math.sin(t * 6) * 0.08 * rag;
+    root.rotation.y = (a.ragSpin ?? 0) * rag;
+    root.rotation.z = Math.sin(t * 3.1 + phase0) * 0.35 * sev * rag;
+    root.position.y = rag * 0.2;
 
     // extra articulation: ankles roll through the step, toes lift off, wrists relax, fingers curl
     const swingL = P.legL;
@@ -1042,6 +1053,13 @@ function makeItem(kind: ItemKind): THREE.Group {
   if (kind === 'ball') {
     add(new THREE.IcosahedronGeometry(0.22, 1), 0xff5a4a, 0, 0.22);
     add(new THREE.TorusGeometry(0.221, 0.03, 5, 14), 0xffffff, 0, 0.22).rotation.x = Math.PI / 2;
+  } else if (kind === 'basketball') {
+    add(new THREE.IcosahedronGeometry(0.2, 1), 0xe06a1c, 0, 0.2);
+    for (const rot of [0, Math.PI / 2]) {
+      const seam = add(new THREE.TorusGeometry(0.201, 0.008, 4, 18), 0x1a1208, 0, 0.2);
+      seam.rotation.y = rot;
+    }
+    add(new THREE.TorusGeometry(0.201, 0.008, 4, 18), 0x1a1208, 0, 0.2).rotation.x = Math.PI / 2;
   } else if (kind === 'crate') {
     add(new THREE.BoxGeometry(0.4, 0.4, 0.4), 0xb98648, 0, 0.2);
     add(new THREE.BoxGeometry(0.42, 0.06, 0.42), 0x8a5e2c, 0, 0.2);
@@ -1061,13 +1079,13 @@ function makeItem(kind: ItemKind): THREE.Group {
   return g;
 }
 
-const RAGDOLL_TIME = 2.2; // seconds spent on the floor after a hit
+const RAGDOLL_BASE = 1.8; // seconds on the floor after the hardest hit adds up to 1.4 more
 /** 0..1 over the fall, the stay on the ground, and the getting up. */
-const ragdollAmount = (left: number) => {
-  if (left <= 0) return 0;
-  const elapsed = RAGDOLL_TIME - left;
-  const down = Math.min(1, elapsed / 0.18);
-  const up = Math.min(1, left / 0.5);
+const ragdollAmount = (left: number, dur: number) => {
+  if (left <= 0 || dur <= 0) return 0;
+  const elapsed = dur - left;
+  const down = Math.min(1, elapsed / 0.14);
+  const up = Math.min(1, left / 0.6);
   return Math.max(0, Math.min(down, up));
 };
 
@@ -1093,6 +1111,10 @@ class Avatar {
   private speed = 0; // smoothed, derived from how far they actually move
   private vy = 0;
   private ragdollLeft = 0;
+  private ragdollDur = 0;
+  private ragSev = 0.5;
+  private ragFall = -1;
+  private ragSpinTo = 0;
   carrying = false;
   stepAccum = 0; // metres this player has walked since their last audible footstep
 
@@ -1147,8 +1169,14 @@ class Avatar {
   }
 
   /** Knocked down by a thrown item: tumble for a couple of seconds. */
-  ragdoll() {
-    this.ragdollLeft = RAGDOLL_TIME;
+  ragdoll(vx = 0, vz = 0, sev = 0.5) {
+    this.ragSev = sev;
+    this.ragdollDur = this.ragdollLeft = RAGDOLL_BASE + 1.4 * sev;
+    // blow from the front: fall backwards. From behind: fall forwards.
+    const fx = -Math.sin(this.group.rotation.y);
+    const fz = -Math.cos(this.group.rotation.y);
+    this.ragFall = vx * fx + vz * fz < 0 ? -1 : 1;
+    this.ragSpinTo = (Math.random() < 0.5 ? -1 : 1) * (0.6 + 1.6 * sev);
   }
 
   update(dt: number, t: number) {
@@ -1184,7 +1212,10 @@ class Avatar {
         sliding: this.crouch && this.speed > 3.6, // crouched but moving fast is a slide
         hanging: false,
         mantle: false,
-        ragdoll: ragdollAmount(this.ragdollLeft),
+        ragdoll: ragdollAmount(this.ragdollLeft, this.ragdollDur),
+        ragFall: this.ragFall,
+        ragSpin: this.ragSpinTo,
+        ragSev: this.ragSev,
         carrying: this.carrying,
       },
       dt,
@@ -1256,14 +1287,23 @@ export class World {
   /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
   private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
-  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string; checked?: number }; changedAt: number }>();
+  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string; checked?: number; scored?: boolean; sChecked?: number }; changedAt: number }>();
   private selfId = '';
   private selfLook: Look | null = null;
   private puffs = new Puffs();
   private ragdollT = 0; // seconds of being knocked down left
-  onHit?: (vx: number, vz: number) => void; // a thrown item hit you
+  private ragdollDur = 0;
+  private ragSev = 0.5;
+  private ragFall = -1;
+  private ragSpin = 0;
+  onScore?: (by: string) => void; // a shot went through the hoop
+  private hoopFlash = 0;
+  private rimMat?: THREE.MeshBasicMaterial;
+  onHit?: (vx: number, vz: number, sev: number) => void; // a hard throw hit you
   // throw aiming: R zooms the camera in over the shoulder, holding the mouse charges the power
   aiming = false;
+  /** Extra elevation (radians) added to where you look; the scroll wheel changes it while aiming. */
+  throwAngle = 0.2;
   charging = false;
   charge = 0; // 0..1
   private aimBlend = 0;
@@ -1455,6 +1495,24 @@ export class World {
       this.scene.add(palm);
     }
 
+    // The basketball hoop: the pole and backboard are blocks (shared/obstacles.ts); the rim and net are here.
+    this.rimMat = new THREE.MeshBasicMaterial({ color: 0xff5a1f });
+    const hoopRim = new THREE.Mesh(new THREE.TorusGeometry(HOOP.rimR, 0.022, 6, 24), this.rimMat);
+    hoopRim.rotation.x = Math.PI / 2;
+    hoopRim.position.set(HOOP.x, HOOP.rimY, HOOP.z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(HOOP.boardX - HOOP.x - HOOP.rimR + 0.02, 0.04, 0.05), this.rimMat);
+    arm.position.set((HOOP.x + HOOP.rimR + HOOP.boardX) / 2 - 0.02, HOOP.rimY, HOOP.z);
+    const net = new THREE.Mesh(
+      new THREE.CylinderGeometry(HOOP.rimR, HOOP.rimR * 0.55, 0.38, 12, 3, true),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }),
+    );
+    net.position.set(HOOP.x, HOOP.rimY - 0.19, HOOP.z);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.95, 1.25), flat(0xffffff));
+    face.position.set(HOOP.boardX - 0.055, 2.9 + 0.55, HOOP.z);
+    const square = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.36, 0.52), flat(0xd8452e));
+    square.position.set(HOOP.boardX - 0.058, 2.9 + 0.4, HOOP.z);
+    this.scene.add(hoopRim, arm, net, face, square);
+
     // Rocks on the beach and out in the shallows, also solid.
     const rockMat = textured(t.rock);
     for (const r of SCENERY.rocks) {
@@ -1547,28 +1605,50 @@ export class World {
   }
 
   /** Someone else got hit: tumble them. */
-  ragdollPlayer(id: string) {
+  ragdollPlayer(id: string, vx = 0, vz = 0, sev = 0.5) {
     const a = this.avatars.get(id);
     if (!a) return;
-    a.ragdoll();
+    a.ragdoll(vx, vz, sev);
     this.puffs.emit(a.group.position.x, a.group.position.y + 1.2, a.group.position.z, 14, 0xffe27a, 2.6, 2.2);
     const d = Math.hypot(a.group.position.x - this.pos.x, a.group.position.z - this.pos.z);
     if (d < 25) this.onSound?.({ kind: 'hit' });
   }
 
-  /** You were hit: knocked back, and no control for a moment. */
-  private knockDown(vx: number, vz: number) {
-    this.ragdollT = RAGDOLL_TIME;
-    this.cancelAim();
+  /**
+   * You were hit by a thrown item moving at `speed` m/s. A light tap just nudges you; a hard hit
+   * launches you, spins you and puts you on the floor for a few seconds.
+   */
+  private knockDown(vx: number, vz: number, speed: number) {
     const s = this.sim;
-    s.vx = vx;
-    s.vz = vz;
-    if (s.onGround) s.vy = 4;
+    const len = Math.max(1e-3, Math.hypot(vx, vz));
+    const dx = vx / len;
+    const dz = vz / len;
+    if (speed < 9) {
+      // a soft hit: slide a little and carry on
+      s.vx += dx * 2.4;
+      s.vz += dz * 2.4;
+      this.onSound?.({ kind: 'hit' });
+      this.puffs.emit(this.pos.x, this.feetY + 1.2, this.pos.z, 4, 0xffffff, 1.2, 1);
+      return;
+    }
+    const sev = Math.max(0, Math.min(1, (speed - 9) / 11));
+    this.cancelAim();
+    this.ragSev = sev;
+    this.ragdollDur = this.ragdollT = RAGDOLL_BASE + 1.4 * sev;
+    // blow from the front: fall backwards. From behind: fall forwards.
+    this.ragFall = dx * -Math.sin(this.yaw) + dz * -Math.cos(this.yaw) < 0 ? -1 : 1;
+    this.ragSpin = (Math.random() < 0.5 ? -1 : 1) * (0.6 + 1.6 * sev);
+    const kick = 6 + 8 * sev;
+    s.vx = dx * kick;
+    s.vz = dz * kick;
+    s.vy = 3.5 + 3.5 * sev; // thrown into the air, not just pushed
+    s.onGround = false;
+    s.ragdoll = true;
     s.sliding = false;
     s.hanging = false;
     this.onSound?.({ kind: 'hit' });
-    this.puffs.emit(this.pos.x, this.feetY + 1.2, this.pos.z, 14, 0xffe27a, 2.6, 2.2);
-    this.onHit?.(vx, vz);
+    this.puffs.emit(this.pos.x, this.feetY + 1.2, this.pos.z, 10 + Math.round(14 * sev), 0xffffff, 2.6 + 2 * sev, 2.2);
+    this.onHit?.(s.vx, s.vz, sev);
   }
 
   // ---- items you can pick up ----
@@ -1643,47 +1723,19 @@ export class World {
     this.charge = 0;
   }
 
-  /** The launch of a throw at `power` (0..1): from your hands toward whatever the crosshair is on. */
+  /** Change the throw's elevation with the scroll wheel (radians, clamped). */
+  adjustThrowAngle(delta: number) {
+    this.throwAngle = Math.max(-0.35, Math.min(1.1, this.throwAngle + delta));
+  }
+
+  /** The launch of a throw at `power` (0..1): out of your hands along where you face, raised by the throw angle. */
   throwFlight(power = 0.5): Flight {
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
-    const speed = 5 + 12 * Math.max(0, Math.min(1, power));
-    const sx = this.pos.x - sy * 0.5;
-    const sh = this.feetY + 1.3;
-    const sz = this.pos.z - cy * 0.5;
-    // aim point: far along the camera's view line, so the arc follows the crosshair (look up to lob)
-    const dir = this.camera.getWorldDirection(new THREE.Vector3());
-    let tx = this.camera.position.x + dir.x * 30;
-    let ty = this.camera.position.y + dir.y * 30;
-    let tz = this.camera.position.z + dir.z * 30;
-    // aim assist: a player roughly under the crosshair is aimed at on the chest, so throws land
-    let bestAngle = 0.16;
-    let assisted = false;
-    for (const a of this.avatars.values()) {
-      const g = a.group.position;
-      const dx = g.x - this.camera.position.x;
-      const dy = g.y + 1.15 - this.camera.position.y;
-      const dz = g.z - this.camera.position.z;
-      const dist = Math.hypot(dx, dy, dz);
-      if (dist < 1.5 || dist > 40) continue;
-      const angle = Math.acos(Math.max(-1, Math.min(1, (dx * dir.x + dy * dir.y + dz * dir.z) / dist)));
-      if (angle < bestAngle) {
-        bestAngle = angle;
-        tx = g.x;
-        ty = g.y + 1.15;
-        tz = g.z;
-        assisted = true;
-      }
-    }
-    if (assisted) {
-      // a true ballistic aim: reach the target in the time it takes at this speed, allowing for gravity
-      const hx = tx - sx;
-      const hz = tz - sz;
-      const T = Math.max(0.12, Math.hypot(hx, hz) / speed);
-      return [sx, sh, sz, hx / T, (ty - sh) / T + 0.5 * THROW_GRAVITY * T, hz / T];
-    }
-    const v = new THREE.Vector3(tx - sx, ty - sh, tz - sz).normalize();
-    return [sx, sh, sz, v.x * speed, v.y * speed + 1.5, v.z * speed];
+    const speed = 5 + 14 * Math.max(0, Math.min(1, power)); // the power sets the speed
+    const el = Math.max(-0.6, Math.min(1.4, this.pitch + this.throwAngle));
+    const ce = Math.cos(el);
+    return [this.pos.x - sy * 0.5, this.feetY + 1.3, this.pos.z - cy * 0.5, -sy * ce * speed, Math.sin(el) * speed, -cy * ce * speed];
   }
 
   /** Where a dropped item lands: a step in front of you, at your feet. Null in mid-air. */
@@ -1694,6 +1746,13 @@ export class World {
       y: this.feetY,
       z: this.pos.z - Math.cos(this.yaw) * 0.9,
     };
+  }
+
+  private scoreEffect(by: string) {
+    this.hoopFlash = 1.4;
+    this.onSound?.({ kind: 'score' });
+    for (let k = 0; k < 3; k++) this.puffs.emit(HOOP.x, HOOP.rimY - 0.1 + k * 0.25, HOOP.z, 12, [0xffe27a, 0xffffff, 0xff7a3a][k], 2.4, 3);
+    this.onScore?.(by);
   }
 
   /** Highlight only the single nearest edge you could climb onto: the face of the block closest to you. */
@@ -1788,11 +1847,22 @@ export class World {
                 cur[1] > this.feetY - 0.25 &&
                 cur[1] < this.feetY + 2.0
               ) {
-                this.knockDown(vx * 0.7, vz * 0.7);
+                this.knockDown(vx, vz, Math.hypot(vx, vz));
                 break;
               }
             }
             it.flight.checked = i;
+          }
+          // a ball dropping through the rim scores (once per flight)
+          if (!it.flight.scored) {
+            for (let j = Math.max(1, (it.flight.sChecked ?? 0) + 1); j <= i; j++) {
+              if (throughHoop(it.flight.path[j - 1], it.flight.path[j])) {
+                it.flight.scored = true;
+                this.scoreEffect(it.flight.by ?? '');
+                break;
+              }
+            }
+            it.flight.sChecked = i;
           }
           group.rotation.y += dt * 9;
           continue;
@@ -2074,6 +2144,10 @@ export class World {
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
     this.puffs.update(dt);
+    if (this.hoopFlash > 0) {
+      this.hoopFlash = Math.max(0, this.hoopFlash - dt);
+      this.rimMat?.color.setHSL(0.07, 1, 0.5 + 0.35 * Math.abs(Math.sin(this.hoopFlash * 14)));
+    } else this.rimMat?.color.setHex(0xff5a1f);
     this.collide();
     if (this.aiming && this.holding === null) this.cancelAim(); // dropped it, or it was taken
     if (this.aiming && this.charging) this.charge = Math.min(1, this.charge + dt / 1.1);
@@ -2105,10 +2179,14 @@ export class World {
       sliding: sim.sliding,
       hanging: sim.hanging,
       mantle: sim.mantle !== null,
-      ragdoll: ragdollAmount(this.ragdollT),
+      ragdoll: ragdollAmount(this.ragdollT, this.ragdollDur),
+      ragFall: this.ragFall,
+      ragSpin: this.ragSpin,
+      ragSev: this.ragSev,
       carrying: this.holding !== null,
     };
     this.ragdollT = Math.max(0, this.ragdollT - dt);
+    if (this.ragdollT <= 0 && sim.ragdoll) sim.ragdoll = false;
     for (const c of this.selfChars) c.animate(state, dt, this.clock);
 
     this.pos.y = this.feetY + sim.eye;

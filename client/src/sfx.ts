@@ -195,6 +195,12 @@ export class Sfx {
     this.tone(330, 520, 0.18, 0.06, 'triangle', 0.08);
   }
 
+  /** A basket: a net swish and a rising chime. */
+  score() {
+    this.burst('bandpass', 3200, 1800, 0.22, 0.12, 0.7);
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, 0.2, 0.09, 'triangle', 0.08 + i * 0.07));
+  }
+
   // ---------- interface ----------
   click() {
     this.tone(this.jitter(880, 0.03), 700, 0.045, 0.07, 'square');
@@ -263,6 +269,9 @@ export class Sfx {
         break;
       case 'hit':
         this.hit();
+        break;
+      case 'score':
+        this.score();
         break;
     }
   }

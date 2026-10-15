@@ -1,9 +1,9 @@
-import { OBSTACLES, blockTop } from './obstacles';
+import { HOOP, OBSTACLES, blockTop } from './obstacles';
 
 // Little objects you can pick up with a click and carry. The server owns who holds what; every
 // client draws the same set, so everyone sees the same things sitting about and being carried.
 
-export type ItemKind = 'ball' | 'crate' | 'cone' | 'duck' | 'fish';
+export type ItemKind = 'ball' | 'basketball' | 'crate' | 'cone' | 'duck' | 'fish';
 
 export interface ItemState {
   id: number;
@@ -18,12 +18,12 @@ export const REACH = 5; // how close (m) you must be to pick something up
 
 /** Where the items start. Kept clear of the obstacle course. */
 export const ITEM_SPAWNS: Omit<ItemState, 'holder'>[] = [
-  { id: 0, kind: 'ball', x: 4, y: 0, z: 3 },
+  { id: 0, kind: 'basketball', x: 10.5, y: 0, z: 7.5 },
   { id: 1, kind: 'duck', x: -4, y: 0, z: 3.5 },
   { id: 2, kind: 'crate', x: 3, y: 0, z: -4 },
   { id: 3, kind: 'cone', x: -3, y: 0, z: -5 },
   { id: 4, kind: 'fish', x: 0, y: 0, z: 7 },
-  { id: 5, kind: 'ball', x: 9, y: 0, z: 3 },
+  { id: 5, kind: 'basketball', x: 9.5, y: 0, z: 2.5 },
   { id: 6, kind: 'duck', x: -9, y: 0, z: -3 },
   { id: 7, kind: 'cone', x: 6, y: 0, z: 10 },
   { id: 8, kind: 'fish', x: -6, y: 0, z: -10 },
@@ -105,4 +105,16 @@ export function throwPath(f: Flight): [number, number, number][] {
     out.push([x, y, z]);
   }
   return out;
+}
+
+/**
+ * Did this step of a path drop through the hoop's rim, from above? `a` and `b` are consecutive
+ * samples. Every client runs this on the same path, so everyone sees the same shot score.
+ */
+export function throughHoop(a: [number, number, number], b: [number, number, number]): boolean {
+  if (!(a[1] > HOOP.rimY && b[1] <= HOOP.rimY)) return false;
+  const t = (a[1] - HOOP.rimY) / Math.max(1e-6, a[1] - b[1]);
+  const x = a[0] + (b[0] - a[0]) * t;
+  const z = a[2] + (b[2] - a[2]) * t;
+  return Math.hypot(x - HOOP.x, z - HOOP.z) < HOOP.rimR - 0.04;
 }

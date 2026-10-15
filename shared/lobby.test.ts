@@ -235,26 +235,26 @@ await malformedTests();
   const q = client(L);
   p.tx({ t: 'join', name: 'p' });
   q.tx({ t: 'join', name: 'q' });
-  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
-  q.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
+  q.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
   const lastItem = (c: ReturnType<typeof client>) => {
     const m = c.inbox.filter((x) => x.t === 'item').pop();
     return m && m.t === 'item' ? m.item : null;
   };
-  p.tx({ t: 'take', id: 0 }); // ball at (4, 3)
+  p.tx({ t: 'take', id: 0 }); // basketball at (10.5, 7.5)
   assert.equal(lastItem(p)?.holder, p.s.id);
   q.tx({ t: 'take', id: 0 }); // already held: refused, and q is told who has it
   assert.equal(lastItem(q)?.holder, p.s.id);
   p.tx({ t: 'take', id: 1 }); // hands full
   assert.equal(lastItem(p)?.id, 0);
-  p.tx({ t: 'drop', id: 0, x: 5, y: 0, z: 3 });
+  p.tx({ t: 'drop', id: 0, x: 11.5, y: 0, z: 7.5 });
   const dropped = lastItem(q);
-  assert.ok(dropped && dropped.holder === null && dropped.x === 5);
+  assert.ok(dropped && dropped.holder === null && dropped.x === 11.5);
   q.tx({ t: 'pos', x: -40, z: 40, ry: 0 });
   q.tx({ t: 'take', id: 0 }); // too far
   assert.equal(lastItem(q)?.holder, null);
   // a stale client that thinks it still holds something is corrected, not ignored
-  p.tx({ t: 'throw', id: 0, f: [4, 1.3, 3, 0, 4, -5] });
+  p.tx({ t: 'throw', id: 0, f: [10.5, 1.3, 7.5, 0, 4, -5] });
   assert.equal(lastItem(p)?.holder, null);
 }
 
@@ -263,9 +263,9 @@ await malformedTests();
   const L = new Lobby([]);
   const p = client(L);
   p.tx({ t: 'join', name: 'p' });
-  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
   p.tx({ t: 'take', id: 0 });
-  p.tx({ t: 'throw', id: 0, f: [4, 1.3, 2.5, 0, 4.5, -10] });
+  p.tx({ t: 'throw', id: 0, f: [10.5, 1.3, 7.0, 0, 4.5, -10] });
   const m = p.inbox.filter((x) => x.t === 'item').pop();
   assert.ok(m && m.t === 'item' && m.item.holder === null && m.fly, 'thrown item is loose and has a flight');
   assert.ok(m.t === 'item' && m.item.z < 0, 'it travelled in the throw direction');
@@ -276,10 +276,10 @@ await malformedTests();
   const L = new Lobby([]);
   const p = client(L);
   p.tx({ t: 'join', name: 'p' });
-  p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
-  p.tx({ t: 'shove', id: 0, vx: 0, vz: -5 }); // ball at (4, 3)
+  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
+  p.tx({ t: 'shove', id: 0, vx: 0, vz: -5 }); // basketball at (10.5, 7.5)
   const m = p.inbox.filter((x) => x.t === 'item').pop();
-  assert.ok(m && m.t === 'item' && m.fly && m.item.z < 3 - 1, 'the ball rolled away');
+  assert.ok(m && m.t === 'item' && m.fly && m.item.z < 7.5 - 1, 'the ball rolled away');
   p.tx({ t: 'pos', x: -30, z: 30, ry: 0 });
   const n = p.inbox.length;
   p.tx({ t: 'shove', id: 4, vx: 3, vz: 0 }); // far away

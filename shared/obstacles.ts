@@ -114,7 +114,17 @@ const COURSE: Block[] = [
   b('beam', 12.5, -12, 4.4, 0.5, 0.5, 0.85),
 ];
 
-const COURSE_AND_YARD: Block[] = [...YARD, ...COURSE];
+/**
+ * The basketball hoop, east of the spawn. The ball scores by dropping through the rim from above.
+ * The pole and backboard are solid, so shots can bank off the board.
+ */
+export const HOOP = { x: 13.2, z: 5, rimY: 3.05, rimR: 0.23, boardX: 13.6 };
+const HOOP_BLOCKS: Block[] = [
+  b('pillar', 14.1, 5, 0.3, 0.3, 4.2), // the pole
+  b('wall', HOOP.boardX, 5, 0.1, 1.3, 1.05, 2.9), // the backboard
+];
+
+const COURSE_AND_YARD: Block[] = [...YARD, ...COURSE, ...HOOP_BLOCKS];
 
 // ------------------------------------------------------------------------------------------
 // Scenery you bump into: palms along the beach and rocks on the beach and in the shallows. The

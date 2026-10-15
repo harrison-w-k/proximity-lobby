@@ -755,7 +755,11 @@ world.onFrame = () => {
   const hint = '';
   const bar = $('throw-bar');
   if (bar.hidden === world.aiming) bar.hidden = !world.aiming;
-  if (world.aiming) $('throw-fill').style.width = `${Math.round(world.charge * 100)}%`;
+  $('throw-angle').hidden = !world.aiming;
+  if (world.aiming) {
+    $('throw-fill').style.width = `${Math.round(world.charge * 100)}%`;
+    $('throw-angle').textContent = `Angle ${Math.round((world.throwAngle * 180) / Math.PI)}\u00b0  (scroll)`;
+  }
   const hintEl = $('pickup-hint');
   if (hintEl.textContent !== hint) {
     hintEl.textContent = hint;
@@ -765,7 +769,19 @@ world.onFrame = () => {
 
 // ---------- networking ----------
 world.onShove = (id, vx, vz) => net.send({ t: 'shove', id, vx, vz });
-world.onHit = (vx, vz) => net.send({ t: 'hit', vx, vz });
+world.onHit = (vx, vz, sev) => net.send({ t: 'hit', vx, vz, sev });
+world.onScore = (by) => addChat('\u2022', `${by === myId ? 'You' : (names.get(by) ?? 'Someone')} scored!`);
+
+// scroll while aiming a throw to raise or lower its angle
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!world.aiming) return;
+    e.preventDefault();
+    world.adjustThrowAngle(-Math.sign(e.deltaY) * 0.05);
+  },
+  { passive: false },
+);
 
 net.onClose = () => {
   if (joined) $('dead').hidden = false;
@@ -838,7 +854,7 @@ net.onMessage = (m: ServerMsg) => {
       world.setPlayerLook(m.id, { c: m.c, h: m.h });
       break;
     case 'ragdoll':
-      world.ragdollPlayer(m.id);
+      world.ragdollPlayer(m.id, m.vx, m.vz, m.sev);
       break;
     case 'state':
       for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);
