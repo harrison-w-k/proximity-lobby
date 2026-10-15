@@ -1267,14 +1267,21 @@ export class World {
     this.charge = 0;
   }
 
-  /** The launch of a throw at `power` (0..1): out of your hands, along where you face, with some lift. */
+  /** The launch of a throw at `power` (0..1): from your hands toward whatever the crosshair is on. */
   throwFlight(power = 0.5): Flight {
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
     const speed = 5 + 12 * Math.max(0, Math.min(1, power));
-    // looking up lobs it higher, but looking down never throws it into your feet
-    const up = 3 + Math.max(-0.2, Math.min(0.8, Math.sin(this.pitch))) * 8;
-    return [this.pos.x - sy * 0.5, this.feetY + 1.3, this.pos.z - cy * 0.5, -sy * speed, up, -cy * speed];
+    const sx = this.pos.x - sy * 0.5;
+    const sh = this.feetY + 1.3;
+    const sz = this.pos.z - cy * 0.5;
+    // aim point: far along the camera's view line, so the arc follows the crosshair (look up to lob)
+    const dir = this.camera.getWorldDirection(new THREE.Vector3());
+    const tx = this.camera.position.x + dir.x * 30;
+    const ty = this.camera.position.y + dir.y * 30;
+    const tz = this.camera.position.z + dir.z * 30;
+    const v = new THREE.Vector3(tx - sx, ty - sh, tz - sz).normalize();
+    return [sx, sh, sz, v.x * speed, v.y * speed + 1.5, v.z * speed];
   }
 
   /** Where a dropped item lands: a step in front of you, at your feet. Null in mid-air. */

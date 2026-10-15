@@ -237,16 +237,25 @@ await malformedTests();
   q.tx({ t: 'join', name: 'q' });
   p.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
   q.tx({ t: 'pos', x: 4, z: 3, ry: 0 });
+  const lastItem = (c: ReturnType<typeof client>) => {
+    const m = c.inbox.filter((x) => x.t === 'item').pop();
+    return m && m.t === 'item' ? m.item : null;
+  };
   p.tx({ t: 'take', id: 0 }); // ball at (4, 3)
-  q.tx({ t: 'take', id: 0 }); // already held
-  assert.equal(q.inbox.filter((m) => m.t === 'item').length, 1);
+  assert.equal(lastItem(p)?.holder, p.s.id);
+  q.tx({ t: 'take', id: 0 }); // already held: refused, and q is told who has it
+  assert.equal(lastItem(q)?.holder, p.s.id);
   p.tx({ t: 'take', id: 1 }); // hands full
+  assert.equal(lastItem(p)?.id, 0);
   p.tx({ t: 'drop', id: 0, x: 5, y: 0, z: 3 });
-  const dropped = q.inbox.filter((m) => m.t === 'item').pop();
-  assert.ok(dropped && dropped.t === 'item' && dropped.item.holder === null && dropped.item.x === 5);
+  const dropped = lastItem(q);
+  assert.ok(dropped && dropped.holder === null && dropped.x === 5);
   q.tx({ t: 'pos', x: -40, z: 40, ry: 0 });
   q.tx({ t: 'take', id: 0 }); // too far
-  assert.equal(q.inbox.filter((m) => m.t === 'item').length, 2);
+  assert.equal(lastItem(q)?.holder, null);
+  // a stale client that thinks it still holds something is corrected, not ignored
+  p.tx({ t: 'throw', id: 0, f: [4, 1.3, 3, 0, 4, -5] });
+  assert.equal(lastItem(p)?.holder, null);
 }
 
 // throwing: the item leaves the hands, flies, and the server settles it somewhere ahead

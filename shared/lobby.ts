@@ -56,11 +56,26 @@ export class Lobby {
   private items = new Map<number, ItemState>(ITEM_SPAWNS.map((i) => [i.id, { ...i, holder: null }]));
   /** Hosts that outlive a restart (the Durable Object) persist photos here: null = removed. */
   onAvatar?: (id: string, img: string | null) => void;
+  /** Hosts that can be evicted from memory (the Durable Object) persist the items here. */
+  onItems?: (items: ItemState[]) => void;
 
   constructor(
     private iceServers: IceServers,
     private verify?: Verifier,
   ) {}
+
+  /** Put the items back after a restart. Anything held by a player who is no longer here is set down. */
+  restoreItems(list: ItemState[]) {
+    for (const it of list) {
+      if (!this.items.has(it.id)) continue;
+      const held = it.holder !== null && this.conns.has(it.holder);
+      this.items.set(it.id, { ...it, holder: held ? it.holder : null });
+    }
+  }
+
+  private itemsChanged() {
+    this.onItems?.([...this.items.values()]);
+  }
 
   /** A new socket connected; it is not a player until it sends `join`. */
   open(peer: Peer): Session {
@@ -218,16 +233,21 @@ export class Lobby {
       }
       case 'take': {
         const it = this.items.get(msg.id);
-        if (!c.joined || !it || it.holder) return;
+        if (!c.joined || !it) return;
+        // when a request is refused, tell the sender the truth so its picture can't drift
+        const refuse = () => this.send(c, { t: 'item', item: it });
+        if (it.holder) return refuse();
         for (const o of this.items.values()) if (o.holder === c.id) return; // hands are full
         if (Math.hypot(it.x - c.x, it.z - c.z) > REACH + 3) return; // too far (allows for lag)
         it.holder = c.id;
+        this.itemsChanged();
         this.broadcast({ t: 'item', item: it });
         break;
       }
       case 'drop': {
         const it = this.items.get(msg.id);
-        if (!c.joined || !it || it.holder !== c.id) return;
+        if (!c.joined || !it) return;
+        if (it.holder !== c.id) return void this.send(c, { t: 'item', item: it });
         if (!finite(msg.x) || !finite(msg.y) || !finite(msg.z)) return;
         const at = clampToArena(msg.x, msg.z, SWIM_LIMIT);
         if (Math.hypot(at.x - c.x, at.z - c.z) > 6) return;
@@ -235,13 +255,16 @@ export class Lobby {
         it.z = at.z;
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, msg.y));
         it.holder = null;
+        this.itemsChanged();
         this.broadcast({ t: 'item', item: it });
         break;
       }
       case 'throw': {
         const it = this.items.get(msg.id);
         const f = msg.f;
-        if (!c.joined || !it || it.holder !== c.id || !Array.isArray(f) || f.length !== 6 || !f.every(finite)) return;
+        if (!c.joined || !it) return;
+        if (it.holder !== c.id) return void this.send(c, { t: 'item', item: it });
+        if (!Array.isArray(f) || f.length !== 6 || !f.every(finite)) return;
         if (Math.hypot(f[0] - c.x, f[2] - c.z) > 3 || f[1] < c.y - 1 || f[1] > c.y + 3) return;
         const v = Math.hypot(f[3], f[4], f[5]);
         const k = v > THROW_MAX_SPEED ? THROW_MAX_SPEED / v : 1;
@@ -253,6 +276,7 @@ export class Lobby {
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, end[1]));
         it.z = at.z;
         it.holder = null;
+        this.itemsChanged();
         this.broadcast({ t: 'item', item: it, fly: launch });
         break;
       }
@@ -276,6 +300,7 @@ export class Lobby {
       it.x = c.x;
       it.z = c.z;
       it.y = Math.max(0, c.y);
+      this.itemsChanged();
       this.broadcast({ t: 'item', item: it });
     }
     this.dirty.delete(c.id);

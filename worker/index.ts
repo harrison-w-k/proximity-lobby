@@ -1,5 +1,6 @@
 // Cloudflare Worker entry: static client + one Durable Object that runs the lobby.
 import { DurableObject } from 'cloudflare:workers';
+import type { ItemState } from '../shared/items';
 import { Lobby, type IceServers, type Peer, type Saved, type Session } from '../shared/lobby';
 import { supabaseAuth } from '../shared/auth';
 
@@ -58,6 +59,10 @@ export class LobbyDO extends DurableObject<Env> {
       const op: Promise<unknown> = img ? ctx.storage.put(`av:${id}`, img) : ctx.storage.delete(`av:${id}`);
       op.catch((e) => console.error('avatar storage failed', e));
     };
+    // Items must outlive an eviction too, or anything being carried silently resets to its spawn.
+    this.lobby.onItems = (items) => {
+      ctx.storage.put('items', items).catch((e) => console.error('item storage failed', e));
+    };
     // Rebuild players (and their photos) after the object was evicted or hibernated.
     void ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.list<string>({ prefix: 'av:' });
@@ -68,6 +73,8 @@ export class LobbyDO extends DurableObject<Env> {
         live.add(`av:${saved.id}`);
         this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved, stored.get(`av:${saved.id}`)));
       }
+      const items = await ctx.storage.get<ItemState[]>('items');
+      if (items) this.lobby.restoreItems(items);
       const stale = [...stored.keys()].filter((k) => !live.has(k)).slice(0, 128); // players who are gone
       if (stale.length) await ctx.storage.delete(stale);
     });
