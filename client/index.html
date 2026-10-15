@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proximity Lobby</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #fff; }
+    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(10, 14, 24, 0.7); backdrop-filter: blur(4px); z-index: 10; }
+    .card { background: #151a28; padding: 28px 32px; border-radius: 14px; width: min(360px, 90vw);
+      display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+    .card h1 { margin: 0; font-size: 22px; }
+    .card p { margin: 0; color: #9aa3b8; font-size: 14px; line-height: 1.4; }
+    input, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #2c3550; }
+    input { background: #0d1120; color: #fff; }
+    button { background: #4f7cff; border-color: #4f7cff; color: #fff; cursor: pointer; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    #status { min-height: 18px; color: #ffb4b4; }
+    #hud { position: fixed; top: 12px; left: 12px; z-index: 5; font-size: 14px; line-height: 1.6;
+      background: rgba(0,0,0,.45); padding: 8px 12px; border-radius: 8px; pointer-events: none; }
+    #mic.speaking { color: #7dff9b; }
+    #mic.off { color: #ff8a8a; }
+    #hint { color: #cbd3e6; font-size: 12px; }
+    #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px;
+      border-radius: 50%; background: rgba(255,255,255,.8); z-index: 4; pointer-events: none; }
+    #paused { position: fixed; left: 50%; top: 45%; transform: translateX(-50%); z-index: 6;
+      background: rgba(0,0,0,.6); padding: 10px 18px; border-radius: 8px; pointer-events: none; }
+    #chat { position: fixed; left: 12px; bottom: 12px; width: min(460px, 90vw); z-index: 5; }
+    #chat-log { display: flex; flex-direction: column; gap: 2px; font-size: 14px; max-height: 220px; overflow: hidden; }
+    .line { background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 6px; width: fit-content; max-width: 100%;
+      overflow-wrap: anywhere; transition: opacity .6s; }
+    .line.old { opacity: 0; }
+    #chat.open .line.old { opacity: 1; }
+    #chat-input { width: 100%; box-sizing: border-box; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="crosshair" hidden></div>
+
+  <div id="join" class="overlay">
+    <form id="join-form" class="card">
+      <h1>Proximity Lobby</h1>
+      <p>Walk around, talk to people near you, and chat with everyone. Your browser will ask for microphone access.</p>
+      <p>Your username is the part of your email before the @, and other players will see it. Your email itself is never sent to the server.</p>
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
+      <button id="join-btn" type="submit">Join</button>
+      <p id="status"></p>
+    </form>
+  </div>
+
+  <div id="hud" hidden>
+    <div id="players"></div>
+    <div id="mic"></div>
+    <div id="hint">WASD move · Shift sprint · Mouse look · Enter chat · M mute</div>
+  </div>
+
+  <div id="chat" hidden>
+    <div id="chat-log"></div>
+    <input id="chat-input" maxlength="200" placeholder="Message everyone… (Enter to send, Esc to cancel)" autocomplete="off" hidden />
+  </div>
+
+  <div id="paused" hidden>Click to resume</div>
+
+  <div id="dead" class="overlay" hidden>
+    <div class="card"><h1>Disconnected</h1><p>Lost connection to the server.</p>
+      <button onclick="location.reload()">Reconnect</button></div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
