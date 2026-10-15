@@ -687,7 +687,7 @@ world.onFrame = () => {
     lookId = id;
     showTarget();
   }
-  const hint = world.aiming ? 'Hold click to charge · release to throw · R cancel' : world.holding !== null ? 'F set down · R aim a throw' : playing && world.nearestItem() !== null ? 'F to pick up' : '';
+  const hint = world.aiming ? 'R' : world.holding !== null ? 'F   R' : playing && world.nearestItem() !== null ? 'F' : '';
   const bar = $('throw-bar');
   if (bar.hidden === world.aiming) bar.hidden = !world.aiming;
   if (world.aiming) $('throw-fill').style.width = `${Math.round(world.charge * 100)}%`;
