@@ -31,3 +31,7 @@ Players are solid circles (0.4 m radius). Collision is client-side (`client/src/
 
 ## Supabase (planned)
 `client/src/supabase.ts` is an inert stub. See `.env.example`.
+
+## Deploy on Railway
+`railway.json` + `Dockerfile` are all it needs. New Project -> Deploy from GitHub repo -> pick this repo, then
+Settings -> Networking -> Generate Domain. Railway sets `PORT` automatically; HTTPS and WebSockets work out of the box.
