@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -31,7 +31,7 @@ if (process.env.TURN_URL) {
   });
 }
 
-const http = createServer(async (req, res) => {
+async function onRequest(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (url.pathname === '/healthz') {
     res.writeHead(200).end('ok');
@@ -51,6 +51,14 @@ const http = createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('Not found (did you run `npm run build`?)');
   }
+}
+
+const http = createServer((req, res) => {
+  // `new URL('//')` and `decodeURIComponent('%')` throw; scanners send exactly that kind of path.
+  onRequest(req, res).catch(() => {
+    if (!res.headersSent) res.writeHead(400);
+    res.end();
+  });
 });
 
 // With Supabase configured, joining requires a verified login. Without it (plain local dev),
@@ -94,3 +102,7 @@ setInterval(() => {
 }, 30_000);
 
 http.listen(PORT, () => console.log(`proxchat listening on http://localhost:${PORT}`));
+
+// Last line of defence: log and keep serving rather than dropping every player.
+process.on('uncaughtException', (e) => console.error('uncaught exception', e));
+process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));

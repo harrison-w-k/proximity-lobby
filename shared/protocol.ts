@@ -1,7 +1,7 @@
 // Types and constants shared by client and server.
 
 export const MAX_PLAYERS = 20;
-export const MAP_RADIUS = 50; // the arena is a circle of this radius (m) centred on the origin
+export const MAP_RADIUS = 24; // the arena is a circle of this radius (m) centred on the origin
 export const JUMP_MAX_Y = 3; // server sanity limit on a reported feet height (m)
 export const VOICE_REF = 3; // within this distance (m) voices are full volume
 export const VOICE_MAX = 30; // beyond this distance (m) voices are silent

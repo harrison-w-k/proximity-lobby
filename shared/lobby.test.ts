@@ -49,7 +49,8 @@ lobby.flush();
 // arena clamp helper
 assert.deepEqual(clampToArena(3, 4), { x: 3, z: 4 });
 const edge = clampToArena(300, 400);
-assert.ok(Math.abs(edge.x - 30) < 1e-9 && Math.abs(edge.z - 40) < 1e-9);
+// (300, 400) is 500 m out on a 3-4-5 line, so it lands at 60% / 80% of the radius
+assert.ok(Math.abs(edge.x - 0.6 * MAP_RADIUS) < 1e-9 && Math.abs(edge.z - 0.8 * MAP_RADIUS) < 1e-9);
 
 // chat rate limit: 5 per 5 s
 for (let i = 0; i < 8; i++) a.tx({ t: 'chat', text: `hi ${i}` });
@@ -142,5 +143,20 @@ async function authTests() {
   assert.equal(dbl.inbox.filter((m) => m.t === 'welcome').length, 1);
 }
 await authTests();
+
+// ---- malformed input never throws (this used to crash the server / reset the Durable Object) ----
+async function malformedTests() {
+  const junk = ['null', '5', '"str"', '[1,2]', 'true', '{', '', '{"t":null}', '{"t":"pos"}', '{"t":"signal"}',
+    '{"t":"join","name":{"a":1}}', '{"t":"chat","text":5}'];
+  for (const withAuth of [false, true]) {
+    const L = new Lobby([], withAuth ? async () => 'someone' : undefined);
+    const c = client(L);
+    for (const raw of junk) {
+      L.message(c.s, raw); // sync path must not throw
+      await L.handle(c.s, raw); // async path must not reject
+    }
+  }
+}
+await malformedTests();
 
 console.log('lobby tests passed');

@@ -86,6 +86,15 @@ export class Lobby {
    * name comes from the verified profile; otherwise it is the same as `message`.
    */
   async handle(c: Session, raw: string): Promise<void> {
+    try {
+      await this.dispatch(c, raw);
+    } catch (e) {
+      // A bad message must never take the server (or the whole Durable Object) down.
+      console.error('lobby: message handler failed', e);
+    }
+  }
+
+  private async dispatch(c: Session, raw: string): Promise<void> {
     if (this.verify) {
       let msg: ClientMsg | null = null;
       try {
@@ -125,6 +134,7 @@ export class Lobby {
     } catch {
       return;
     }
+    if (typeof msg !== 'object' || msg === null) return; // e.g. the JSON text "null" or "5"
 
     switch (msg.t) {
       case 'join': {

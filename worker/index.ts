@@ -110,10 +110,13 @@ export class LobbyDO extends DurableObject<Env> {
   private ensureTick() {
     if (this.timer !== undefined) return;
     const timer = setInterval(() => {
-      if (!this.lobby.flush()) {
-        clearInterval(timer);
-        this.timer = undefined;
+      try {
+        if (this.lobby.flush()) return;
+      } catch (e) {
+        console.error('flush failed', e);
       }
+      clearInterval(timer);
+      this.timer = undefined;
     }, TICK_MS);
     this.timer = timer;
   }

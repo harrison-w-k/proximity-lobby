@@ -191,14 +191,21 @@ function renderPlayerList() {
 const targetBox = $('target');
 let lookId: string | null = null;
 
+let targetShown = '';
 function showTarget() {
   if (!lookId) {
-    targetBox.hidden = true;
+    if (targetShown !== '') {
+      targetBox.hidden = true;
+      targetShown = '';
+    }
     return;
   }
+  const label = `${names.get(lookId) ?? 'Player'} · 🔊 ${pct(volumes.get(lookId) ?? 1)} `;
+  if (label === targetShown) return; // called every frame; only touch the DOM when the text changes
+  targetShown = label;
   targetBox.hidden = false;
   targetBox.replaceChildren(
-    document.createTextNode(`${names.get(lookId) ?? 'Player'} · 🔊 ${pct(volumes.get(lookId) ?? 1)} `),
+    document.createTextNode(label),
     Object.assign(document.createElement('small'), { textContent: '(scroll to adjust)' }),
   );
 }
@@ -311,6 +318,8 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
+  } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    world.thirdPerson = !world.thirdPerson;
   }
 });
 
@@ -585,8 +594,12 @@ async function enterLobby(name: string, token?: string) {
   joinBtn.disabled = true;
   setStatus('Requesting microphone…');
 
-  voice = new Voice((to, data) => net.send({ t: 'signal', to, data }));
-  await voice.init(); // continues without a mic if denied
+  // One Voice (AudioContext + mic) per page: browsers cap AudioContexts, and every failed or
+  // repeated join used to leak another one.
+  if (!voice) {
+    voice = new Voice((to, data) => net.send({ t: 'signal', to, data }));
+    await voice.init(); // continues without a mic if denied
+  }
 
   setStatus('Connecting…');
   try {
