@@ -8,6 +8,7 @@ import {
   MAX_CHAT,
   MAX_NAME,
   MAX_PLAYERS,
+  SPAWN,
   type ClientMsg,
   type PlayerState,
   type ServerMsg,
@@ -124,8 +125,8 @@ wss.on('connection', (ws) => {
         let unique = base;
         for (let i = 2; taken.has(unique.toLowerCase()); i++) unique = `${base.slice(0, MAX_NAME - 3)}_${i}`;
         c.name = unique;
-        c.x = (Math.random() - 0.5) * 16;
-        c.z = (Math.random() - 0.5) * 16;
+        c.x = SPAWN.xMin + Math.random() * (SPAWN.xMax - SPAWN.xMin);
+        c.z = SPAWN.zMin + Math.random() * (SPAWN.zMax - SPAWN.zMin);
         c.joined = true;
         const others = [...conns.values()].filter((o) => o.joined).map(publicState);
         conns.set(c.id, c);

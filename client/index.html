@@ -3,13 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Proximity Lobby</title>
+  <title>Pacific Harbor Aquarium</title>
   <link rel="icon" href="data:," />
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     [hidden] { display: none !important; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #fff; }
-    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+    #fx { position: fixed; inset: 0; z-index: 3; pointer-events: none;
+      background:
+        radial-gradient(ellipse at center, transparent 55%, rgba(2, 6, 24, 0.55) 100%),
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.10) 0 1px, transparent 1px 3px); }
+    body, input, button { font-family: "Courier New", ui-monospace, monospace; }
+    /* retro blue dialog-box look */
+    .card, #hud, .line, #paused {
+      background: linear-gradient(#2024c8, #0a0e84); border: 2px solid #e8ecff; border-radius: 4px;
+      box-shadow: 0 0 0 2px #05072e, 0 6px 24px rgba(0, 0, 0, .5); }
+    .line { padding: 3px 8px; }
+    #hud { padding: 8px 12px; } #paused { padding: 10px 18px; }
+    input { background: #05072e; border: 2px solid #e8ecff; border-radius: 2px; }
+    button { background: #ffd23f; border: 2px solid #fff; color: #1a1200; border-radius: 2px; }
+    .card p { color: #cfd8ff; }
     .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
       background: rgba(10, 14, 24, 0.7); backdrop-filter: blur(4px); z-index: 10; }
     .card { background: #151a28; padding: 28px 32px; border-radius: 14px; width: min(360px, 90vw);
@@ -41,12 +55,13 @@
 </head>
 <body>
   <canvas id="scene"></canvas>
+  <div id="fx"></div>
   <div id="crosshair" hidden></div>
 
   <div id="join" class="overlay">
     <form id="join-form" class="card">
-      <h1>Proximity Lobby</h1>
-      <p>Walk around, talk to people near you, and chat with everyone. Your browser will ask for microphone access.</p>
+      <h1>Pacific Harbor Aquarium</h1>
+      <p>Walk the waterfront, step inside, talk to people near you, and chat with everyone. Your browser will ask for microphone access.</p>
       <p>Your username is the part of your email before the @, and other players will see it. Your email itself is never sent to the server.</p>
       <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
       <button id="join-btn" type="submit">Join</button>

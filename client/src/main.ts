@@ -9,6 +9,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const canvas = $<HTMLCanvasElement>('scene');
 const world = new World(canvas);
 const net = new Net();
+(window as unknown as { __world: World }).__world = world; // handy for debugging in the console
 let voice: Voice | null = null;
 let joined = false;
 let typing = false;

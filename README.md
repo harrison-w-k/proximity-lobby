@@ -1,6 +1,13 @@
-# Proximity Lobby
+# Pacific Harbor Aquarium (proximity lobby)
 
-3D first-person lobby on a checkered floor with global text chat and proximity voice chat (max 20 players).
+3D first-person lobby set at a night-time California waterfront plaza and a small public aquarium, with global text chat and proximity voice chat (max 20 players).
+
+## Look and feel
+- Chunky low-res retro 3D (renders at ~320 rows and is upscaled with nearest-neighbour), starry night sky, fog, blue-tiled checkered floors, fluorescent strips, glowing tanks, saturated mural art.
+- Everything is generated in code (`client/src/aquarium.ts`), with no image files. Original art. A fan tribute to Pacific-coast ocean-education centres and is not affiliated with any real aquarium.
+- Players are faceless clay mannequins (`client/src/avatar.ts`): jointed skeleton, smooth walk/sprint/idle blending driven by actual movement speed, and a talking gesture + glow while speaking.
+- Aquarium solids (walls, tanks, pillars) are colliders (`client/src/collision.ts`).
+
 
 - **Client**: Vite + TypeScript + Three.js (`client/`)
 - **Server**: Node + `ws` — lobby state, chat, and WebRTC signaling (`server/`)
