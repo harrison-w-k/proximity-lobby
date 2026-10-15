@@ -59,6 +59,18 @@ document.addEventListener('pointerlockchange', () => {
 canvas.addEventListener('click', () => joined && !typing && world.lock());
 
 
+// Aiming a throw: hold the left button to charge the bar, release to throw.
+document.addEventListener('mousedown', (e) => {
+  if (e.button === 0 && world.aiming && document.pointerLockElement === canvas) world.charging = true;
+});
+document.addEventListener('mouseup', (e) => {
+  if (e.button !== 0 || !world.aiming || !world.charging) return;
+  world.charging = false;
+  const held = world.holding;
+  if (held !== null) net.send({ t: 'throw', id: held, f: world.throwFlight(Math.max(0.08, world.charge)) });
+  world.cancelAim();
+});
+
 // ---------- settings menu ----------
 const settings = $('settings');
 const sensInput = $<HTMLInputElement>('sens');
@@ -599,11 +611,14 @@ window.addEventListener('keydown', (e) => {
     refreshMenu();
     updateHud();
   } else if ((e.code === 'KeyF' || e.code === 'KeyR') && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
-    // F picks up the nearest item or sets down what you carry; R throws it
+    // F picks up the nearest item or sets down what you carry; R aims a throw (hold click to charge)
     const held = world.holding;
     if (held !== null) {
-      if (e.code === 'KeyR') net.send({ t: 'throw', id: held, f: world.throwFlight() });
-      else {
+      if (e.code === 'KeyR') {
+        if (world.aiming) world.cancelAim();
+        else world.startAim();
+      } else {
+        world.cancelAim();
         // set down in front of you; in mid-air just let go and it falls
         const spot = world.dropSpot();
         if (spot) net.send({ t: 'drop', id: held, ...spot });
@@ -672,7 +687,10 @@ world.onFrame = () => {
     lookId = id;
     showTarget();
   }
-  const hint = world.holding !== null ? 'F set down · R throw' : playing && world.nearestItem() !== null ? 'F to pick up' : '';
+  const hint = world.aiming ? 'Hold click to charge · release to throw · R cancel' : world.holding !== null ? 'F set down · R aim a throw' : playing && world.nearestItem() !== null ? 'F to pick up' : '';
+  const bar = $('throw-bar');
+  if (bar.hidden === world.aiming) bar.hidden = !world.aiming;
+  if (world.aiming) $('throw-fill').style.width = `${Math.round(world.charge * 100)}%`;
   const hintEl = $('pickup-hint');
   if (hintEl.textContent !== hint) {
     hintEl.textContent = hint;

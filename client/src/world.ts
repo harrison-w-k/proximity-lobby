@@ -943,6 +943,11 @@ export class World {
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
   private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number } }>();
   private selfId = '';
+  // throw aiming: R zooms the camera in over the shoulder, holding the mouse charges the power
+  aiming = false;
+  charging = false;
+  charge = 0; // 0..1
+  private aimBlend = 0;
   private ripples?: Ripples;
   private rippleTimer = 0;
   private stepAccum = 0; // metres walked since the last footstep
@@ -1246,12 +1251,27 @@ export class World {
     return [this.pos.x, this.feetY + 0.9, this.pos.z, 0, 0, 0];
   }
 
-  /** The launch of a throw: out of your hands, along where you are facing and a little upward. */
-  throwFlight(): Flight {
+  /** Start aiming a throw (needs something in your hands). */
+  startAim() {
+    if (this.holding === null) return;
+    this.aiming = true;
+    this.charging = false;
+    this.charge = 0;
+  }
+
+  cancelAim() {
+    this.aiming = false;
+    this.charging = false;
+    this.charge = 0;
+  }
+
+  /** The launch of a throw at `power` (0..1): out of your hands, along where you face, with some lift. */
+  throwFlight(power = 0.5): Flight {
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
-    const speed = 10;
-    const up = 4.5 + Math.sin(this.pitch) * 7;
+    const speed = 5 + 12 * Math.max(0, Math.min(1, power));
+    // looking up lobs it higher, but looking down never throws it into your feet
+    const up = 3 + Math.max(-0.2, Math.min(0.8, Math.sin(this.pitch))) * 8;
     return [this.pos.x - sy * 0.5, this.feetY + 1.3, this.pos.z - cy * 0.5, -sy * speed, up, -cy * speed];
   }
 
@@ -1559,6 +1579,9 @@ export class World {
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
     this.collide();
+    if (this.aiming && this.holding === null) this.cancelAim(); // dropped it, or it was taken
+    if (this.aiming && this.charging) this.charge = Math.min(1, this.charge + dt / 1.1);
+    this.aimBlend += ((this.aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-9 * dt));
     this.updateItems(dt);
     this.ledgeMat.color.setHSL(0.19, 1, 0.55 + 0.1 * Math.sin(this.clock * 3));
     this.updateLedgeHint();
@@ -1590,8 +1613,8 @@ export class World {
 
     this.pos.y = this.feetY + sim.eye;
     const ease = 1 - Math.exp(-7 * dt);
-    const wantBack = this.viewMode > 0 ? 1 : 0;
-    const wantFront = this.viewMode === 2 ? 1 : 0;
+    const wantBack = this.viewMode > 0 || this.aiming ? 1 : 0;
+    const wantFront = this.viewMode === 2 && !this.aiming ? 1 : 0;
     this.tpBlend += (wantBack - this.tpBlend) * ease;
     this.frontBlend += (wantFront - this.frontBlend) * ease;
     if (Math.abs(this.tpBlend - wantBack) < 0.001) this.tpBlend = wantBack;
@@ -1613,7 +1636,7 @@ export class World {
       sim.landImpact = 0;
     }
     this.dip *= Math.exp(-9 * dt);
-    const fov = this.baseFov + this.fovKick;
+    const fov = (this.baseFov + this.fovKick) * (1 - 0.3 * this.aimBlend);
     if (Math.abs(this.camera.fov - fov) > 0.05) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1633,8 +1656,8 @@ export class World {
       const camYaw = this.yaw + Math.PI * f;
       const camPitch = this.pitch * (1 - 2 * f);
       const cp = Math.cos(camPitch);
-      const back = SHOULDER_DISTANCE * t;
-      const shoulder = SHOULDER_OFFSET * t * (1 - f);
+      const back = SHOULDER_DISTANCE * t * (1 - 0.5 * this.aimBlend);
+      const shoulder = SHOULDER_OFFSET * t * (1 - f) * (1 + 0.45 * this.aimBlend);
       const rx = Math.cos(camYaw);
       const rz = -Math.sin(camYaw);
       const hx = this.pos.x;
