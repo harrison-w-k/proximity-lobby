@@ -239,7 +239,7 @@ export class Lobby {
         const refuse = () => this.send(c, { t: 'item', item: it });
         if (it.holder) return refuse();
         for (const o of this.items.values()) if (o.holder === c.id) return; // hands are full
-        if (Math.hypot(it.x - c.x, it.z - c.z) > REACH + 3) return; // too far (allows for lag)
+        if (Math.hypot(it.x - c.x, it.z - c.z) > REACH + 3) return refuse(); // too far (allows for lag)
         it.holder = c.id;
         this.itemsChanged();
         this.broadcast({ t: 'item', item: it });
@@ -251,7 +251,7 @@ export class Lobby {
         if (it.holder !== c.id) return void this.send(c, { t: 'item', item: it });
         if (!finite(msg.x) || !finite(msg.y) || !finite(msg.z)) return;
         const at = clampToArena(msg.x, msg.z, SWIM_LIMIT);
-        if (Math.hypot(at.x - c.x, at.z - c.z) > 6) return;
+        if (Math.hypot(at.x - c.x, at.z - c.z) > 6) return void this.send(c, { t: 'item', item: it });
         it.x = at.x;
         it.z = at.z;
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, msg.y));
@@ -266,7 +266,9 @@ export class Lobby {
         if (!c.joined || !it) return;
         if (it.holder !== c.id) return void this.send(c, { t: 'item', item: it });
         if (!Array.isArray(f) || f.length !== 6 || !f.every(finite)) return;
-        if (Math.hypot(f[0] - c.x, f[2] - c.z) > 3 || f[1] < c.y - 1 || f[1] > c.y + 3) return;
+        if (Math.hypot(f[0] - c.x, f[2] - c.z) > 3 || f[1] < c.y - 1 || f[1] > c.y + 3) {
+          return void this.send(c, { t: 'item', item: it }); // refused: tell the sender where things really are
+        }
         const v = Math.hypot(f[3], f[4], f[5]);
         const k = v > THROW_MAX_SPEED ? THROW_MAX_SPEED / v : 1;
         const launch: [number, number, number, number, number, number] = [f[0], f[1], f[2], f[3] * k, f[4] * k, f[5] * k];

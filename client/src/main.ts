@@ -651,7 +651,9 @@ world.onFrame = () => {
   if (now - lastSent > 66) {
     lastSent = now;
     const { x, z } = world.pos;
+    // NaN compares false with everything, so the very first report must be forced
     const changed =
+      Number.isNaN(sx) ||
       Math.abs(x - sx) > 1e-3 ||
       Math.abs(z - sz) > 1e-3 ||
       Math.abs(world.yaw - sry) > 1e-3 ||

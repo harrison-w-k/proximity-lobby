@@ -943,7 +943,7 @@ export class World {
   /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
   private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
-  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number } }>();
+  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number }; changedAt: number }>();
   private selfId = '';
   // throw aiming: R zooms the camera in over the shoulder, holding the mouse charges the power
   aiming = false;
@@ -1221,10 +1221,11 @@ export class World {
       group.position.set(state.x, state.y, state.z);
       group.traverse((o) => (o.userData.itemId = state.id));
       this.scene.add(group);
-      it = { state, group };
+      it = { state, group, changedAt: performance.now() };
       this.items.set(state.id, it);
     }
     it.state = state;
+    it.changedAt = performance.now();
     it.flight = fly ? { path: throwPath(fly), t: 0 } : undefined;
   }
 
@@ -1553,7 +1554,8 @@ export class World {
     const reach = BODY_RADIUS + 0.25;
     const sp = Math.hypot(this.sim.vx, this.sim.vz);
     for (const [id, it] of this.items) {
-      if (it.state.holder || it.flight) continue;
+      if (it.state.holder || it.flight || sp < 0.8) continue; // only when you actually run into it
+      if (performance.now() - it.changedAt < 900) continue; // just put down or landed: leave it alone
       const g = it.group.position;
       if (Math.abs(g.y - this.feetY) > 1.2) continue;
       const dx = g.x - p.x;
