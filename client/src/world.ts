@@ -4,7 +4,7 @@ import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
 import { OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
 import { HATS, LOOK_COLORS, type Look } from '../../shared/look';
-import { REACH, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
+import { REACH, THROW_GRAVITY, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
 
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
@@ -475,11 +475,25 @@ function makeCharacter(id: string): Character {
   const r = seeded(hashId(id) ^ 0x9e3779b9);
   const phase0 = r() * 6.28;
   const bulk = 0.92 + r() * 0.22;
-  const clayColor = new THREE.Color().setHSL(hue / 360, 0.5, 0.84);
-  // one pale clay material for the whole body, like a shop-window mannequin
+  const SKIN_TONES = [0xf6d3b8, 0xefc09a, 0xdba67c, 0xc58a5e, 0x9a6540, 0x6e4529];
+  const HAIR_COLORS = [0x1c1410, 0x3b2616, 0x6a4423, 0xa8742e, 0xd8b45a, 0x8a2a1c, 0x2c2c34, 0xcfcfd6];
+  const skinColor = new THREE.Color(SKIN_TONES[Math.floor(r() * SKIN_TONES.length)]);
+  const clayColor = new THREE.Color().setHSL(hue / 360, 0.5, 0.62); // the shirt, unless a look is chosen
+  const lit = (c: THREE.Color) => new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.18 });
+  const skin = lit(skinColor);
+  // the shirt (also what lights up when the player speaks)
   const armor = new THREE.MeshLambertMaterial({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.3 });
-  const blank = new THREE.Color(clayColor);
-  // faceless unless the player sets a profile photo
+  const pants = new THREE.MeshLambertMaterial({ color: 0x33415c, emissive: 0x33415c, emissiveIntensity: 0.15 });
+  const shoeM = new THREE.MeshLambertMaterial({ color: 0xf2f2f2, emissive: 0xf2f2f2, emissiveIntensity: 0.15 });
+  const hairColor = new THREE.Color(HAIR_COLORS[Math.floor(r() * HAIR_COLORS.length)]);
+  const hairM = lit(hairColor);
+  const darkM = new THREE.MeshLambertMaterial({ color: 0x15151c });
+  const whiteM = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 });
+  const lipM = new THREE.MeshLambertMaterial({ color: 0xb85a52 });
+  const beltM = new THREE.MeshLambertMaterial({ color: 0x2a1c12 });
+  const hairKind = Math.floor(r() * 6);
+  const blank = new THREE.Color(skinColor);
+  // the photo (if any) is drawn over the face; without one the plane is hidden and the features show
   const faceMat = new THREE.MeshBasicMaterial({ color: blank });
 
   const cyl = (rt: number, rb: number, h: number, seg: number, m: THREE.Material) =>
@@ -494,10 +508,10 @@ function makeCharacter(id: string): Character {
   const group = (x = 0, y = 0, z = 0) => at(new THREE.Group(), x, y, z);
 
   const body = new THREE.Group();
-  const caps = (rad: number, len: number) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 12), armor);
+  const caps = (rad: number, len: number, m: THREE.Material = skin) => new THREE.Mesh(new THREE.CapsuleGeometry(rad, len, 4, 12), m);
   /** A smooth ellipsoid with half-extents (rx, ry, rz) metres. */
-  const blob = (rx: number, ry: number, rz: number) => {
-    const m = ico(1, armor, 2);
+  const blob = (rx: number, ry: number, rz: number, mat: THREE.Material = skin) => {
+    const m = ico(1, mat, 2);
     m.scale.set(rx, ry, rz);
     return m;
   };
@@ -508,23 +522,24 @@ function makeCharacter(id: string): Character {
   const THIGH = 0.43;
   const SHIN = 0.43;
 
-  // pelvis
-  body.add(at(blob(0.2 * bulk, 0.11, 0.125), 0, HIP + 0.02, 0));
+  // pelvis (trousers)
+  body.add(at(blob(0.2 * bulk, 0.11, 0.125, pants), 0, HIP + 0.02, 0));
 
-  // legs: thigh, knee, shin, ankle and a shoe-shaped foot
+  // legs: trousers down to the ankle, white shoes with a sole
   const legs: { hip: THREE.Group; knee: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
     const hip = group(side * 0.1 * bulk, HIP, 0);
-    hip.add(at(blob(0.1, 0.1, 0.1), 0, 0, 0));
-    const thigh = caps(0.092, THIGH - 0.18);
+    hip.add(at(blob(0.1, 0.1, 0.1, pants), 0, 0, 0));
+    const thigh = caps(0.092, THIGH - 0.18, pants);
     thigh.scale.set(1, 1, 1.05);
     hip.add(at(thigh, 0, -THIGH / 2, 0));
     const knee = group(0, -THIGH, 0);
-    knee.add(at(blob(0.07, 0.07, 0.07), 0, 0, 0));
-    knee.add(at(caps(0.066, SHIN - 0.15), 0, -SHIN / 2, 0));
+    knee.add(at(blob(0.07, 0.07, 0.07, pants), 0, 0, 0));
+    knee.add(at(caps(0.062, SHIN - 0.17, pants), 0, -SHIN / 2 + 0.01, 0)); // a slightly narrower calf
     const ankle = group(0, -SHIN, 0);
-    ankle.add(at(blob(0.05, 0.05, 0.05), 0, 0, 0));
-    ankle.add(at(blob(0.058, 0.045, 0.13), 0, -0.04, -0.05)); // the foot, pointing forward (-z)
+    ankle.add(at(blob(0.05, 0.05, 0.05, skin), 0, 0.01, 0)); // a bit of ankle above the shoe
+    ankle.add(at(blob(0.062, 0.05, 0.135, shoeM), 0, -0.035, -0.05)); // the shoe, pointing forward (-z)
+    ankle.add(at(blob(0.064, 0.012, 0.14, darkM), 0, -0.073, -0.05)); // the sole
     knee.add(ankle);
     hip.add(knee);
     body.add(hip);
@@ -533,35 +548,70 @@ function makeCharacter(id: string): Character {
 
   // torso group pivots at the hips so it can lean and twist
   const torsoG = group(0, HIP, 0);
-  torsoG.add(at(blob(0.17 * bulk, 0.11, 0.115), 0, 0.15, 0)); // belly / waist
-  torsoG.add(at(blob(0.215 * bulk, 0.2, 0.135), 0, 0.34, 0)); // chest and ribcage
-  torsoG.add(at(blob(0.23 * bulk, 0.065, 0.115), 0, 0.46, 0)); // shoulder line
-  torsoG.add(at(cyl(0.052, 0.065, 0.1, 10, armor), 0, 0.56, 0)); // neck
+  torsoG.add(at(blob(0.17 * bulk, 0.11, 0.115, armor), 0, 0.15, 0)); // belly / waist
+  torsoG.add(at(blob(0.215 * bulk, 0.2, 0.135, armor), 0, 0.34, 0)); // chest and ribcage
+  torsoG.add(at(blob(0.23 * bulk, 0.065, 0.115, armor), 0, 0.46, 0)); // shoulder line
+  torsoG.add(at(blob(0.176 * bulk, 0.022, 0.121, beltM), 0, 0.06, 0)); // belt
+  torsoG.add(at(blob(0.026, 0.02, 0.01, shoeM), 0, 0.06, -0.12)); // buckle
+  torsoG.add(at(cyl(0.052, 0.065, 0.1, 10, skin), 0, 0.56, 0)); // neck
+  const collar = at(new THREE.Mesh(new THREE.TorusGeometry(0.066, 0.016, 6, 14), armor), 0, 0.51, 0);
+  collar.rotation.x = Math.PI / 2;
+  torsoG.add(collar);
 
-  // head: a human-proportioned egg (about 15 cm wide, 23 cm tall) with a nose-and-chin hint of jaw
+  // head: a human-proportioned egg (about 15 cm wide, 23 cm tall)
   const head = group(0, 0.7, -0.005);
   head.add(at(blob(0.088, 0.122, 0.105), 0, 0.0, 0));
   head.add(at(blob(0.07, 0.055, 0.078), 0, -0.07, -0.015)); // jaw
-  // the profile photo, if any, sits on the front of the face
-  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.15), faceMat);
+  for (const side of [-1, 1]) {
+    head.add(at(blob(0.011, 0.028, 0.02), side * 0.088, -0.005, 0.005)); // ears
+    head.add(at(blob(0.018, 0.012, 0.01, whiteM), side * 0.034, 0.028, -0.094)); // eye whites
+    head.add(at(blob(0.0085, 0.0085, 0.006, darkM), side * 0.034, 0.028, -0.1)); // pupils
+    const brow = at(blob(0.022, 0.0055, 0.008, hairM), side * 0.035, 0.056, -0.093);
+    brow.rotation.z = side * -0.12;
+    head.add(brow);
+  }
+  head.add(at(blob(0.011, 0.026, 0.02), 0, -0.015, -0.103)); // nose
+  head.add(at(blob(0.027, 0.0055, 0.008, lipM), 0, -0.058, -0.097)); // mouth
+
+  // hair: six styles, picked from the id
+  const hairAt = (m: THREE.Object3D) => head.add(m);
+  if (hairKind === 0 || hairKind === 1 || hairKind === 5) {
+    hairAt(at(blob(0.094, 0.082, 0.112, hairM), 0, 0.05, 0.012)); // the crown
+    hairAt(at(blob(0.1, 0.04, 0.05, hairM), 0, 0.085, -0.075)); // a fringe over the forehead
+  }
+  if (hairKind === 1) hairAt(at(blob(0.092, 0.14, 0.05, hairM), 0, -0.04, 0.075)); // long, down the back
+  if (hairKind === 5) hairAt(at(blob(0.036, 0.036, 0.036, hairM), 0, 0.13, 0.03)); // a bun
+  if (hairKind === 2) hairAt(at(blob(0.09, 0.07, 0.105, hairM), 0, 0.055, 0.005)); // buzz cut
+  if (hairKind === 3) {
+    for (let i = 0; i < 4; i++) hairAt(at(blob(0.014, 0.05, 0.026, hairM), 0, 0.1 - i * 0.002, 0.07 - i * 0.045)); // mohawk
+  }
+  // kind 4: bald
+
+  // the profile photo, if any, covers the face (just proud of the skin so it never z-fights)
+  const screenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.125, 0.16), faceMat);
   screenPlane.rotation.y = Math.PI; // plane faces +z; the character faces -z
-  head.add(at(screenPlane, 0, 0.0, -0.093));
+  screenPlane.visible = false;
+  head.add(at(screenPlane, 0, 0.0, -0.11));
   const crestTop = 0.13;
   const eyes: THREE.Group[] = [];
   torsoG.add(head);
 
-  // arms: shoulder, upper arm, elbow, forearm, wrist and a hand with a thumb
+  // arms: short sleeves to the elbow, bare forearms, hands with four fingers and a thumb
   const arms: { shoulder: THREE.Group; elbow: THREE.Group }[] = [];
   for (const side of [-1, 1]) {
     const shoulder = group(side * 0.25 * bulk, 0.47, 0);
-    shoulder.add(at(blob(0.068, 0.068, 0.068), 0, 0, 0));
-    shoulder.add(at(caps(0.055, 0.18), 0, -0.145, 0));
+    shoulder.add(at(blob(0.07, 0.07, 0.07, armor), 0, 0, 0));
+    shoulder.add(at(caps(0.058, 0.17, armor), 0, -0.14, 0)); // sleeve
     const elbow = group(0, -0.29, 0);
-    elbow.add(at(blob(0.048, 0.048, 0.048), 0, 0, 0));
-    elbow.add(at(caps(0.045, 0.17), 0, -0.13, 0));
+    elbow.add(at(blob(0.047, 0.047, 0.047), 0, 0, 0));
+    elbow.add(at(caps(0.043, 0.17), 0, -0.13, 0));
     const hand = group(0, -0.27, 0);
-    hand.add(at(blob(0.05, 0.09, 0.028), 0, -0.07, 0)); // palm and fingers
-    hand.add(at(blob(0.018, 0.045, 0.02), side * -0.045, -0.05, -0.015)); // thumb
+    hand.add(at(blob(0.046, 0.05, 0.026), 0, -0.04, 0)); // palm
+    for (let f = 0; f < 4; f++) {
+      const finger = blob(0.0095, 0.04, 0.0095);
+      hand.add(at(finger, -0.033 + f * 0.022, -0.1 - (f === 1 || f === 2 ? 0.01 : 0), 0));
+    }
+    hand.add(at(blob(0.014, 0.04, 0.016), side * -0.05, -0.065, -0.012)); // thumb
     elbow.add(hand);
     shoulder.add(elbow);
     torsoG.add(shoulder);
@@ -613,12 +663,10 @@ function makeCharacter(id: string): Character {
     return g;
   };
   const setLook = (look: Look | null) => {
-    const c = look && look.c >= 0 && look.c < LOOK_COLORS.length ? new THREE.Color(LOOK_COLORS[look.c].hex) : new THREE.Color().setHSL(hue / 360, 0.5, 0.84);
+    const c = look && look.c >= 0 && look.c < LOOK_COLORS.length ? new THREE.Color(LOOK_COLORS[look.c].hex) : new THREE.Color().setHSL(hue / 360, 0.5, 0.62);
     clayColor.copy(c);
-    blank.copy(c);
     armor.color.copy(c);
     armor.emissive.copy(c);
-    if (!faceMat.map) faceMat.color.copy(blank);
     if (hat) {
       head.remove(hat);
       hat.traverse((o) => ((o as THREE.Mesh).geometry?.dispose?.(), ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.()));
@@ -644,6 +692,7 @@ function makeCharacter(id: string): Character {
     faceMat.map = null;
     faceMat.color.copy(blank);
     faceMat.needsUpdate = true;
+    screenPlane.visible = false;
     if (!url || !validAvatar(url)) return; // photos from other players are untrusted: re-validate
     new THREE.TextureLoader().load(
       url,
@@ -660,6 +709,7 @@ function makeCharacter(id: string): Character {
         faceMat.map = t;
         faceMat.color.set(0xffffff);
         faceMat.needsUpdate = true;
+        screenPlane.visible = true;
       },
       undefined,
       () => {
@@ -836,11 +886,9 @@ function makeCharacter(id: string): Character {
     shirt: armor,
     height: (headY + crestTop) * s,
     setHue(h: number) {
-      clayColor.setHSL(h / 360, 0.5, 0.84);
-      blank.copy(clayColor);
+      clayColor.setHSL(h / 360, 0.5, 0.62);
       armor.color.copy(clayColor);
       armor.emissive.copy(clayColor);
-      if (!faceMat.map) faceMat.color.copy(blank);
     },
     setFace,
     setLook,
@@ -1145,7 +1193,7 @@ export class World {
   /** The bright bar on the nearest ledge you can climb onto; it pulses gently so it reads at a glance. */
   private ledgeHint?: THREE.Mesh;
   private ledgeMat = new THREE.MeshBasicMaterial({ color: 0xd6ff3a });
-  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string }; changedAt: number }>();
+  private items = new Map<number, { state: ItemState; group: THREE.Group; flight?: { path: [number, number, number][]; t: number; by?: string; checked?: number }; changedAt: number }>();
   private selfId = '';
   private selfLook: Look | null = null;
   private puffs = new Puffs();
@@ -1542,9 +1590,35 @@ export class World {
     const sz = this.pos.z - cy * 0.5;
     // aim point: far along the camera's view line, so the arc follows the crosshair (look up to lob)
     const dir = this.camera.getWorldDirection(new THREE.Vector3());
-    const tx = this.camera.position.x + dir.x * 30;
-    const ty = this.camera.position.y + dir.y * 30;
-    const tz = this.camera.position.z + dir.z * 30;
+    let tx = this.camera.position.x + dir.x * 30;
+    let ty = this.camera.position.y + dir.y * 30;
+    let tz = this.camera.position.z + dir.z * 30;
+    // aim assist: a player roughly under the crosshair is aimed at on the chest, so throws land
+    let bestAngle = 0.16;
+    let assisted = false;
+    for (const a of this.avatars.values()) {
+      const g = a.group.position;
+      const dx = g.x - this.camera.position.x;
+      const dy = g.y + 1.15 - this.camera.position.y;
+      const dz = g.z - this.camera.position.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist < 1.5 || dist > 40) continue;
+      const angle = Math.acos(Math.max(-1, Math.min(1, (dx * dir.x + dy * dir.y + dz * dir.z) / dist)));
+      if (angle < bestAngle) {
+        bestAngle = angle;
+        tx = g.x;
+        ty = g.y + 1.15;
+        tz = g.z;
+        assisted = true;
+      }
+    }
+    if (assisted) {
+      // a true ballistic aim: reach the target in the time it takes at this speed, allowing for gravity
+      const hx = tx - sx;
+      const hz = tz - sz;
+      const T = Math.max(0.12, Math.hypot(hx, hz) / speed);
+      return [sx, sh, sz, hx / T, (ty - sh) / T + 0.5 * THROW_GRAVITY * T, hz / T];
+    }
     const v = new THREE.Vector3(tx - sx, ty - sh, tz - sz).normalize();
     return [sx, sh, sz, v.x * speed, v.y * speed + 1.5, v.z * speed];
   }
@@ -1635,20 +1709,27 @@ export class World {
         if (i < it.flight.path.length) {
           const [fx, fy, fz] = it.flight.path[i];
           group.position.set(fx, fy, fz);
-          // a thrown item that reaches you knocks you down
+          // a thrown item that reaches you knocks you down. Check every sample since the last frame,
+          // so a slow frame rate can never let a fast item skip straight through you.
           const by = it.flight.by;
-          if (by && by !== this.selfId && this.ragdollT <= 0 && i > 0) {
-            const prev = it.flight.path[i - 1];
-            const vx = (fx - prev[0]) * 60;
-            const vz = (fz - prev[2]) * 60;
-            if (
-              Math.hypot(vx, vz) > 4 &&
-              Math.hypot(fx - this.pos.x, fz - this.pos.z) < 0.6 &&
-              fy > this.feetY - 0.1 &&
-              fy < this.feetY + 1.9
-            ) {
-              this.knockDown(vx * 0.7, vz * 0.7);
+          if (by && by !== this.selfId && this.ragdollT <= 0) {
+            const from = Math.max(1, (it.flight.checked ?? 0) + 1);
+            for (let j = from; j <= i; j++) {
+              const cur = it.flight.path[j];
+              const prev = it.flight.path[j - 1];
+              const vx = (cur[0] - prev[0]) * 60;
+              const vz = (cur[2] - prev[2]) * 60;
+              if (
+                Math.hypot(vx, vz) > 3 &&
+                Math.hypot(cur[0] - this.pos.x, cur[2] - this.pos.z) < 0.75 &&
+                cur[1] > this.feetY - 0.25 &&
+                cur[1] < this.feetY + 2.0
+              ) {
+                this.knockDown(vx * 0.7, vz * 0.7);
+                break;
+              }
             }
+            it.flight.checked = i;
           }
           group.rotation.y += dt * 9;
           continue;

@@ -36,7 +36,7 @@ export const ITEM_SPAWNS: Omit<ItemState, 'holder'>[] = [
 
 // ---- throwing ----
 export const THROW_GRAVITY = 18;
-export const THROW_MAX_SPEED = 17;
+export const THROW_MAX_SPEED = 24; // a bit above the strongest throw, so aim-assisted lobs are not trimmed
 
 /** [x, y, z, vx, vy, vz] of a throw, at the moment it leaves the hand. */
 export type Flight = [number, number, number, number, number, number];
