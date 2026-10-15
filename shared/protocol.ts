@@ -4,8 +4,8 @@ export const MAX_PLAYERS = 20;
 export const MAP_HALF = 50; // map spans [-50, 50] on x and z
 export const VOICE_REF = 3; // within this distance (m) voices are full volume
 export const VOICE_MAX = 30; // beyond this distance (m) voices are silent
-// New players appear on the waterfront plaza in front of the aquarium entrance.
-export const SPAWN = { xMin: -8, xMax: 8, zMin: 14, zMax: 26 };
+// New players appear in this area near the middle of the map.
+export const SPAWN = { xMin: -8, xMax: 8, zMin: -8, zMax: 8 };
 export const MAX_NAME = 16;
 export const MAX_CHAT = 200;
 

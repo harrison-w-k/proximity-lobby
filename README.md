@@ -1,18 +1,12 @@
-# Pacific Harbor Aquarium (proximity lobby)
+# Proximity Lobby
 
-3D first-person lobby set at a night-time California waterfront plaza and a small public aquarium, with global text chat and proximity voice chat (max 20 players).
+3D first-person multiplayer lobby with global text chat and proximity voice chat (max 20 players).
 
 ## Look and feel
-- Chunky low-res retro 3D (renders at ~320 rows and is upscaled with nearest-neighbour), starry night sky, fog, blue-tiled checkered floors, fluorescent strips, glowing tanks, saturated mural art.
-- Everything is generated in code (`client/src/aquarium.ts`), with no image files. Original art. A fan tribute to Pacific-coast ocean-education centres and is not affiliated with any real aquarium.
+- Chunky low-res retro 3D: it renders at ~320 rows and is upscaled with nearest-neighbour (`PIXEL_ROWS` in `client/src/world.ts`), with a faint scanline + vignette overlay and blue dialog-box style UI.
+- The map is a flat blue-and-white checkered tile floor under a starry night sky with fog (`client/src/environment.ts`). No buildings yet; `boxes`/`discs` there are the hook for static colliders when the map grows.
 - Players are faceless clay mannequins (`client/src/avatar.ts`): jointed skeleton, smooth walk/sprint/idle blending driven by actual movement speed, and a talking gesture + glow while speaking.
-- Aquarium solids (walls, tanks, pillars) are colliders (`client/src/collision.ts`).
-
-
-- **Client**: Vite + TypeScript + Three.js (`client/`)
-- **Server**: Node + `ws` — lobby state, chat, and WebRTC signaling (`server/`)
-- **Voice**: peer-to-peer WebRTC mesh; each voice is spatialised with Web Audio (`client/src/voice.ts`)
-  - full volume within 3 m, linear fade to silence at 30 m (`shared/protocol.ts`)
+- Player-to-player and static collisions live in `client/src/collision.ts` (with tests).
 
 ## Run locally
     npm install

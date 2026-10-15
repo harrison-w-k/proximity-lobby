@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MAP_HALF, type PlayerState } from '../../shared/protocol';
 import { pushOut, pushOutBoxes, pushOutDiscs } from './collision';
-import { buildAquarium, type Aquarium } from './aquarium';
+import { buildEnvironment, type Environment } from './environment';
 import { Avatar } from './avatar';
 
 export const EYE_HEIGHT = 1.6;
@@ -15,7 +15,7 @@ export class World {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(72, 1, 0.1, 600);
   readonly avatars = new Map<string, Avatar>();
-  private aquarium: Aquarium;
+  private env: Environment;
   readonly pos = new THREE.Vector3(0, EYE_HEIGHT, 0);
   yaw = 0;
   pitch = 0;
@@ -27,10 +27,10 @@ export class World {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-    this.renderer.setClearColor(0x0b1d44);
-    this.scene.fog = new THREE.Fog(0x0b1d44, 35, 170);
+    this.renderer.setClearColor(0x133c78);
+    this.scene.fog = new THREE.Fog(0x133c78, 30, 150);
     this.camera.rotation.order = 'YXZ';
-    this.aquarium = buildAquarium(this.scene, this.renderer.capabilities.getMaxAnisotropy());
+    this.env = buildEnvironment(this.scene, this.renderer.capabilities.getMaxAnisotropy());
 
     window.addEventListener('resize', this.resize);
     this.resize();
@@ -123,8 +123,8 @@ export class World {
     const lim = MAP_HALF - BODY_RADIUS;
     let p = pushOut(this.pos.x, this.pos.z, [...this.avatars.values()].map((a) => a.group.position), BODY_RADIUS * 2);
     for (let i = 0; i < 3; i++) {
-      p = pushOutBoxes(p.x, p.z, this.aquarium.boxes, BODY_RADIUS);
-      p = pushOutDiscs(p.x, p.z, this.aquarium.discs, BODY_RADIUS);
+      p = pushOutBoxes(p.x, p.z, this.env.boxes, BODY_RADIUS);
+      p = pushOutDiscs(p.x, p.z, this.env.discs, BODY_RADIUS);
     }
     this.pos.x = Math.max(-lim, Math.min(lim, p.x));
     this.pos.z = Math.max(-lim, Math.min(lim, p.z));
@@ -136,7 +136,7 @@ export class World {
     this.last = now;
     this.move(dt);
     for (const a of this.avatars.values()) a.update(dt);
-    this.aquarium.update(now / 1000, dt);
+    this.env.update(now / 1000, dt);
     this.collide();
     this.camera.position.copy(this.pos);
     this.camera.rotation.set(this.pitch, this.yaw, 0);
