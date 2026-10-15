@@ -1,3 +1,5 @@
+import { MAP_RADIUS } from './protocol';
+
 // Static, solid scenery. Every client builds the same world from this list, so nobody needs to
 // sync it. Collision is resolved client-side (like player collision), which keeps the lobby
 // cooperative rather than cheat-proof.
@@ -5,7 +7,7 @@
 // A block spans [y0, y0 + h] vertically and is an axis-aligned rectangle on the ground plane.
 // y0 > 0 makes a floating block you can slide under (a beam).
 
-export type BlockKind = 'crate' | 'wall' | 'step' | 'platform' | 'beam' | 'pillar' | 'goal';
+export type BlockKind = 'crate' | 'wall' | 'step' | 'platform' | 'beam' | 'pillar' | 'goal' | 'tree' | 'rock';
 
 export interface Block {
   kind: BlockKind;
@@ -112,7 +114,69 @@ const COURSE: Block[] = [
   b('beam', 12.5, -12, 4.4, 0.5, 0.5, 0.85),
 ];
 
-export const OBSTACLES: Block[] = [...YARD, ...COURSE];
+const COURSE_AND_YARD: Block[] = [...YARD, ...COURSE];
+
+// ------------------------------------------------------------------------------------------
+// Scenery you bump into: palms along the beach and rocks on the beach and in the shallows. The
+// positions come from a fixed seed so every client (and the server's item physics) agrees.
+// ------------------------------------------------------------------------------------------
+
+function seeded(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface Scenery {
+  x: number;
+  z: number;
+  size: number; // rocks: radius of the stone; palms: unused
+}
+
+const nearCourse = (x: number, z: number, margin: number) =>
+  COURSE_AND_YARD.some((k) => Math.abs(x - k.x) < k.w / 2 + margin && Math.abs(z - k.z) < k.d / 2 + margin);
+
+function makeScenery() {
+  const rnd = seeded(20260615);
+  const R = MAP_RADIUS;
+  const palms: Scenery[] = [];
+  for (let i = 0; i < 18; i++) {
+    const angle = (i / 18) * Math.PI * 2 + (rnd() - 0.5) * 0.25;
+    const r = R + 1.8 + rnd() * 3.4;
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    if (nearCourse(x, z, 2.5)) continue;
+    palms.push({ x, z, size: 1 });
+  }
+  const rocks: Scenery[] = [];
+  for (let i = 0; i < 16; i++) {
+    const angle = rnd() * Math.PI * 2;
+    const r = R + 3 + rnd() * 24;
+    const size = 0.7 + rnd() * 1.6;
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    if (nearCourse(x, z, size + 2)) continue;
+    rocks.push({ x, z, size });
+  }
+  return { palms, rocks };
+}
+
+export const SCENERY = makeScenery();
+
+const SCENERY_BLOCKS: Block[] = [
+  // a palm trunk: thin and tall; you walk around it, and slide off if you jump onto the top
+  ...SCENERY.palms.map((p): Block => ({ kind: 'tree', x: p.x, z: p.z, w: 0.7, d: 0.7, h: 4, y0: 0 })),
+  // a rock: a low boulder you can hop or climb onto
+  ...SCENERY.rocks.map(
+    (r): Block => ({ kind: 'rock', x: r.x, z: r.z, w: r.size * 1.5, d: r.size * 1.5, h: Math.max(0.35, r.size * 0.9 - 0.3), y0: 0 }),
+  ),
+];
+
+export const OBSTACLES: Block[] = [...COURSE_AND_YARD, ...SCENERY_BLOCKS];
 
 /** A short description of the course, in order, for the in-game sign and for tests. */
 export const COURSE_ORDER = COURSE.slice(0, 16);

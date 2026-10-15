@@ -279,6 +279,7 @@ const once = (cond: (s: Sim) => boolean, frames = 15) => {
 
 // ---------- the real course ----------
 for (const k of OBSTACLES) {
+  if (k.kind === 'tree' || k.kind === 'rock') continue; // scenery sits out on the beach and in the shallows
   const reach = Math.hypot(Math.abs(k.x) + k.w / 2, Math.abs(k.z) + k.d / 2);
   assert.ok(reach < 30, `${k.kind} at (${k.x},${k.z}) is on the island or its beach (sea starts at 31 m)`);
   const overlapsSpawn = Math.abs(k.x) - k.w / 2 < 6 && Math.abs(k.z) - k.d / 2 < 6;

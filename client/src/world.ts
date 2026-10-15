@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
-import { OBSTACLES, blockTop, type Block } from '../../shared/obstacles';
+import { OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
 import { REACH, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
 
 import { pushOut } from './collision';
@@ -1114,29 +1114,20 @@ export class World {
     const nearObstacle = (x: number, z: number, margin: number) =>
       OBSTACLES.some((k) => Math.abs(x - k.x) < k.w / 2 + margin && Math.abs(z - k.z) < k.d / 2 + margin);
 
-    // Palms along the beach. Decoration only: they sit outside the grass arena.
+    // Palms along the beach (and their trunks are solid: see SCENERY in shared/obstacles.ts).
     const trunkMat = textured(t.bark);
     const leafMat = textured(t.leaf, 0xffffff, { side: THREE.DoubleSide });
-    for (let i = 0; i < 18; i++) {
-      const angle = (i / 18) * Math.PI * 2 + (rnd() - 0.5) * 0.25;
-      const r = R + 1.8 + rnd() * 3.4;
-      const x = Math.cos(angle) * r;
-      const z = Math.sin(angle) * r;
+    for (const p of SCENERY.palms) {
       const palm = makePalm(rnd, trunkMat, leafMat);
-      if (nearObstacle(x, z, 2.5)) continue; // keep the parkour course clear of scenery
-      palm.position.set(x, 0, z);
+      palm.position.set(p.x, 0, p.z);
       this.scene.add(palm);
     }
 
-    // Rocks on the beach and out in the shallows.
+    // Rocks on the beach and out in the shallows, also solid.
     const rockMat = textured(t.rock);
-    for (let i = 0; i < 16; i++) {
-      const angle = rnd() * Math.PI * 2;
-      const r = R + 3 + rnd() * 24;
-      const size = 0.7 + rnd() * 1.6;
-      if (nearObstacle(Math.cos(angle) * r, Math.sin(angle) * r, size + 2)) continue;
-      const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), rockMat);
-      rock.position.set(Math.cos(angle) * r, size * 0.25 - 0.3, Math.sin(angle) * r);
+    for (const r of SCENERY.rocks) {
+      const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r.size, 0), rockMat);
+      rock.position.set(r.x, r.size * 0.25 - 0.3, r.z);
       rock.scale.y = 0.65;
       rock.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3);
       this.scene.add(rock);
@@ -1155,9 +1146,12 @@ export class World {
       beam: { map: t.barrier, tile: 1 },
       pillar: { map: t.steel, tile: 2 },
       goal: { map: t.goal, tile: 2 },
+      tree: { map: t.bark, tile: 1 }, // drawn as palms and rocks by buildIsland; only the collision lives here
+      rock: { map: t.rock, tile: 1 },
     };
     const mats = new Map<THREE.Texture, THREE.Material>();
     for (const k of OBSTACLES) {
+      if (k.kind === 'tree' || k.kind === 'rock') continue;
       const { map, tile } = look[k.kind];
       let mat = mats.get(map);
       if (!mat) {
