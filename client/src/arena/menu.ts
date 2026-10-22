@@ -4,29 +4,31 @@ import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
 
 const CSS = `
-#br-menu { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 14px; background: rgba(6,12,32,.72); }
+#br-menu { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 14px; background: radial-gradient(circle at 50% 30%, rgba(40,70,30,.75), rgba(10,8,4,.9)); }
 #br-menu[hidden] { display: none; }
-#br-menu .panel { width: min(1060px, 100%); max-height: 94vh; overflow: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
-#br-menu h2 { margin: 0; font-family: var(--font-pixel); font-size: 18px; text-transform: uppercase; color: var(--yellow); text-shadow: 3px 3px 0 var(--ink); }
-#br-menu .sub { font-size: 22px; color: var(--cream); }
-#br-menu .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-#br-menu .card { padding: 8px 10px; background: var(--blue-dark); border: 4px solid var(--ink); cursor: pointer; text-align: left; color: #fff; font-family: var(--font-body); font-size: 19px; line-height: 1.05; }
-#br-menu .card:hover { background: #1c46a8; }
-#br-menu .card.sel { background: var(--green-dark); border-color: var(--yellow); box-shadow: 0 0 0 3px var(--yellow); }
-#br-menu .card h3 { margin: 0 0 2px; font-size: 25px; font-weight: 400; color: var(--yellow); }
-#br-menu .card .tag { color: #bfe0ff; font-size: 17px; }
-#br-menu .bars { margin: 5px 0; display: grid; grid-template-columns: 54px 1fr; gap: 1px 6px; font-size: 15px; }
-#br-menu .bars i { display: block; height: 7px; margin-top: 5px; background: var(--yellow); }
-#br-menu .card ul { margin: 4px 0 0; padding-left: 16px; font-size: 16px; color: #dfeaff; }
+#br-menu .panel { width: min(1080px, 100%); max-height: 95vh; overflow: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+#br-menu h2 { margin: 0; font-size: 38px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); text-shadow: 0 4px 0 var(--ink); }
+#br-menu .sub { font-size: 21px; color: #ecdcb2; line-height: 1.25; }
+#br-menu .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+#br-menu .card { position: relative; padding: 10px 12px 10px; background: linear-gradient(#f7edd3, #dcc995); color: #2a1b0c; border: 3px solid var(--ink); border-radius: 16px; cursor: pointer; text-align: left;
+  font-family: var(--font); font-size: 17px; line-height: 1.1; box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 5px 0 rgba(0,0,0,.45); transition: transform .08s; }
+#br-menu .card:hover { transform: translateY(-2px); filter: brightness(1.04); }
+#br-menu .card.sel { background: linear-gradient(#cdf08e, #8fc653); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--amber), 0 5px 0 rgba(0,0,0,.45); }
+#br-menu .card .em { position: absolute; right: 10px; top: 6px; font-size: 44px; filter: drop-shadow(0 3px 0 rgba(0,0,0,.25)); }
+#br-menu .card h3 { margin: 0; font-size: 25px; font-weight: 700; color: #6a3410; }
+#br-menu .card .tag { color: #5b4a2c; font-size: 15px; font-weight: 500; }
+#br-menu .bars { margin: 6px 0; display: grid; grid-template-columns: 66px 1fr; gap: 2px 6px; font-size: 13px; font-weight: 600; color: #4a3820; }
+#br-menu .bars i { display: block; height: 8px; margin-top: 4px; border-radius: 999px; background: linear-gradient(#f0a640, #c3680f); border: 1px solid #5a3410; }
+#br-menu .card ul { margin: 4px 0 2px; padding-left: 16px; font-size: 15px; color: #3a2a14; }
 #br-menu .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-#br-menu input[type=text] { width: 230px; height: 44px; font-size: 20px; }
-#br-menu .status { font-size: 24px; color: #b9f5a6; min-height: 28px; }
-#br-open { pointer-events: auto; cursor: pointer; }
+#br-menu input[type=text] { width: 240px; height: 44px; padding: 0 16px; font-family: var(--font); font-size: 20px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #2a1b0c; outline: none; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); user-select: text; }
+#br-menu input[type=text]:focus { box-shadow: inset 0 3px 0 rgba(0,0,0,.15), 0 0 0 3px var(--leaf); }
+#br-menu .status { font-size: 24px; font-weight: 600; color: var(--leaf); min-height: 30px; }
+#br-open { pointer-events: auto; cursor: pointer; font-family: 'Fredoka', 'Trebuchet MS', sans-serif; font-weight: 700; }
 @media (max-width: 900px) { #br-menu .grid { grid-template-columns: repeat(2, 1fr); } }
 `;
 
-const PICKS: Record<string, string> = {};
-void PICKS;
+const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔' };
 
 export class BrMenu {
   private root = document.createElement('div');
@@ -55,7 +57,7 @@ export class BrMenu {
     this.root.id = 'br-menu';
     this.root.hidden = true;
     const panel = document.createElement('div');
-    panel.className = 'panel box';
+    panel.className = 'panel wood';
     panel.innerHTML = '<h2>Animal Battle Royale</h2><div class="sub">20 animals, one island, and a lava ring that never stops closing. Level up on the hordes, then hunt each other. Dead players fight in the Gulag and come back leading a swarm.</div>';
     const grid = document.createElement('div');
     grid.className = 'grid';
@@ -78,21 +80,21 @@ export class BrMenu {
       /* storage unavailable */
     }
     this.queueBtn = document.createElement('button');
-    this.queueBtn.className = 'btn primary';
+    this.queueBtn.className = 'br-btn';
     this.queueBtn.textContent = 'Queue for the next match';
     this.leaveBtn = document.createElement('button');
-    this.leaveBtn.className = 'btn glass';
+    this.leaveBtn.className = 'br-btn wood';
     this.leaveBtn.textContent = 'Leave queue';
     const close = document.createElement('button');
-    close.className = 'btn danger';
+    close.className = 'br-btn red';
     close.textContent = 'Back to the lobby';
     row.append(this.team, this.queueBtn, this.leaveBtn, close);
     this.status.className = 'status';
     panel.append(row, this.status);
     const help = document.createElement('div');
     help.className = 'sub';
-    help.style.fontSize = '18px';
-    help.innerHTML = 'Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals. <b>WASD</b> move · <b>Shift</b> sprint · <b>LMB</b> attack · <b>Q E R F</b> skills · <b>Tab</b> upgrades.';
+    help.style.fontSize = '17px';
+    help.innerHTML = 'Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> dash · <b>Shift</b> sprint · <b>LMB</b> attack · <b>Q E R F</b> skills · <b>Tab</b> upgrades · <b>Left Alt</b> cursor.';
     panel.append(help);
     this.root.append(panel);
     document.body.append(this.root);
@@ -120,9 +122,9 @@ export class BrMenu {
     c.className = 'card';
     c.tabIndex = 0;
     const max = 36;
-    const bars = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k].slice(0, 5)}</span><span><i style="width:${(a.stats[k] / max) * 100}%"></i></span>`).join('');
+    const bars = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k]}</span><span><i style="width:${(a.stats[k] / max) * 100}%"></i></span>`).join('');
     c.innerHTML =
-      `<h3>${a.name}</h3><div class="tag">${a.role} · ${a.size} · ${SIZE[a.size].radius < 0.5 ? 'tiny hitbox' : a.size === 'large' ? 'big hitbox' : 'standard'}</div>` +
+      `<div class="em">${EMOJI[a.id] ?? '🐾'}</div><h3>${a.name}</h3><div class="tag">${a.role} · ${a.size}</div>` +
       `<div class="bars">${bars}</div><ul><li>${a.sig[0].name}</li><li>${a.sig[1].name}</li><li><i>${a.innate.name}</i></li></ul><div class="tag">Weak: ${a.weakness}</div>`;
     c.addEventListener('click', () => {
       this.sel = a.id;

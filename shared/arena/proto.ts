@@ -17,7 +17,7 @@ export interface InvItem {
 export type ClientMatchMsg =
   | { t: 'mq'; animal: string; team?: string } // join the queue for the next match
   | { t: 'mqx' } // leave the queue
-  | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
+  | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
   | { t: 'mskill'; i: number; yaw: number } // use the skill in slot 0..3 (Q E R F)
   | { t: 'mstat'; k: StatKey }
   | { t: 'mpick'; i: number; o: number } // choose option o (0/1) at unlock tier i (0..3)
@@ -25,6 +25,8 @@ export type ClientMatchMsg =
   | { t: 'mact'; a: 'harvest' | 'loot' | 'drink' | 'drop'; i?: number }
   | { t: 'mcmd'; c: 'attack' | 'scatter' | 'guard' | 'skill' | 'frenzy'; yaw?: number }
   | { t: 'mswarm'; k: SwarmKind }
+  | { t: 'mguard'; on: 0 | 1 } // hold to guard; a guard raised just before a hit is a parry
+  | { t: 'mdash'; x: number; z: number } // burst of speed toward (x, z), or where you face if both are 0
   | { t: 'mleave' };
 
 // --- server -> client ------------------------------------------------------------------------
@@ -63,6 +65,15 @@ export interface YouState {
   picks: number[]; // -1 = not chosen, else 0/1
   cds: number[]; // seconds left for slots Q E R F
   cdMax: number[];
+  dash: number; // seconds until you can dash again
+  dashMax: number;
+  jy: number; // height above the ground
+  jv: number;
+  guard: boolean;
+  wind: boolean; // winding up an attack
+  guardAge: number; // seconds since the guard went up (a parry needs it under ~0.24)
+  combo: number; // 0..2: which swing of the combo comes next
+  counter: number; // seconds left of the counter-attack bonus after a parry
   inv: (InvItem | null)[];
   role: number;
   speed: number; // current movement speed (m/s) used for prediction
@@ -99,7 +110,7 @@ export type ServerMatchMsg =
       ack: number;
       you: YouState;
       g: Global;
-      f: [id: string, x: number, z: number, yaw: number, hp: number, lvl: number, flags: number][];
+      f: [id: string, x: number, z: number, yaw: number, hp: number, lvl: number, flags: number, jy: number][];
       m: [id: number, def: number, x: number, z: number, yaw: number, hp: number, flags: number][];
       d: [id: number, kind: string, x: number, z: number, n: number][]; // ground drops near you
       ev: MatchEvent[];
@@ -109,7 +120,14 @@ export type ServerMatchMsg =
 export type MatchEvent =
   | { k: 'hit'; id: string; x: number; z: number; n: number; crit?: boolean }
   | { k: 'mobhit'; x: number; z: number; n: number }
-  | { k: 'skill'; id: string; s: string; x: number; z: number; yaw: number; r?: number }
+  | { k: 'skill'; id: string; s: string; x: number; z: number; yaw: number; r?: number; w?: number } // a skill was started (w = seconds of wind-up)
+  | { k: 'strike'; id: string; s: string; x: number; z: number; yaw: number } // the skill lands
+  | { k: 'swing'; id: string; c: number; w: number; h: boolean; r: number; a: number; x: number; z: number; yaw: number } // a basic attack winds up
+  | { k: 'mswing'; id: number; x: number; z: number; yaw: number; w: number; r: number; big: boolean } // a boss winds up
+  | { k: 'parry'; id: string; by: string; x: number; z: number; heavy: boolean }
+  | { k: 'block'; id: string; x: number; z: number; broke: boolean }
+  | { k: 'dodge'; id: string; x: number; z: number }
+  | { k: 'pickup'; id: string; item: string; n: number }
   | { k: 'kill'; killer: string; victim: string; how: string }
   | { k: 'level'; id: string; lvl: number }
   | { k: 'phase'; n: number; name: string }
@@ -142,4 +160,9 @@ export const FL = {
   scared: 4096,
   moving: 8192,
   roar: 16384,
+  guard: 32768,
+  wind: 65536, // winding up an attack
+  air: 131072,
+  counter: 262144,
+  heavy: 524288, // the wind-up is a heavy attack
 } as const;

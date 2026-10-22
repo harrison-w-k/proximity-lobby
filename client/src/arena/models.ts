@@ -2,6 +2,7 @@
 // horde creatures are merged into a single mesh so hundreds of them stay cheap to draw.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { Pose } from './anim';
 
 export interface RigState {
   speed: number; // m/s along the ground
@@ -11,6 +12,12 @@ export interface RigState {
   flee: boolean;
   swim: boolean;
   t: number; // clock
+  pose?: Pose | null; // an attack or skill animation in progress
+  guard?: boolean;
+  air?: number; // height above the ground while jumping
+  vy?: number; // rising (+) or falling (-)
+  warn?: number; // 0..1: this animal is winding up a blow, glow so it can be read
+  counter?: boolean;
 }
 
 export interface Rig {
@@ -35,10 +42,13 @@ function mat(color: number): Mat {
   return m;
 }
 
-const BOX = new THREE.BoxGeometry(1, 1, 1);
-const ICO = new THREE.IcosahedronGeometry(1, 1);
+const ICO0 = new THREE.IcosahedronGeometry(1, 0); // 20 triangles: a cut gem
+const ICO = new THREE.IcosahedronGeometry(1, 1); // 80 triangles: a lumpy ellipsoid
 const CONE = new THREE.ConeGeometry(1, 1, 6);
+const CONE5 = new THREE.ConeGeometry(1, 1, 5);
+const CONE3 = new THREE.ConeGeometry(1, 1, 3);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 6);
+const LEG = new THREE.CylinderGeometry(0.62, 0.38, 1, 5); // tapers toward the paw
 
 function part(geo: THREE.BufferGeometry, color: number, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat(color));
@@ -46,10 +56,19 @@ function part(geo: THREE.BufferGeometry, color: number, sx: number, sy: number, 
   m.position.set(x, y, z);
   return m;
 }
-const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(BOX, c, w, h, d, x, y, z);
+/** A faceted chunk sized like a box of w x h x d: used for everything small. */
+const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(ICO0, c, w * 0.62, h * 0.62, d * 0.62, x, y, z);
+/** A lumpy low-poly ellipsoid for torsos and heads. */
+const lump = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(ICO, c, w * 0.56, h * 0.56, d * 0.56, x, y, z);
 const ball = (rx: number, ry: number, rz: number, c: number, x = 0, y = 0, z = 0) => part(ICO, c, rx, ry, rz, x, y, z);
 const cone = (r: number, h: number, c: number, x = 0, y = 0, z = 0) => part(CONE, c, r, h, r, x, y, z);
 const cyl = (r: number, h: number, c: number, x = 0, y = 0, z = 0) => part(CYL, c, r, h, r, x, y, z);
+/** A cone lying along Z with its tip pointing forward (+1) or backward (-1). */
+function spike(r: number, len: number, c: number, dir: 1 | -1, x: number, y: number, z: number, geo = CONE5): THREE.Mesh {
+  const m = part(geo, c, r, len, r, x, y, z);
+  m.rotation.x = dir * (Math.PI / 2);
+  return m;
+}
 
 // A tiny deterministic random so each species always looks the same.
 function rnd(seed: number) {
@@ -101,20 +120,21 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   torso.position.y = hip + spec.h / 2 - 0.04;
   root.add(torso);
   const belly = spec.belly ?? spec.fur;
-  torso.add(box(spec.w, spec.h, spec.len, spec.fur));
-  torso.add(box(spec.w * 0.96, spec.h * 0.45, spec.len * 0.9, belly, 0, -spec.h * 0.32, 0));
+  torso.add(lump(spec.w, spec.h, spec.len, spec.fur));
+  torso.add(lump(spec.w * 0.94, spec.h * 0.5, spec.len * 0.86, belly, 0, -spec.h * 0.3, 0));
   // shoulders and haunches a little fuller than the middle
-  torso.add(box(spec.w * 1.04, spec.h * 1.04, spec.len * 0.3, spec.fur, 0, spec.h * 0.02, spec.len * 0.3));
-  torso.add(box(spec.w * 1.06, spec.h * 1.02, spec.len * 0.3, spec.fur, 0, 0, -spec.len * 0.32));
+  torso.add(lump(spec.w * 1.04, spec.h * 1.06, spec.len * 0.4, spec.fur, 0, spec.h * 0.04, spec.len * 0.28));
+  torso.add(lump(spec.w * 1.06, spec.h * 1.0, spec.len * 0.4, spec.fur, 0, 0, -spec.len * 0.3));
 
   // head
   const head = new THREE.Group();
   const hs = spec.head.s;
   head.position.set(0, spec.h * 0.28 - (spec.head.drop ?? 0), spec.len / 2 + (spec.head.fwd ?? hs * 0.35));
-  head.add(box(hs, hs * 0.9, hs * 1.05, spec.fur));
+  head.add(lump(hs, hs * 0.92, hs * 1.08, spec.fur));
+  head.add(box(hs * 0.7, hs * 0.5, hs * 0.5, spec.fur, 0, -hs * 0.18, hs * 0.18)); // cheeks
   const sn = spec.head.snout;
   const snH = spec.head.snoutH ?? hs * 0.5;
-  head.add(box(hs * 0.62, snH, sn, spec.head.snoutC ?? spec.fur, 0, -hs * 0.12, hs * 0.5 + sn / 2 - 0.02));
+  head.add(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02));
   head.add(box(hs * 0.2, hs * 0.14, hs * 0.14, 0x16120f, 0, -hs * 0.04, hs * 0.5 + sn)); // nose
   const eyeC = spec.eye ?? 0x111111;
   head.add(box(hs * 0.12, hs * 0.14, hs * 0.1, eyeC, hs * 0.32, hs * 0.12, hs * 0.46), box(hs * 0.12, hs * 0.14, hs * 0.1, eyeC, -hs * 0.32, hs * 0.12, hs * 0.46));
@@ -122,7 +142,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   const ec = spec.earC ?? spec.fur;
   if (spec.ears === 'point') for (const sx of [-1, 1]) head.add(cone(es * 0.5, es, ec, sx * hs * 0.32, hs * 0.62, -hs * 0.05));
   else if (spec.ears === 'round') for (const sx of [-1, 1]) head.add(ball(es * 0.5, es * 0.5, es * 0.3, ec, sx * hs * 0.38, hs * 0.5, -hs * 0.1));
-  else if (spec.ears === 'long') for (const sx of [-1, 1]) head.add(box(es * 0.28, es * 2.2, es * 0.18, ec, sx * hs * 0.22, hs * 0.95, -hs * 0.1));
+  else if (spec.ears === 'long') for (const sx of [-1, 1]) head.add(part(CONE3, ec, es * 0.3, es * 2.4, es * 0.14, sx * hs * 0.22, hs * 0.95, -hs * 0.1));
   torso.add(head);
 
   // legs pivot at the hip so they can swing
@@ -133,11 +153,15 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     const g = new THREE.Group();
     g.position.set(sx * lx, hip, sz * lz);
     if (spec.crawl) {
-      g.add(box(spec.legT, spec.legLen * 0.9, spec.legT * 1.1, spec.fur, sx * spec.legT * 0.4, -spec.legLen * 0.45, 0));
+      g.add(part(LEG, spec.fur, spec.legT * 1.5, spec.legLen * 0.9, spec.legT * 1.5, sx * spec.legT * 0.4, -spec.legLen * 0.45, 0));
       g.rotation.z = sx * 0.25;
     } else {
-      g.add(box(spec.legT, spec.legLen, spec.legT, spec.fur, 0, -spec.legLen / 2, 0));
-      g.add(box(spec.legT * 1.1, spec.legT * 0.5, spec.legT * 1.5, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.25, spec.legT * 0.25));
+      // a thick thigh and a thinner, slightly bent shin
+      g.add(part(LEG, spec.fur, spec.legT * 1.8, spec.legLen * 0.58, spec.legT * 1.8, 0, -spec.legLen * 0.28, 0));
+      const shin = part(LEG, spec.fur, spec.legT * 1.05, spec.legLen * 0.52, spec.legT * 1.05, 0, -spec.legLen * 0.74, -spec.legT * 0.12);
+      shin.rotation.x = 0.22;
+      g.add(shin);
+      g.add(box(spec.legT * 1.2, spec.legT * 0.6, spec.legT * 1.8, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.2, spec.legT * 0.3));
     }
     root.add(g);
     legs.push(g);
@@ -154,7 +178,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     for (let i = 0; i < n; i++) {
       const k = 1 - i * 0.28;
       const seg = spec.tail.len / n;
-      tail.add(box(spec.tail.t * k, spec.tail.t * k, seg * 1.05, tc, 0, y, z - seg / 2));
+      tail.add(spike(spec.tail.t * 0.75 * k, seg * 1.25, tc, -1, 0, y, z - seg / 2, CONE5));
       z -= seg * 0.95;
       y += (spec.tail.up ?? 0) * seg;
     }
@@ -198,24 +222,44 @@ class QuadRig implements Rig {
     const b = this.b;
     const moving = Math.min(1, s.speed / 3);
     this.phase += dt * (3 + s.speed * 1.5);
-    const amp = 0.7 * moving * (s.swim ? 0.5 : 1);
+    const air = (s.air ?? 0) > 0.04 ? 1 : 0;
+    const amp = 0.7 * moving * (s.swim ? 0.5 : 1) * (1 - air);
     const sw = Math.sin(this.phase);
-    b.legs[0].rotation.x = sw * amp;
-    b.legs[1].rotation.x = sw * amp;
-    b.legs[2].rotation.x = -sw * amp;
-    b.legs[3].rotation.x = -sw * amp;
-    if (b.spec.crawl) for (const [i, l] of b.legs.entries()) l.rotation.z = (i === 0 || i === 3 ? 1 : -1) * 0.25;
-    b.torso.position.y = this.baseY + Math.abs(Math.sin(this.phase)) * 0.06 * moving - (s.swim ? 0.25 : 0);
-    b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0);
-    // a strike lunges the head forward and dips it
-    b.head.position.z = this.headZ + s.attack * 0.35 * (b.spec.scale ?? 1);
-    b.head.rotation.x = s.attack * 0.45 - (s.stun ? 0.4 : 0);
-    if (b.tail) b.tail.rotation.y = Math.sin(s.t * 6 + this.phase) * 0.35 * (0.4 + moving);
+    const p = s.pose;
+    const g = s.guard ? 1 : 0;
+    // legs: the walk cycle, plus whatever the current move or pose asks for
+    const tuckF = air * -0.9 + g * -0.18;
+    const tuckB = air * 0.7 + g * 0.18;
+    b.legs[0].rotation.x = sw * amp + tuckF + (p?.fl ?? 0);
+    b.legs[1].rotation.x = sw * amp + tuckB + (p?.bl ?? 0);
+    b.legs[2].rotation.x = -sw * amp + tuckF + (p?.fr ?? 0);
+    b.legs[3].rotation.x = -sw * amp + tuckB + (p?.br ?? 0);
+    if (b.spec.crawl) for (const [i, l] of b.legs.entries()) l.rotation.z = (i === 0 || i === 3 ? 1 : -1) * (0.25 + g * 0.25);
+    const hop = Math.abs(Math.sin(this.phase)) * 0.06 * moving;
+    const recoil = Math.min(1, s.hurt);
+    b.torso.position.y = this.baseY + hop - (s.swim ? 0.25 : 0) - g * 0.1 + (p?.y ?? 0);
+    b.torso.position.z = (p?.z ?? 0) - recoil * 0.18;
+    b.torso.rotation.x = (p?.rx ?? 0) + g * 0.1 - recoil * 0.3 + air * -Math.max(-0.5, Math.min(0.5, (s.vy ?? 0) * 0.06));
+    b.torso.rotation.y = p?.ry ?? 0;
+    b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0) + (p?.rz ?? 0);
+    b.head.position.z = this.headZ + s.attack * 0.2 * (b.spec.scale ?? 1);
+    b.head.rotation.x = (p?.hx ?? 0) + s.attack * 0.25 - (s.stun ? 0.4 : 0) + g * 0.4;
+    b.head.rotation.y = p?.hy ?? 0;
+    if (b.tail) {
+      b.tail.rotation.y = Math.sin(s.t * 6 + this.phase) * 0.35 * (0.4 + moving);
+      b.tail.rotation.x = (p?.tail ?? 0) + air * 0.4;
+    }
+    const sc = (b.spec.scale ?? 1) * (p?.sc ?? 1);
+    b.root.scale.setScalar(sc);
+    // a glow while winding up (so the blow can be read), a flash when hit
     this.flash = Math.max(this.flash, s.hurt);
     this.flash = Math.max(0, this.flash - dt * 3);
     const e = this.flash > 0.01 ? 0.7 * this.flash : 0;
+    const warn = (s.warn ?? 0) * (0.55 + 0.45 * Math.sin(s.t * 30));
     for (const m of this.mats) {
       if (this.tint !== null) m.emissive.setHex(this.tint).multiplyScalar(0.35);
+      else if (warn > 0.01) m.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
+      else if (s.counter) m.emissive.setRGB(0.5, 0.4, 0.05);
       else m.emissive.setRGB(e, e * 0.25, e * 0.2);
     }
   }
@@ -350,7 +394,9 @@ function buildBird(spec: BirdSpec): Built {
   for (const sx of [-1, 1]) {
     const w = new THREE.Group();
     w.position.set(sx * spec.body * 0.7, spec.body * 0.2, 0);
-    w.add(box(spec.wing, 0.025, spec.body * 1.2, spec.c, sx * spec.wing / 2, 0, 0));
+    const wing = part(CONE3, spec.c, spec.body * 0.9, spec.wing, 0.03, sx * spec.wing / 2, 0, 0);
+    wing.rotation.z = -sx * (Math.PI / 2);
+    w.add(wing);
     torso.add(w);
     wings.push(w);
   }

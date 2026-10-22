@@ -389,6 +389,8 @@ export class Lobby {
       case 'mact':
       case 'mcmd':
       case 'mswarm':
+      case 'mdash':
+      case 'mguard':
       case 'mleave': {
         if (!c.joined) return;
         if (!this.director) {

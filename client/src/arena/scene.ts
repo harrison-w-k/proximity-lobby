@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GULAG_R, GULAG_X } from '../../../shared/arena/move';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, type Res } from '../../../shared/arena/terrain';
 import { FL } from '../../../shared/arena/proto';
+import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
 import { makeLeaderRig, makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
 
 const SKY_TOP = 0x5d8fd0;
@@ -41,6 +42,13 @@ export interface FighterView {
   lastZ: number;
   speedS: number;
   speaking: boolean;
+  cue: Cue | null;
+  guard: boolean;
+  guardStart: number;
+  jy: number;
+  vy: number;
+  lastJy?: number;
+  shield: THREE.Mesh;
 }
 
 interface MobView {
@@ -69,6 +77,8 @@ interface MobView {
   bar?: THREE.Sprite;
   barHp: number;
   big: boolean;
+  cue: Cue | null;
+  warnUntil: number;
 }
 
 /** Geometries merge only if they are all indexed or all not. */
@@ -97,6 +107,7 @@ export class ArenaScene {
   private drops = new Map<number, { g: THREE.Group; kind: string; seen: number; y0: number }>();
   private hidden = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 }[]>();
   private fxList: { update(dt: number): boolean }[] = [];
+  private decals: { g: THREE.Group; mats: THREE.MeshBasicMaterial[]; t: number; wind: number; hostile: boolean; heavy: boolean }[] = [];
   private floaters: { s: THREE.Sprite; vy: number; life: number; max: number }[] = [];
   private projs = new Map<number, { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number }>();
   private lure: { g: THREE.Group; until: number } | null = null;
@@ -451,6 +462,7 @@ varying vec3 vWP;`)
       berryBush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x3d7a34, flatShading: true }) },
       berry: { geo: berriesGeo, mat: new THREE.MeshLambertMaterial({ color: 0xd42a3c, flatShading: true, emissive: 0x330508 }), node: true },
       rock: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0x8c8a85, flatShading: true }), jitter: true },
+      stone: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0x9a9890, flatShading: true }), jitter: true },
       herb: { geo: herbGeo, mat: new THREE.MeshLambertMaterial({ color: 0x7ec06a, flatShading: true, emissive: 0x0a1a0a }), node: true },
       reed: { geo: reedGeo, mat: new THREE.MeshLambertMaterial({ color: 0x9aa655, flatShading: true }), node: true },
       mud: { geo: mudGeo, mat: new THREE.MeshLambertMaterial({ color: 0x5a4330, flatShading: true }), node: true },
@@ -505,13 +517,14 @@ varying vec3 vWP;`)
         if (def.jitter) e.set((noise(it.z, it.x) - 0.5) * 0.5, e.y, (noise(it.x + 3, it.z) - 0.5) * 0.5);
         q.setFromEuler(e);
         const s = it.s;
-        if (kind === 'rock') sc.set(s * (0.9 + noise(it.x, 4) * 0.5), s * (0.8 + noise(it.z, 4) * 0.7), s * (0.9 + noise(it.x, 8) * 0.5));
+        if (kind === 'rock' || kind === 'stone') sc.set(s * (0.9 + noise(it.x, 4) * 0.5), s * (0.8 + noise(it.z, 4) * 0.7) * (kind === 'stone' ? 0.75 : 1), s * (0.9 + noise(it.x, 8) * 0.5));
+        else if (kind === 'tree' || kind === 'pine' || kind === 'fruit' || kind === 'hive') sc.setScalar(s * 0.62); // trees stay in proportion to the animals
         else sc.setScalar(s);
         const yy = kind === 'reed' || kind === 'mud' ? Math.max(y, WATER_Y - 0.3) : y - 0.1;
         p.set(it.x, yy, it.z);
         const m = new THREE.Matrix4().compose(p, q, sc);
         mesh.setMatrixAt(i, m);
-        if (kind === 'tree' || kind === 'pine' || kind === 'bush' || kind === 'tuft' || kind === 'rock' || kind === 'fruit') {
+        if (kind === 'tree' || kind === 'pine' || kind === 'bush' || kind === 'tuft' || kind === 'rock' || kind === 'stone' || kind === 'fruit') {
           const v = 0.82 + noise(it.x * 2, it.z * 2) * 0.35;
           col.setRGB(v, v * (0.95 + noise(it.z, 1) * 0.1), v);
           mesh.setColorAt(i, col);
@@ -679,8 +692,9 @@ varying vec3 vWP;`)
         v = {
           id: r.id, name: r.name, animal: r.animal, team: r.team, role: r.role, swarm: r.swarm, tier, rig, group, plate, plateKey: '', shadow,
           x: old?.x ?? 0, z: old?.z ?? 0, tx: old?.tx ?? 0, tz: old?.tz ?? 0, yaw: old?.yaw ?? 0, tyaw: old?.tyaw ?? 0, hp: 100, level: old?.level ?? 1, flags: 0, speed: 0,
-          seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false,
+          seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false, cue: null, guard: false, guardStart: -9, jy: 0, vy: 0, shield: this.makeShield(),
         };
+        group.add(v.shield);
         plate.position.y = rig.height + 0.3;
         group.visible = false;
         shadow.visible = false;
@@ -691,6 +705,73 @@ varying vec3 vWP;`)
       v.team = r.team;
       v.self = r.id === selfId;
     }
+  }
+
+  private makeShield(): THREE.Mesh {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(1.25, 16, 10, Math.PI / 2 - 0.95, 1.9, 0.3, 1.5),
+      new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    m.position.set(0, 0.5, 0.15);
+    m.visible = false;
+    return m;
+  }
+
+  /** Start an attack animation on a fighter (the telegraph). */
+  cue(id: string, c: Omit<Cue, 'animal' | 'start' | 'strike' | 'rec'> & { rec?: number }) {
+    const v = this.fighters.get(id);
+    if (!v) return;
+    v.cue = { ...c, animal: v.animal, start: this.clock, strike: STRIKE_TIME, rec: c.rec ?? 0.25 };
+    if (v.role === 2 || v.animal === '') v.attack = 1;
+  }
+  cueMob(id: number, w: number, big: boolean) {
+    const v = this.mobs.get(id);
+    if (!v) return;
+    const animal = v.def === this.mobIds.indexOf('alpha_gator') ? 'croc' : 'bear';
+    v.cue = { kind: 'swing', animal, combo: big ? 2 : 0, heavy: big, skill: '', fx: '', start: this.clock, wind: w, strike: STRIKE_TIME, rec: 0.6 };
+    v.warnUntil = this.clock + w;
+  }
+  /** Does this fighter's current move still have its wind-up to come? (0..1 progress, or -1) */
+  windProgress(id: string): number {
+    const c = this.fighters.get(id)?.cue;
+    if (!c) return -1;
+    const e = this.clock - c.start;
+    return e < c.wind ? e / c.wind : -1;
+  }
+
+  /** Mark on the ground where a move is about to land, fading in as the wind-up runs out. */
+  telegraph(x: number, z: number, yaw: number, tg: Telegraph, wind: number, hostile: boolean, heavy: boolean) {
+    const g = new THREE.Group();
+    const mats: THREE.MeshBasicMaterial[] = [];
+    const mk = (geo: THREE.BufferGeometry, op: number) => {
+      const mat = new THREE.MeshBasicMaterial({ color: hostile ? (heavy ? 0xff3a1a : 0xff6a3a) : 0xffe9a8, transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+      mats.push(mat);
+      const m = new THREE.Mesh(geo, mat);
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 3;
+      return m;
+    };
+    if (tg.shape === 'arc') {
+      const a = (tg.arc * Math.PI) / 180;
+      g.add(mk(new THREE.RingGeometry(0.1, tg.r, 28, 1, -a / 2, a), 0.34));
+      g.add(mk(new THREE.RingGeometry(tg.r - 0.18, tg.r, 28, 1, -a / 2, a), 0.7));
+    } else if (tg.shape === 'circle') {
+      g.add(mk(new THREE.CircleGeometry(tg.r, 32), 0.28));
+      g.add(mk(new THREE.RingGeometry(tg.r - 0.22, tg.r, 40), 0.7));
+    } else {
+      const bar = mk(new THREE.PlaneGeometry(tg.r, tg.width), 0.32);
+      bar.position.x = tg.r / 2;
+      g.add(bar);
+    }
+    g.position.set(x, this.groundY(x, z) + 0.12, z);
+    g.rotation.y = yaw - Math.PI / 2;
+    this.scene.add(g);
+    this.decals.push({ g, mats, t: 0, wind, hostile, heavy });
+  }
+
+  telegraphSkill(x: number, z: number, yaw: number, skillId: string, wind: number, hostile: boolean, heavy: boolean) {
+    const tg = telegraphFor(skillId);
+    if (tg) this.telegraph(x, z, yaw, tg, wind, hostile, heavy);
   }
 
   setSpeaking(id: string, on: boolean) {
@@ -724,8 +805,8 @@ varying vec3 vWP;`)
   }
 
   /** Server says where the other fighters are. */
-  applyFighters(list: [string, number, number, number, number, number, number][], now: number) {
-    for (const [id, x, z, yaw, hp, lvl, flags] of list) {
+  applyFighters(list: [string, number, number, number, number, number, number, number][], now: number) {
+    for (const [id, x, z, yaw, hp, lvl, flags, jy] of list) {
       const v = this.fighters.get(id);
       if (!v) continue;
       if (now - v.seen > 0.8) {
@@ -740,12 +821,13 @@ varying vec3 vWP;`)
       v.level = lvl;
       if ((flags & FL.atk) && !(v.flags & FL.atk)) v.attack = 1;
       v.flags = flags;
+      v.jy = jy ?? 0;
       v.seen = now;
     }
   }
 
   /** Where we draw ourselves (the predicted position). */
-  setSelf(x: number, z: number, yaw: number, hpPct: number, level: number, flags: number, speed: number) {
+  setSelf(x: number, z: number, yaw: number, hpPct: number, level: number, flags: number, speed: number, jy = 0) {
     const v = this.fighters.get(this.selfId);
     if (!v) return;
     v.x = x;
@@ -757,6 +839,7 @@ varying vec3 vWP;`)
     v.level = level;
     if ((flags & FL.atk) && !(v.flags & FL.atk)) v.attack = 1;
     v.flags = flags;
+    v.jy = jy;
     v.speed = speed;
     v.seen = this.clock;
     this.selfPos.set(x, this.groundY(x, z), z);
@@ -781,7 +864,7 @@ varying vec3 vWP;`)
         const shadow = big || defId === 'fox' || defId === 'goat' || defId === 'rabbit' || defId === 'duck' ? this.makeShadow(Math.max(0.3, rig.radius)) : null;
         v = {
           id, def, rig, group, shadow, x, z, tx: x, tz: z, yaw, tyaw: yaw, seen: now, speedS: 0, lastX: x, lastZ: z, attack: 0, hurt: 0, flags,
-          flee: false, aquatic: ['minnow', 'perch', 'pike', 'swarm_fish'].includes(defId), flies: ['sparrow', 'swarm_bird', 'swarm_fish'].includes(defId), hp: 100, barHp: 100, big,
+          flee: false, aquatic: ['minnow', 'perch', 'pike', 'swarm_fish'].includes(defId), flies: ['sparrow', 'swarm_bird', 'swarm_fish'].includes(defId), hp: 100, barHp: 100, big, cue: null, warnUntil: 0,
         };
         if (big) {
           const bar = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false }));
@@ -1040,16 +1123,42 @@ varying vec3 vWP;`)
       const depth = Math.max(0, WATER_Y - this.terrain.heightAt(v.x, v.z));
       v.swim = v.x < GULAG_X - 400 && depth > 0.4;
       const y = ground - (v.swim ? Math.min(0.5, depth * 0.3) : 0) + (aquaticBody ? 1.1 : 0) + (bird ? 1.6 : 0);
-      v.group.position.set(v.x, y, v.z);
+      const prevJy = v.jy;
+      v.group.position.set(v.x, y + v.jy, v.z);
       v.group.rotation.y = v.yaw;
       v.shadow.position.set(v.x, ground + 0.06, v.z);
+      v.shadow.scale.setScalar(Math.max(0.45, 1 - v.jy * 0.25));
+      v.vy += ((v.jy - (v.lastJy ?? prevJy)) / Math.max(dt, 1e-3) - v.vy) * 0.5;
+      v.lastJy = v.jy;
       const moved = Math.hypot(v.x - v.lastX, v.z - v.lastZ) / Math.max(dt, 1e-3);
       v.lastX = v.x;
       v.lastZ = v.z;
       v.speedS += (Math.min(moved, 30) - v.speedS) * (1 - Math.exp(-dt * 9));
       v.attack = Math.max(0, v.attack - dt * 3.5);
       v.hurt = Math.max(0, v.hurt - dt * 2);
-      const st: RigState = { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now };
+      let pose = null;
+      let warn = 0;
+      if (v.cue) {
+        pose = poseFor(v.cue, now);
+        if (!pose) v.cue = null;
+        else {
+          const e = now - v.cue.start;
+          if (e < v.cue.wind && (v.cue.kind === 'swing' || v.cue.kind === 'skill')) warn = (0.35 + 0.65 * (e / v.cue.wind)) * (v.cue.heavy ? 1.25 : 1);
+        }
+      }
+      const guarding = (v.flags & FL.guard) !== 0;
+      if (guarding && !v.guard) v.guardStart = now;
+      v.guard = guarding;
+      const sh = v.shield;
+      sh.visible = guarding;
+      if (guarding) {
+        const parry = now - v.guardStart < 0.24;
+        const mat = sh.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(parry ? 0xffe27a : 0x8fd8ff);
+        mat.opacity = parry ? 0.6 : 0.3 + Math.sin(now * 10) * 0.04;
+        sh.scale.setScalar(v.rig.radius > 0.9 ? 1.5 : v.rig.radius < 0.5 ? 0.8 : 1);
+      }
+      const st: RigState = { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: v.jy, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
       v.rig.update(dt, st);
       v.rig.setTint((v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : null);
       // hide models in bushes/underwater from far away is the server's job; here just the plate
@@ -1093,7 +1202,14 @@ varying vec3 vWP;`)
       v.speedS += (Math.min(moved, 30) - v.speedS) * (1 - Math.exp(-dt * 8));
       v.attack = Math.max(0, v.attack - dt * 3);
       v.hurt = Math.max(0, v.hurt - dt * 2.5);
-      v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now });
+      let mpose = null;
+      let mwarn = 0;
+      if (v.cue) {
+        mpose = poseFor(v.cue, now);
+        if (!mpose) v.cue = null;
+      }
+      if (now < v.warnUntil) mwarn = 0.5 + 0.5 * (1 - (v.warnUntil - now) / Math.max(0.1, v.cue?.wind ?? 0.5));
+      v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now, pose: mpose, warn: mwarn });
       if (v.bar && Math.abs(v.hp - v.barHp) > 1) {
         v.barHp = v.hp;
         const old = (v.bar.material as THREE.SpriteMaterial).map;
@@ -1129,6 +1245,28 @@ varying vec3 vWP;`)
       }
     }
     this.fxList = this.fxList.filter((f) => f.update(dt));
+    this.decals = this.decals.filter((d) => {
+      d.t += dt;
+      const k = d.t / Math.max(0.05, d.wind);
+      const flash = d.t > d.wind ? Math.max(0, 1 - (d.t - d.wind) / 0.14) : 0;
+      const pulse = d.hostile ? 0.75 + 0.25 * Math.sin(d.t * (d.heavy ? 34 : 22)) : 0.5;
+      const a = d.t <= d.wind ? Math.min(1, 0.25 + 0.75 * k) * pulse : flash;
+      d.mats.forEach((m, i) => {
+        m.opacity = (i === 0 ? 0.45 : 0.95) * a;
+        if (flash > 0) m.color.setHex(0xffffff);
+      });
+      if (d.t > d.wind + 0.14) {
+        this.scene.remove(d.g);
+        d.g.traverse((o) => {
+          if (o instanceof THREE.Mesh) {
+            o.geometry.dispose();
+            (o.material as THREE.Material).dispose();
+          }
+        });
+        return false;
+      }
+      return true;
+    });
     this.floaters = this.floaters.filter((f) => {
       f.life += dt;
       f.s.position.y += f.vy * dt;

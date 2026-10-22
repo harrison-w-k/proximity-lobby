@@ -43,7 +43,10 @@ const arena = new Arena({
   getVoice: () => voice,
   isBlocked: () => typing || menuOpen || brMenu.isOpen,
   openSettings: () => openMenu(),
-  onStart: () => updatePaused(),
+  onStart: () => {
+    brMenu.close();
+    updatePaused();
+  },
   onExit: () => {
     $('hud').hidden = false;
     world.lock();
@@ -68,10 +71,14 @@ function refreshBrButton() {
   const b = document.getElementById('br-open');
   if (b) {
     b.textContent = brMenu.summary();
+    b.className = 'br-btn';
     b.hidden = arena.active;
   }
 }
 setInterval(refreshBrButton, 500);
+document.getElementById('br-open')?.addEventListener('click', () => {
+  if (!arena.active) brMenu.open();
+});
 let typing = false;
 let myId = '';
 let lastDmPeer = ''; // who last whispered to us, for /r

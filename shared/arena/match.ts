@@ -9,11 +9,12 @@ import {
   LEADER_RESPAWN, MOBS, SWARMS, SWARM_BUDGET, SWARM_DAMAGE_CAP, SWARM_MIN, TIER_SHARE, mobDef, swarmChoices,
   mobIndex, type MobDef, type SwarmKind,
 } from './mobs';
-import { GULAG_R, GULAG_X, MAP_BOUND, inGulagZone, medium, standY, stepPos, type Bound } from './move';
+import { GULAG_R, GULAG_X, JUMP_COST, JUMP_V, MAP_BOUND, inGulagZone, medium, standY, stepPos, stepVertical, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
 } from './proto';
+import { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
 import { botThink } from './bots';
@@ -23,6 +24,13 @@ export const DT = 1 / TICK_HZ;
 export const PHASE_NAMES = ['Scatter', 'Farm', 'Clash', 'Cull', 'Final'];
 export const PHASE_AT = [0, 90, 240, 420, 600];
 export const MATCH_LEN = 720;
+export const DASH_COST = 22; // stamina
+export const DASH_COOLDOWN = 2.4; // s
+export const DASH_TIME = 0.26; // s
+export const DASH_SPEED = 3.4; // x walking speed
+export { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW };
+/** Seconds of wind-up before each kind of skill lands: the telegraph others can react to. */
+const SKILL_WIND: Record<string, number> = { cone: 0.22, dash: 0.18, aoe: 0.3, proj: 0.16, grab: 0.2 };
 export const SCATTER_PEACE = 90; // no player-vs-player damage while everyone scatters
 export const INV_SLOTS = 6;
 export const MEAT_SPOIL = 70; // s carried before meat rots
@@ -126,6 +134,16 @@ export interface Fighter extends Body {
   sta: number;
   input: Input;
   cdAt: number[];
+  dashAt: number;
+  combo: number;
+  comboAt: number;
+  swing: Swing | null;
+  guarding: boolean;
+  guardAt: number;
+  guardCd: number;
+  counterUntil: number;
+  jy: number;
+  jv: number;
   atkAt: number;
   buffs: Buff[];
   // statuses
@@ -181,7 +199,7 @@ export interface Fighter extends Body {
   swarmHurt: [number, number, string][]; // damage taken from swarms: [time, amount, leader]
   moving: boolean;
   sprinting: boolean;
-  cmds: { s: number; dt: number; dx: number; dz: number; sprint: boolean; crouch: boolean }[];
+  cmds: { s: number; dt: number; dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }[];
   ack: number;
   lastCmd: number;
   lastInputAt: number;
@@ -190,6 +208,18 @@ export interface Fighter extends Body {
   holdDps: number;
   view?: string; // spectators: whom they are watching
   bornAt: number;
+}
+
+interface Swing {
+  at: number; // when it lands
+  start: number;
+  kind: 'basic' | 'skill';
+  combo: number;
+  heavy: boolean;
+  skill?: Skill;
+  fx?: Effect;
+  yaw: number;
+  wind: number;
 }
 
 type MobState = 'idle' | 'flee' | 'attack' | 'investigate' | 'stampede';
@@ -218,6 +248,8 @@ export interface Mob extends Body {
   wander: number;
   hurtFlash: number;
   warden?: boolean;
+  strikeAt: number; // a boss attack lands at this time (0 = not winding up)
+  fleeAt: number;
 }
 
 interface Drop {
@@ -321,6 +353,8 @@ export class Match {
   private lastLava = 0;
   private teamsAlive = new Set<number>();
   private startTeams = 0;
+  /** What the last call to hurt() did: 'hit', or the guard 'block'ed / 'parry'ed it, or a 'dodge' avoided it. */
+  lastResult: 'hit' | 'block' | 'parry' | 'dodge' = 'hit';
   private rosterDirty = false;
   readonly humans = new Set<string>();
 
@@ -347,7 +381,7 @@ export class Match {
       alloc: emptyStats(), picks: [...NO_PICKS], mods: sumMods([def.innate]), dv: derive(def, emptyStats(), sumMods([def.innate])),
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
-      cdAt: [0, 0, 0, 0], atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
+      cdAt: [0, 0, 0, 0], dashAt: 0, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
       speedUntil: 0, glideUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, waitSince: 0, deathX: 0, deathZ: 0,
@@ -471,6 +505,7 @@ export class Match {
     } else if (t && t.hp < t.maxHp * 0.4) m += f.mods.executeDmg;
     if (f.subUntil > this.time) m += 0.5 + f.mods.ambush;
     else if (f.mods.ambush > 0 && f.role === 'alive' && this.terrain.inBush(f.x, f.z)) m += f.mods.ambush;
+    if (f.counterUntil > this.time) m += 0.5; // a parry opens the enemy up
     if (f.blindUntil > this.time) m -= 0.25;
     if (f.scareUntil > this.time) m -= 0.25;
     return Math.max(0.2, m);
@@ -556,9 +591,9 @@ export class Match {
         const k = l > 1 ? 1 / l : 1;
         const dtm = Number.isFinite(msg.dt) ? Math.max(0, Math.min(0.1, msg.dt / 1000)) : 0;
         if (dtm > 0) {
-          f.cmds.push({ s: msg.s, dt: dtm, dx: Number.isFinite(msg.x) ? msg.x * k : 0, dz: Number.isFinite(msg.z) ? msg.z * k : 0, sprint: msg.sp === 1, crouch: msg.cr === 1 });
+          f.cmds.push({ s: msg.s, dt: dtm, dx: Number.isFinite(msg.x) ? msg.x * k : 0, dz: Number.isFinite(msg.z) ? msg.z * k : 0, sprint: msg.sp === 1, crouch: msg.cr === 1, jump: msg.j === 1 });
           if (f.cmds.length > 12) f.cmds.shift();
-        } else if (f.cmds.length) f.cmds.push({ s: msg.s, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false });
+        } else if (f.cmds.length) f.cmds.push({ s: msg.s, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false, jump: false });
         else f.ack = msg.s;
         break;
       }
@@ -585,6 +620,12 @@ export class Match {
         break;
       case 'mswarm':
         this.chooseSwarm(f, msg.k);
+        break;
+      case 'mguard':
+        this.setGuard(f, msg.on === 1);
+        break;
+      case 'mdash':
+        this.dash(f, Number.isFinite(msg.x) ? msg.x : 0, Number.isFinite(msg.z) ? msg.z : 0);
         break;
       case 'mleave':
         this.release(id);
@@ -658,11 +699,22 @@ export class Match {
     f.cdAt[slot] = this.time + (skill.cd ?? 5);
     f.lastCombat = this.time;
     f.atkFlash = 0.35;
-    this.emit({ k: 'skill', id: f.id, s: skill.id, x: f.x, z: f.z, yaw }, f.x, f.z);
+    f.guarding = false;
+    const wind = (SKILL_WIND[fx.k] ?? 0) / Math.max(1, this.buffSum(f, 'rof'));
     this.noise(f.x, f.z, 22 * (f.def.size === 'large' ? 1.5 : 1));
+    this.emit({ k: 'skill', id: f.id, s: skill.id, w: wind, x: f.x, z: f.z, yaw }, f.x, f.z);
+    if (wind > 0.001) {
+      // the telegraph: everyone can see it coming and answer with a guard, a dodge or distance
+      f.swing = { at: this.time + wind, start: this.time, kind: 'skill', combo: -1, heavy: fx.k === 'grab' || (fx.k === 'aoe' && fx.dmg > 0), skill, fx, yaw, wind };
+      f.atkAt = Math.max(f.atkAt, this.time + wind + 0.25);
+    } else this.fireSkill(f, skill, fx, yaw);
+    return true;
+  }
+
+  private fireSkill(f: Fighter, skill: Skill, fx: Effect, yaw: number) {
+    this.emit({ k: 'strike', id: f.id, s: skill.id, x: f.x, z: f.z, yaw }, f.x, f.z);
     this.runEffect(f, skill, fx);
     if (fx.k !== 'submerge' && fx.k !== 'buff' && fx.k !== 'heal' && f.subUntil > this.time) f.subUntil = 0;
-    return true;
   }
 
   private statusTo(src: Fighter | Mob | null, t: Body, st: Status[] | undefined, base: number) {
@@ -683,6 +735,8 @@ export class Match {
           case 'stun':
             f.stunUntil = Math.max(f.stunUntil, this.time + s.dur);
             f.chan = null;
+            f.swing = null;
+            f.guarding = false;
             break;
           case 'scare':
             f.scareUntil = this.time + s.dur;
@@ -700,6 +754,7 @@ export class Match {
             break;
           case 'stun':
             m.stunUntil = this.time + s.dur;
+            m.strikeAt = 0;
             break;
           case 'scare':
             this.scareMob(m, s.dur);
@@ -711,6 +766,7 @@ export class Match {
 
   private scareMob(m: Mob, dur: number) {
     if (m.def.behavior === 'alpha' || m.warden) return;
+    if (m.state !== 'flee') m.fleeAt = this.time;
     m.scareUntil = this.time + dur;
     m.state = 'flee';
     m.until = this.time + dur;
@@ -726,8 +782,8 @@ export class Match {
         const bs = this.bodies(f.x, f.z, fx.range, hitPred).filter((b) => this.inCone(f, b, fx.range, fx.arc));
         bs.sort((a, b) => dist(a, f) - dist(b, f));
         for (const b of bs) {
-          this.hurt(b, base * fx.dmg * dm(b), f, { kind: skill.id });
-          this.statusTo(f, b, fx.st, base);
+          this.hurt(b, base * fx.dmg * dm(b), f, { kind: skill.id, blockable: true, heavy: fx.dmg >= 1.6 });
+          if (this.lastResult === 'hit') this.statusTo(f, b, fx.st, base);
           if (++hit >= (f.def.size === 'large' ? 6 : 3)) break;
         }
         break;
@@ -735,8 +791,8 @@ export class Match {
       case 'aoe': {
         const bs = this.bodies(f.x, f.z, fx.r, hitPred);
         for (const b of bs) {
-          if (fx.dmg > 0) this.hurt(b, base * fx.dmg * dm(b), f, { kind: skill.id });
-          this.statusTo(f, b, fx.st, base);
+          if (fx.dmg > 0) this.hurt(b, base * fx.dmg * dm(b), f, { kind: skill.id, blockable: true, heavy: true });
+          if (fx.dmg <= 0 || this.lastResult === 'hit') this.statusTo(f, b, fx.st, base);
           if (fx.scare && b.kind === 'm') this.scareMob(b as Mob, fx.scare);
           if (fx.scare && b.kind === 'f') (b as Fighter).scareUntil = this.time + fx.scare * 0.5;
         }
@@ -804,35 +860,118 @@ export class Match {
     return Math.abs(angDiff(yawOf(dx, dz), f.yaw)) <= (arcDeg * Math.PI) / 360;
   }
 
+  /** Every animal can dash: a short burst of speed, for timing a dodge or a chase. */
+  dash(f: Fighter, dx: number, dz: number): boolean {
+    if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return false;
+    if (f.stunUntil > this.time || f.grab || f.holding || f.dash || this.time < f.dashAt) return false;
+    const leader = f.role === 'leader';
+    if (!leader && f.sta < DASH_COST && !this.hasFree(f)) return false;
+    const l = Math.hypot(dx, dz);
+    const ux = l > 0.1 ? dx / l : Math.sin(f.yaw);
+    const uz = l > 0.1 ? dz / l : Math.cos(f.yaw);
+    if (!leader && !this.hasFree(f)) f.sta -= DASH_COST;
+    f.chan = null;
+    f.swing = null; // a dash cancels a wind-up
+    f.guarding = false;
+    f.invUntil = Math.max(f.invUntil, this.time + 0.16); // slip through an attack that is landing
+    f.dashAt = this.time + DASH_COOLDOWN;
+    f.yaw = Math.atan2(ux, uz);
+    const base = f.walkSpeed || f.dv.speed;
+    f.dash = { dx: ux, dz: uz, speed: base * DASH_SPEED, until: this.time + DASH_TIME, dmg: 0, hit: new Set(), knock: 0, aoe: 0 };
+    this.emit({ k: 'skill', id: f.id, s: 'dash', x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
+    return true;
+  }
+
   // --- basic attack --------------------------------------------------------------------------
 
+  /** Start the next swing of the combo. The damage lands after the wind-up, so it can be read and answered. */
   private basicAttack(f: Fighter) {
-    if (this.time < f.atkAt || f.stunUntil > this.time || f.grab || f.chan) return;
-    const rof = f.role === 'leader' ? 1 : this.buffSum(f, 'rof');
-    f.atkAt = this.time + 0.62 / rof;
-    f.atkFlash = 0.28;
+    if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.grab || f.chan || f.guarding) return;
+    const leader = f.role === 'leader';
+    const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0;
+    const c = COMBO[combo];
+    const free = leader || this.hasFree(f);
+    if (!free) {
+      if (f.sta < c.cost) return; // too tired to swing
+      f.sta -= c.cost;
+    }
+    const rof = leader ? 1 : this.buffSum(f, 'rof');
+    const wind = c.wind / rof;
+    f.combo = combo;
+    f.comboAt = this.time;
     f.lastCombat = this.time;
-    const reach = f.dv.reach * (f.blindUntil > this.time ? 0.5 : 1);
+    f.atkFlash = wind + 0.2;
+    f.swing = { at: this.time + wind, start: this.time, kind: 'basic', combo, heavy: combo === 2, yaw: f.yaw, wind };
+    f.atkAt = this.time + (c.wind + c.rec) / rof;
+    const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
+    this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: combo === 2, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
     this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1));
-    // an animal that can throw (otter) hurls a stone
-    const bs = this.bodies(f.x, f.z, reach, (b) => b !== f && this.canHit(f, b)).filter((b) => this.inCone(f, b, reach, 110));
+  }
+
+  /** The wind-up is over: the swing (or skill) lands now. */
+  private resolveSwing(f: Fighter) {
+    const sw = f.swing;
+    f.swing = null;
+    if (!sw) return;
+    if (sw.kind === 'skill') {
+      if (sw.skill && sw.fx) this.fireSkill(f, sw.skill, sw.fx, f.yaw);
+      return;
+    }
+    const c = COMBO[sw.combo];
+    const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
+    const bs = this.bodies(f.x, f.z, reach, (b) => b !== f && this.canHit(f, b)).filter((b) => this.inCone(f, b, reach, c.arc));
     bs.sort((a, b) => dist(a, f) - dist(b, f));
     const cleave = f.def.size === 'large' && f.role === 'alive' ? 2 : 1;
     for (const b of bs.slice(0, cleave)) {
-      const amount = f.dv.dmg * this.dmgMult(f, b);
-      this.hurt(b, amount, f, { kind: 'bite' });
+      const amount = f.dv.dmg * c.dmg * this.dmgMult(f, b);
+      this.hurt(b, amount, f, { kind: 'bite', blockable: true, heavy: sw.heavy });
+      if (this.lastResult !== 'hit') continue;
       if (f.mods.bleedOnHit > 0) this.statusTo(f, b, [{ s: 'bleed', dur: f.mods.bleedOnHit, dps: 0.2 }], f.dv.dmg);
       if (f.tusk > 0) {
         f.tusk--;
         this.statusTo(f, b, [{ s: 'bleed', dur: 5, dps: 0.3 }], f.dv.dmg);
       }
+      if (sw.heavy && b.kind === 'f') (b as Fighter).slow = { until: this.time + 0.8, f: 0.5 };
     }
     if (f.subUntil > this.time && bs.length) f.subUntil = 0;
   }
 
+  // --- guard, parry -------------------------------------------------------------------------
+
+  /** Hold to guard. A guard raised in the instant before a blow lands is a parry that staggers the attacker. */
+  setGuard(f: Fighter, on: boolean) {
+    if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return;
+    if (on) {
+      if (f.guarding || this.time < f.guardCd || f.stunUntil > this.time || f.grab || f.dash || f.holding) return;
+      const leader = f.role === 'leader';
+      if (!leader && f.sta < 8) return;
+      if (f.swing) {
+        // changing your mind mid-swing: a feint, at a small stamina cost
+        f.swing = null;
+        if (!leader) f.sta = Math.max(0, f.sta - 6);
+        f.atkAt = this.time + 0.2;
+      }
+      f.chan = null;
+      f.guarding = true;
+      f.guardAt = this.time;
+    } else if (f.guarding) {
+      f.guarding = false;
+      f.guardCd = this.time + GUARD_COOLDOWN;
+    }
+  }
+
+  private breakGuard(f: Fighter, x: number, z: number) {
+    f.guarding = false;
+    f.guardCd = this.time + 1.2;
+    f.stunUntil = Math.max(f.stunUntil, this.time + 0.8);
+    f.swing = null;
+    this.emit({ k: 'block', id: f.id, x, z, broke: true }, x, z);
+  }
+
   // --- damage --------------------------------------------------------------------------------
 
-  hurt(t: Body, raw: number, src: Body | null, o: { kind?: string; noReflect?: boolean; lava?: boolean; dot?: boolean } = {}): number {
+  hurt(t: Body, raw: number, src: Body | null, o: { kind?: string; noReflect?: boolean; lava?: boolean; dot?: boolean; blockable?: boolean; heavy?: boolean } = {}): number {
+    this.lastResult = 'hit';
     if (raw <= 0 || t.hp <= 0) return 0;
     const srcF = src?.kind === 'f' ? (src as Fighter) : null;
     const srcOwner = src?.kind === 'm' ? ((src as Mob).owner ? this.byId.get((src as Mob).owner) ?? null : null) : srcF;
@@ -855,10 +994,63 @@ export class Match {
     }
     const f = t as Fighter;
     if (f.role === 'out') return 0;
-    if (f.invUntil > this.time && !o.lava) return 0;
+    if (f.invUntil > this.time && !o.lava) {
+      if (o.blockable) {
+        this.lastResult = 'dodge';
+        this.emit({ k: 'dodge', id: f.id, x: f.x, z: f.z }, f.x, f.z);
+      }
+      return 0;
+    }
     let dr = Math.min(0.8, f.mods.dr + this.buffSum(f, 'dr'));
     if (o.lava) dr = this.time < f.mudUntil ? 0.6 : 0;
     let amount = raw * (1 - dr);
+    // a raised guard stops blows that come from the front
+    if (o.blockable && src && f.guarding && !o.lava && !o.dot) {
+      const front = Math.abs(angDiff(yawOf(src.x - f.x, src.z - f.z), f.yaw)) < 1.3;
+      if (front) {
+        if (this.time - f.guardAt <= PARRY_WINDOW) {
+          // PARRY: no damage, the attacker is staggered and we get the opening
+          this.lastResult = 'parry';
+          const heavy = !!o.heavy;
+          if (src.kind === 'f') {
+            const a = src as Fighter;
+            a.stunUntil = Math.max(a.stunUntil, this.time + (heavy ? 1.5 : 1.0));
+            a.swing = null;
+            a.chan = null;
+            a.guarding = false;
+            a.sta = Math.max(0, a.sta - (heavy ? 18 : 10));
+          } else {
+            const m = src as Mob;
+            m.stunUntil = this.time + (m.def.behavior === 'alpha' ? 1.7 : heavy ? 1.5 : 1.0);
+            m.strikeAt = 0;
+          }
+          f.sta = Math.min(f.dv.maxSta, f.sta + 18);
+          f.counterUntil = this.time + 1.6;
+          f.guardCd = 0;
+          this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy }, f.x, f.z);
+          return 0;
+        }
+        if (o.heavy) {
+          // a heavy blow breaks the guard
+          this.lastResult = 'block';
+          this.breakGuard(f, f.x, f.z);
+          amount *= 0.55;
+        } else {
+          const cost = raw * 0.45;
+          if (f.sta >= cost) {
+            f.sta -= cost;
+            amount *= 0.15;
+            this.lastResult = 'block';
+            this.emit({ k: 'block', id: f.id, x: f.x, z: f.z, broke: false }, f.x, f.z);
+          } else {
+            f.sta = 0;
+            this.lastResult = 'block';
+            this.breakGuard(f, f.x, f.z);
+            amount *= 0.6;
+          }
+        }
+      }
+    }
     // swarms may deal at most 30% of a player's health per 10 s
     const swarmId = src?.kind === 'm' ? (src as Mob).owner : srcF?.role === 'leader' ? srcF.id : '';
     if (swarmId) {
@@ -901,22 +1093,22 @@ export class Match {
   }
 
   private provoke(m: Mob, by: Fighter) {
-    const b = m.def.behavior;
-    if (m.pack && (b === 'pack' || b === 'skittish')) {
+    if (m.pack) {
       for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && !o.owner) this.aggro(o, by);
     } else this.aggro(m, by);
   }
   private aggro(m: Mob, by: Fighter) {
-    const b = m.def.behavior;
-    if (b === 'flee') {
-      m.state = 'flee';
-      m.until = this.time + 7;
-      m.target = by;
-    } else {
+    if (m.def.behavior === 'alpha') {
       m.state = 'attack';
       m.target = by;
       m.until = this.time + 12;
+      return;
     }
+    // everything else just runs
+    if (m.state !== 'flee') m.fleeAt = this.time;
+    m.state = 'flee';
+    m.until = this.time + 7;
+    m.target = by;
   }
 
   // --- deaths --------------------------------------------------------------------------------
@@ -1032,15 +1224,7 @@ export class Match {
   // --- inventory and harvesting ------------------------------------------------------------------
 
   private give(f: Fighter, item: InvItem): boolean {
-    // stack berries (3) and top up the water pouch
-    for (const s of f.inv) {
-      if (s && s.k === item.k && item.k === 'berry' && s.n < 3) {
-        const add = Math.min(3 - s.n, item.n);
-        s.n += add;
-        item.n -= add;
-        if (item.n <= 0) return true;
-      }
-    }
+    const cap = item.k === 'berry' ? 3 : item.k === 'meat' ? 4 : 1;
     if (item.k === 'water') {
       const w = f.inv.find((s) => s?.k === 'water');
       if (w) {
@@ -1048,10 +1232,43 @@ export class Match {
         return true;
       }
     }
+    // top up stacks first (berries 3, meat 4), then use empty slots
+    if (cap > 1) {
+      for (const st of f.inv) {
+        if (!st || st.k !== item.k || st.n >= cap) continue;
+        const add = Math.min(cap - st.n, item.n);
+        st.n += add;
+        st.born = Math.min(st.born, item.born); // a stack is as stale as its oldest piece
+        item.n -= add;
+        if (item.n <= 0) return true;
+      }
+      while (item.n > 0) {
+        const idx = f.inv.indexOf(null);
+        if (idx < 0) return false;
+        const n = Math.min(cap, item.n);
+        f.inv[idx] = { k: item.k, n, born: item.born };
+        item.n -= n;
+      }
+      return true;
+    }
     const idx = f.inv.indexOf(null);
     if (idx < 0) return false;
     f.inv[idx] = { ...item };
     return true;
+  }
+
+  /** Walking over fresh meat (and trophies) picks it up: no button, no wait. */
+  private autoPickup(f: Fighter) {
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      if (d.pile || Math.abs(d.x - f.x) > 1.9 || Math.abs(d.z - f.z) > 1.9 || Math.hypot(d.x - f.x, d.z - f.z) > 1.9) continue;
+      const before = d.items.reduce((s, it) => s + it.n, 0);
+      d.items = d.items.filter((it) => !this.give(f, { ...it }));
+      const left = d.items.reduce((s, it) => s + it.n, 0);
+      const got = before - left;
+      if (got > 0) this.emit({ k: 'pickup', id: f.id, item: before === got ? (d.items[0]?.k ?? 'meat') : 'meat', n: got }, f.x, f.z);
+      if (!d.items.length) this.drops.splice(i, 1);
+    }
   }
 
   private startHarvest(f: Fighter) {
@@ -1190,8 +1407,8 @@ export class Match {
     if (!it || f.role !== 'alive' || f.chan || f.stunUntil > this.time) return false;
     switch (it.k) {
       case 'meat':
-        f.chan = { k: 'eat', until: this.time + 1.6, total: 1.6, slot, x: f.x, z: f.z };
-        this.noise(f.x, f.z, 18);
+        f.chan = { k: 'eat', until: this.time + 0.9, total: 0.9, slot, x: f.x, z: f.z };
+        this.noise(f.x, f.z, 12);
         return true;
       case 'berry':
         f.chan = { k: 'eat', until: this.time + 0.9, total: 0.9, slot, x: f.x, z: f.z };
@@ -1223,10 +1440,12 @@ export class Match {
     const boost = 1 + f.mods.eatBoost;
     switch (it.k) {
       case 'meat': {
+        // one piece at a time: a stack of four keeps you fed through a fight
         const spoiled = this.time - it.born > MEAT_SPOIL;
-        if (!spoiled) f.hot = { until: this.time + 5, perSec: (f.maxHp * 0.035 * Math.min(it.n, 3) * boost) / 1 };
+        if (!spoiled) f.hot = { until: this.time + 4, perSec: Math.max(f.hot?.perSec ?? 0, f.maxHp * 0.032 * boost) };
         else this.toast(f.id, 'The meat was rotten!');
-        f.inv[slot] = null;
+        it.n--;
+        if (it.n <= 0) f.inv[slot] = null;
         break;
       }
       case 'berry':
@@ -1527,7 +1746,7 @@ export class Match {
     return {
       kind: 'm', id: this.nextMob++, def, x, z, y: 0, yaw: this.rnd() * 6.28, hp: def.hp, maxHp: def.hp, r: def.r, state: 'idle', until: 0, tx: x, tz: z,
       homeX: x, homeZ: z, target: null, pack, atkAt: 0, owner: '', awake: false, atkFlash: 0, slowUntil: 0, stunUntil: 0, bleedUntil: 0, bleedDps: 0,
-      scareUntil: 0, wander: this.rnd() * 5, hurtFlash: 0,
+      scareUntil: 0, wander: this.rnd() * 5, hurtFlash: 0, strikeAt: 0, fleeAt: 0,
     };
   }
 
@@ -1665,7 +1884,10 @@ export class Match {
       }
       m.atkFlash = Math.max(0, m.atkFlash - dt);
       m.hurtFlash = Math.max(0, m.hurtFlash - dt);
-      if (m.stunUntil > this.time) continue;
+      if (m.stunUntil > this.time) {
+        m.strikeAt = 0;
+        continue;
+      }
       if (m.bleedUntil > this.time) this.hurt(m, m.bleedDps * dt, null, { dot: true });
       if (m.hp <= 0) continue;
       const slow = m.slowUntil > this.time ? 0.55 : 1;
@@ -1722,7 +1944,9 @@ export class Match {
       switch (m.state) {
         case 'flee': {
           const t = m.target ?? nearest;
-          if (t && dist(t, m) < 28 && m.until > this.time) this.moveMob(m, m.x - t.x, m.z - t.z, speed * 1.15, dt);
+          // fleeing tires an animal: it is fastest at the start, then slows so a good chase can catch it
+          const tired = 1 - Math.min(0.42, Math.max(0, this.time - m.fleeAt - 2.5) * 0.12);
+          if (t && dist(t, m) < 28 && m.until > this.time) this.moveMob(m, m.x - t.x, m.z - t.z, speed * 1.15 * tired, dt);
           else if (m.scareUntil > this.time) this.moveMob(m, m.x - (nearest?.x ?? 0), m.z - (nearest?.z ?? 0), speed * 1.2, dt);
           else m.state = 'idle';
           if (m.until <= this.time) m.state = 'idle';
@@ -1779,7 +2003,7 @@ export class Match {
     for (const n of this.noises) {
       for (const m of this.mobs) {
         if (m.hp <= 0 || !m.awake || m.owner || m.warden || m.state !== 'idle') continue;
-        if (m.def.behavior === 'flee' || m.def.behavior === 'skittish') continue;
+        if (m.def.behavior !== 'alpha') continue; // prey does not walk toward trouble
         if (dist(m, n) < n.r) {
           m.state = 'investigate';
           m.tx = n.x;
@@ -1792,37 +2016,43 @@ export class Match {
   }
 
   private engage(m: Mob, f: Fighter) {
-    const b = m.def.behavior;
-    if (b === 'flee' || b === 'skittish') {
-      m.state = 'flee';
-      m.target = f;
-      m.until = this.time + 5;
-    } else {
-      // a whole pack joins in
-      if (m.pack) {
-        for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && o.state !== 'attack') this.aggro(o, f);
-      }
+    if (m.def.behavior === 'alpha') {
       this.aggro(m, f);
+      return;
     }
+    if (m.state !== 'flee') m.fleeAt = this.time;
+    m.state = 'flee';
+    m.target = f;
+    m.until = this.time + 5;
+    // the whole herd bolts together
+    if (m.pack) for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && o.state !== 'flee' && dist(o, m) < 16) this.aggro(o, f);
   }
 
+  /** Alphas and the Warden: a slow, readable attack. The wind-up can be parried to stagger the beast. */
   private chaseAndBite(m: Mob, t: Fighter, speed: number, dt: number) {
     const d = dist(m, t);
-    const reach = m.r + t.r + 0.5;
-    if (d > reach) this.moveMob(m, t.x - m.x, t.z - m.z, speed * (m.def.behavior === 'alpha' ? 1 : 1.05), dt);
-    else {
-      m.yaw = yawOf(t.x - m.x, t.z - m.z);
-      if (this.time >= m.atkAt) {
-        m.atkAt = this.time + (m.def.behavior === 'alpha' ? 1.4 : 1.1);
-        m.atkFlash = 0.3;
-        if (m.def.behavior === 'alpha') {
-          // a sweeping blow
-          for (const b of this.bodies(m.x, m.z, m.r + 2.4, (x) => x.kind === 'f' && this.canHit(m, x))) {
-            this.hurt(b, m.def.dmg, m, { kind: 'alpha' });
-            this.statusTo(m, b, [{ s: 'slow', dur: 1.5, f: 0.5 }], m.def.dmg);
+    const alpha = m.def.behavior === 'alpha';
+    const reach = m.r + t.r + 0.5 + (alpha ? 1.4 : 0);
+    if (m.strikeAt) {
+      if (this.time >= m.strikeAt) {
+        m.strikeAt = 0;
+        if (alpha) {
+          for (const b of this.bodies(m.x, m.z, m.r + 2.6, (x) => x.kind === 'f' && this.canHit(m, x))) {
+            const f = b as Fighter;
+            if (Math.abs(angDiff(yawOf(f.x - m.x, f.z - m.z), m.yaw)) > 1.5 && dist(f, m) > m.r + 1.2) continue; // it swings forward
+            this.hurt(f, m.def.dmg, m, { kind: 'alpha', blockable: true, heavy: true });
+            if (this.lastResult === 'hit') this.statusTo(m, f, [{ s: 'slow', dur: 1.5, f: 0.5 }], m.def.dmg);
           }
-        } else this.hurt(t, m.def.dmg * (0.85 + this.rnd() * 0.3), m, { kind: m.def.id });
+        } else if (dist(m, t) < reach + 0.4) this.hurt(t, m.def.dmg * (0.85 + this.rnd() * 0.3), m, { kind: m.def.id, blockable: true, heavy: false });
       }
+    } else if (d > reach) this.moveMob(m, t.x - m.x, t.z - m.z, speed * (alpha ? 1 : 1.05), dt);
+    else if (this.time >= m.atkAt) {
+      const wind = alpha ? 0.62 : 0.42;
+      m.yaw = yawOf(t.x - m.x, t.z - m.z);
+      m.strikeAt = this.time + wind;
+      m.atkAt = this.time + (alpha ? 2.3 : 1.3);
+      m.atkFlash = wind + 0.25;
+      this.emit({ k: 'mswing', id: m.id, x: m.x, z: m.z, yaw: m.yaw, w: wind, r: m.r + (alpha ? 2.6 : 1.4), big: alpha }, m.x, m.z);
     }
     m.y = this.mobY(m);
   }
@@ -1894,7 +2124,7 @@ export class Match {
       else if (this.time >= m.atkAt) {
         m.atkAt = this.time + 1;
         m.atkFlash = 0.25;
-        this.hurt(tgt, dmg, m, { kind: 'swarm' });
+        this.hurt(tgt, dmg, m, { kind: 'swarm', blockable: true });
       }
     } else if (L.order === 'scatter') {
       m.wander -= dt;
@@ -1954,8 +2184,8 @@ export class Match {
       p.left -= step;
       const hit = this.bodies(p.x, p.z, 0.4, (b) => b !== p.src && this.canHit(p.src, b))[0];
       if (hit) {
-        this.hurt(hit, p.dmg, p.src, { kind: 'proj' });
-        this.statusTo(p.src, hit, p.st, p.src.dv.dmg);
+        this.hurt(hit, p.dmg, p.src, { kind: 'proj', blockable: true });
+        if (this.lastResult === 'hit') this.statusTo(p.src, hit, p.st, p.src.dv.dmg);
         p.left = 0;
       } else if (this.terrain.collide(p.x, p.z, 0.1).hit) p.left = 0;
     }
@@ -1993,6 +2223,19 @@ export class Match {
 
     // statuses
     const stunned = f.stunUntil > t;
+    if (stunned) {
+      f.swing = null;
+      f.guarding = false;
+    }
+    if (f.swing && t >= f.swing.at) this.resolveSwing(f);
+    if (f.guarding) {
+      if (f.role !== 'leader') f.sta -= GUARD_DRAIN * dt;
+      if (f.sta <= 0) {
+        f.sta = 0;
+        this.breakGuard(f, f.x, f.z);
+      }
+    }
+    if (this.tickN % 3 === 0 && f.role === 'alive') this.autoPickup(f);
     if (f.bleed && f.bleed.until > t) this.hurt(f, f.bleed.dps * dt, this.byId.get(f.bleed.src) ?? null, { dot: true, kind: 'bleed' });
     else f.bleed = undefined;
     if (f.hot) {
@@ -2047,6 +2290,8 @@ export class Match {
     else f.slow = undefined;
     if (f.subUntil > t) base *= 1.2;
     if (f.role === 'leader' && f.frenzyUntil > t) base *= 1.15;
+    if (f.swing) base *= 0.45; // committed to the swing
+    else if (f.guarding) base *= 0.55;
     f.walkSpeed = base;
     const bound: Bound = f.role === 'gulag' && f.duel ? { cx: f.duel.cx, cz: f.duel.cz, r: GULAG_R } : f.role === 'gulag' ? { cx: GULAG_X - 70, cz: 0, r: 19 } : MAP_BOUND;
     f.moving = false;
@@ -2060,9 +2305,9 @@ export class Match {
         const bs = this.bodies(f.x, f.z, d.aoe ? d.aoe : f.r + 0.4, (b) => b !== f && this.canHit(f, b) && !d.hit.has(b));
         for (const b of bs) {
           d.hit.add(b);
-          if (d.dmg > 0) this.hurt(b, d.dmg * this.dmgMult(f, b), f, { kind: 'dash' });
-          this.statusTo(f, b, d.st, f.dv.dmg);
-          if (d.knock > 0) {
+          if (d.dmg > 0) this.hurt(b, d.dmg * this.dmgMult(f, b), f, { kind: 'dash', blockable: true });
+          if (d.dmg <= 0 || this.lastResult === 'hit') this.statusTo(f, b, d.st, f.dv.dmg);
+          if (d.knock > 0 && (d.dmg <= 0 || this.lastResult === 'hit')) {
             const p = { x: b.x, z: b.z };
             stepPos(this.terrain, p, d.dx, d.dz, d.knock, b.r, MAP_BOUND);
             b.x = p.x;
@@ -2073,8 +2318,9 @@ export class Match {
       // the player's queued steps are skipped, not saved up
       for (const c of f.cmds) f.ack = c.s;
       f.cmds.length = 0;
+      stepVertical(f, dt);
     } else if (f.bot) {
-      this.applyMove(f, inp.dx, inp.dz, inp.sprint, inp.crouch, dt, base, med.noSprint, blocked, bound);
+      this.applyMove(f, inp.dx, inp.dz, inp.sprint, inp.crouch, false, dt, base, med.noSprint, blocked, bound);
     } else {
       // humans send timed steps; run as many as the clock allows so nobody outruns the server
       let spent = 0;
@@ -2082,7 +2328,7 @@ export class Match {
       while (f.cmds.length && spent < budget - 1e-6) {
         const c = f.cmds[0];
         const take = Math.min(c.dt, budget - spent);
-        if (take > 0) this.applyMove(f, c.dx, c.dz, c.sprint, c.crouch, take, base, med.noSprint, blocked, bound);
+        if (take > 0) this.applyMove(f, c.dx, c.dz, c.sprint, c.crouch, c.jump, take, base, med.noSprint, blocked, bound);
         else if (c.dt > 0) break;
         c.dt -= take;
         spent += take;
@@ -2091,7 +2337,7 @@ export class Match {
           f.cmds.shift();
         }
       }
-      if (spent === 0) this.applyMove(f, 0, 0, false, false, dt, base, med.noSprint, blocked, bound);
+      if (spent === 0) this.applyMove(f, 0, 0, false, false, false, dt, base, med.noSprint, blocked, bound);
       // a client that went quiet should not keep attacking
       if (t - f.lastInputAt > 0.5) inp.at = false;
     }
@@ -2116,12 +2362,22 @@ export class Match {
   }
 
   /** One step of walking: stamina, facing, and the move itself. */
-  private applyMove(f: Fighter, dx: number, dz: number, sprint: boolean, crouch: boolean, dt: number, base: number, noSprint: boolean, blocked: boolean, bound: Bound) {
+  private applyMove(f: Fighter, dx: number, dz: number, sprint: boolean, crouch: boolean, jump: boolean, dt: number, base: number, noSprint: boolean, blocked: boolean, bound: Bound) {
+    // jumping: a hop that clears low rocks and stones
+    if (jump && !blocked && f.jy <= 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
+      const leader = f.role === 'leader';
+      if (leader || f.sta >= JUMP_COST || this.hasFree(f)) {
+        if (!leader && !this.hasFree(f)) f.sta -= JUMP_COST;
+        f.jv = JUMP_V;
+        f.chan = null;
+      }
+    }
+    const wasAir = f.jy > 0;
     const k = Math.hypot(dx, dz);
     const moving = k > 0.05;
     let sp = base;
     let sprinting = false;
-    if (sprint && moving && !noSprint && f.role !== 'leader' && (f.sta > 1 || this.hasFree(f))) {
+    if (sprint && moving && !noSprint && !f.guarding && !f.swing && f.role !== 'leader' && (f.sta > 1 || this.hasFree(f))) {
       sprinting = true;
       sp *= 1.45;
       if (!this.hasFree(f)) f.sta -= 14 * dt;
@@ -2134,13 +2390,25 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && f.input.at) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
+      stepVertical(f, dt);
+      if (wasAir && f.jy <= 0) this.landed(f);
       return;
     }
     f.moving = true;
     f.sprinting = sprinting;
-    stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound);
+    stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
+    stepVertical(f, dt);
+    if (wasAir && f.jy <= 0) this.landed(f);
     // face where they walk (the camera yaw only steers)
     f.yaw += clampTurn(angDiff(yawOf(dx, dz), f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
+  }
+
+  /** Back on the ground: if we came down inside a rock, step out of it. */
+  private landed(f: Fighter) {
+    if (inGulagZone(f.x)) return;
+    const c = this.terrain.collide(f.x, f.z, f.r, 0);
+    f.x = c.x;
+    f.z = c.z;
   }
 
   // --- hunted mark -----------------------------------------------------------------------------
@@ -2316,6 +2584,10 @@ export class Match {
     if (f.scareUntil > t) fl |= FL.scared;
     if (f.moving) fl |= FL.moving;
     if (f.roarFlash > 0) fl |= FL.roar;
+    if (f.guarding) fl |= FL.guard;
+    if (f.swing) fl |= FL.wind | (f.swing.heavy ? FL.heavy : 0);
+    if (f.jy > 0.05) fl |= FL.air;
+    if (f.counterUntil > t) fl |= FL.counter;
     return fl;
   }
 
@@ -2347,7 +2619,8 @@ export class Match {
     const you: YouState = {
       x: r1(f.x), z: r1(f.z), hp: Math.max(0, Math.round(f.hp)), maxHp: f.maxHp, sta: Math.round(f.sta), maxSta: f.dv.maxSta,
       lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, picks: f.picks,
-      cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
+      cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN, inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
+      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
       noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };
@@ -2384,7 +2657,7 @@ export class Match {
       const cz = focus.z;
       const sense = me.dv.sense;
       const inGulag = inGulagZone(cx);
-      const f: [string, number, number, number, number, number, number][] = [];
+      const f: [string, number, number, number, number, number, number, number][] = [];
       for (const o of this.fighters) {
         if (o === me || o.role === 'out') continue;
         if (o.role === 'leader' && o.hp <= 0) continue;
@@ -2394,9 +2667,9 @@ export class Match {
         const friend = o.team === me.team;
         const hidden = o.subUntil > this.time || o.reedUntil > this.time || (this.terrain.inBush(o.x, o.z) && !o.moving && !inGulag);
         if (hidden && !friend && d > Math.max(8, sense * 0.2)) continue;
-        f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0)]);
+        f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0), Math.round(o.jy * 100) / 100]);
       }
-      if (focus !== me) f.push([focus.id, r1(focus.x), r1(focus.z), Math.round(focus.yaw * 100) / 100, Math.round((focus.hp / focus.maxHp) * 100), focus.level, this.flags(focus)]);
+      if (focus !== me) f.push([focus.id, r1(focus.x), r1(focus.z), Math.round(focus.yaw * 100) / 100, Math.round((focus.hp / focus.maxHp) * 100), focus.level, this.flags(focus), Math.round(focus.jy * 100) / 100]);
       const m: [number, number, number, number, number, number, number][] = [];
       const nearMobs: { m: Mob; d: number }[] = [];
       for (const o of this.mobs) {

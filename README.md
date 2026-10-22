@@ -45,7 +45,7 @@ animals and queue; 25 s after the first player queues the match starts and AI an
   `bots.ts`, `director.ts` (queue + match lifecycle). The server owns everything; the client only predicts its own steps (`move.ts`).
 - **Client** (`client/src/arena/`): `scene.ts` (terrain, lava shader, instanced forests, animals, effects), `models.ts` (procedural animals),
   `hud.ts`, `arena.ts` (input, prediction, camera, proximity-voice rules), `menu.ts`.
-- **Controls**: WASD move, Shift sprint, C sneak (halves voice range), LMB attack, Q E R F skills, X harvest, G pick up / eat (leaders), V fill pouch,
+- **Controls**: WASD move, Space dash (every animal, 2.4 s cooldown, costs stamina), Left Alt toggles a free cursor (click the upgrade panel / swarm choices), Shift sprint, C sneak (halves voice range), LMB attack, Q E R F skills, X harvest, G pick up / eat (leaders), V fill pouch,
   1-6 use item, Tab upgrade panel (1-5 spend, Z / X pick a skill). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
 - **Squads**: friends who type the same squad code on the menu share a team (max 4): no friendly fire, shared win.
 - **Voice**: 10 m full / 40 m silent, 15 m for leaders, whisper when sneaking, muffled behind rocks/trees and underwater, separate Gulag channel.

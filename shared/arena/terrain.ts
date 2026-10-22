@@ -12,7 +12,7 @@ export const Biome = { Forest: 0, Wetlands: 1, Grassland: 2, Highlands: 3 } as c
 export type Biome = (typeof Biome)[keyof typeof Biome];
 export const BIOME_NAMES = ['Forest', 'Wetlands', 'Grassland', 'Highlands'] as const;
 
-export type ResKind = 'tree' | 'pine' | 'bush' | 'rock' | 'berry' | 'herb' | 'mud' | 'hive' | 'reed' | 'fruit';
+export type ResKind = 'tree' | 'pine' | 'stone' | 'bush' | 'rock' | 'berry' | 'herb' | 'mud' | 'hive' | 'reed' | 'fruit';
 export interface Res {
   id: number;
   kind: ResKind;
@@ -20,6 +20,7 @@ export interface Res {
   z: number;
   s: number; // scale
   r: number; // collision radius (0 = walk-through)
+  h: number; // how tall it is: you can jump over anything lower than your jump
 }
 
 export interface SpawnPoint {
@@ -216,10 +217,11 @@ export class Terrain {
   }
 
   /** Push a circle out of trees and rocks. Returns the corrected position. */
-  collide(x: number, z: number, radius: number): { x: number; z: number; hit: boolean } {
+  collide(x: number, z: number, radius: number, feet = 0): { x: number; z: number; hit: boolean } {
     let hit = false;
     for (const r of this.near(x, z, radius + 3)) {
       if (r.r <= 0) continue;
+      if (feet > 0 && feet >= r.h - 0.12) continue; // hopping over a low rock
       const dx = x - r.x;
       const dz = z - r.z;
       const d = Math.hypot(dx, dz);
@@ -245,7 +247,7 @@ export class Terrain {
       const x = ax + (bx - ax) * t;
       const z = az + (bz - az) * t;
       for (const r of this.near(x, z, 1)) {
-        if (r.r > 0.4 && Math.hypot(r.x - x, r.z - z) < r.r) return true;
+        if (r.r > 0.4 && r.h > 1.6 && Math.hypot(r.x - x, r.z - z) < r.r) return true;
       }
     }
     return false;
@@ -256,10 +258,11 @@ export class Terrain {
     const R = MAP_RADIUS - 18;
     type Layer = { kind: ResKind; spacing: number; tries: number; want: (b: Biome) => number; size: [number, number]; solid: number };
     const layers: Layer[] = [
-      { kind: 'tree', spacing: 6.5, tries: 40000, want: (b) => (b === Biome.Forest ? 1 : b === Biome.Grassland ? 0.07 : b === Biome.Wetlands ? 0.12 : 0), size: [1.0, 1.7], solid: 0.55 },
-      { kind: 'pine', spacing: 7, tries: 30000, want: (b) => (b === Biome.Highlands ? 0.35 : b === Biome.Forest ? 0.25 : 0), size: [1.0, 1.8], solid: 0.5 },
-      { kind: 'bush', spacing: 5, tries: 30000, want: (b) => (b === Biome.Grassland ? 0.25 : b === Biome.Forest ? 0.4 : b === Biome.Wetlands ? 0.2 : 0.08), size: [0.9, 1.5], solid: 0 },
-      { kind: 'rock', spacing: 9, tries: 20000, want: (b) => (b === Biome.Highlands ? 0.9 : 0.06), size: [1.0, 3.2], solid: 0.8 },
+      { kind: 'tree', spacing: 8.5, tries: 40000, want: (b) => (b === Biome.Forest ? 1 : b === Biome.Grassland ? 0.07 : b === Biome.Wetlands ? 0.12 : 0), size: [1.0, 1.7], solid: 0.4 },
+      { kind: 'pine', spacing: 9.5, tries: 30000, want: (b) => (b === Biome.Highlands ? 0.3 : b === Biome.Forest ? 0.25 : 0), size: [1.0, 1.8], solid: 0.38 },
+      { kind: 'bush', spacing: 6, tries: 30000, want: (b) => (b === Biome.Grassland ? 0.25 : b === Biome.Forest ? 0.4 : b === Biome.Wetlands ? 0.2 : 0.08), size: [0.9, 1.5], solid: 0 },
+      { kind: 'stone', spacing: 6.5, tries: 30000, want: (b) => (b === Biome.Highlands ? 0.5 : b === Biome.Grassland ? 0.22 : b === Biome.Forest ? 0.2 : 0.12), size: [0.55, 1.1], solid: 0.8 },
+      { kind: 'rock', spacing: 11, tries: 20000, want: (b) => (b === Biome.Highlands ? 0.9 : 0.06), size: [1.0, 3.2], solid: 0.8 },
       { kind: 'berry', spacing: 22, tries: 6000, want: (b) => (b === Biome.Forest || b === Biome.Grassland ? 0.9 : 0.2), size: [1, 1], solid: 0 },
       { kind: 'fruit', spacing: 40, tries: 3000, want: (b) => (b === Biome.Forest ? 0.9 : b === Biome.Grassland ? 0.3 : 0), size: [1.4, 1.8], solid: 0.6 },
       { kind: 'herb', spacing: 26, tries: 5000, want: (b) => (b === Biome.Forest || b === Biome.Wetlands ? 0.9 : 0.1), size: [1, 1], solid: 0 },
@@ -291,7 +294,8 @@ export class Terrain {
         }
         if (!ok) continue;
         const s = L.size[0] + rnd() * (L.size[1] - L.size[0]);
-        const res: Res = { id: this.res.length, kind: L.kind, x, z, s, r: L.solid * s };
+        const tall = L.kind === 'rock' ? s * 0.9 : L.kind === 'stone' ? s * 0.8 : 99; // trees are never hopped
+        const res: Res = { id: this.res.length, kind: L.kind, x, z, s, r: L.solid * s, h: tall };
         const key = `${gx},${gz}`;
         const g = grid.get(key);
         if (g) g.push(res);
@@ -310,10 +314,10 @@ export class Terrain {
       const hh = this.heightAt(x, z);
       if (hh > WATER_Y + 0.5 || hh < WATER_Y - 0.6) continue;
       if (mud < 24 && this.biomeAt(x, z) === Biome.Wetlands && hh >= WATER_Y - 0.05 && rnd() < 0.1) {
-        this.addRes({ id: this.res.length, kind: 'mud', x, z, s: 1, r: 0 });
+        this.addRes({ id: this.res.length, kind: 'mud', x, z, s: 1, r: 0, h: 0 });
         mud++;
       } else if (reeds < 160 && rnd() < 0.5) {
-        this.addRes({ id: this.res.length, kind: 'reed', x, z, s: 0.8 + rnd() * 0.8, r: 0 });
+        this.addRes({ id: this.res.length, kind: 'reed', x, z, s: 0.8 + rnd() * 0.8, r: 0, h: 0 });
         reeds++;
       }
     }

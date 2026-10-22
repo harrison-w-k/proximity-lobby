@@ -21,6 +21,8 @@ interface Mem {
   statPlan: (keyof Stats)[];
   nextAct: number;
   nextOrder: number;
+  guardUntil: number;
+  react: number; // how late in the wind-up this bot reacts
 }
 
 const mem = new WeakMap<Fighter, Mem>();
@@ -43,7 +45,7 @@ function memOf(m: Match, f: Fighter): Mem {
   if (!s) {
     s = {
       style: m.rnd(), focus: null, retarget: 0, wanderX: f.x, wanderZ: f.z, wanderUntil: 0, lastX: f.x, lastZ: f.z, stuckAt: 0, detourUntil: 0, detourSign: 1,
-      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0,
+      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.06 + m.rnd() * 0.14,
     };
     mem.set(f, s);
   }
@@ -115,6 +117,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   if (f.role === 'gulag') return gulagBot(m, f, s);
   if (f.role === 'leader') return leaderBot(m, f, s);
   if (f.hp <= 0) return;
+  botGuard(m, f, s);
 
   // progression
   if (f.pts > 0) {
@@ -188,6 +191,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
     const dz = f.z - cz;
     const d = Math.hypot(dx, dz) || 1;
     goTo(m, f, s, f.x + (dx / d) * 30, f.z + (dz / d) * 30, true);
+    if (f.sta > 40 && m.time >= f.dashAt && m.rnd() < 0.06) m.dash(f, dx, dz);
     i.at = false;
     s.focus = null;
     s.retarget = m.time + 3;
@@ -312,6 +316,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
   const d = dist(f, t);
   const reach = f.dv.reach + t.r;
   const sprint = d > reach + 4;
+  if (!retreating && d > reach + 5 && d < reach + 14 && f.sta > 45 && m.time >= f.dashAt && m.rnd() < 0.04) m.dash(f, t.x - f.x, t.z - f.z);
   if (!retreating) {
     if (d > reach * 0.8) goTo(m, f, s, t.x, t.z, sprint);
     else {
@@ -364,6 +369,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
 }
 
 function gulagBot(m: Match, f: Fighter, s: Mem) {
+  if (f.duel) botGuard(m, f, s);
   if (!f.swarmPick) {
     const opts = swarmChoices(f.deathBiome);
     m.chooseSwarm(f, opts[Math.floor(m.rnd() * opts.length)].id);
@@ -437,3 +443,32 @@ function leaderBot(m: Match, f: Fighter, s: Mem) {
 }
 
 export const _internal = { WATER_Y };
+
+/** See an attack winding up in front of us and raise the guard just before it lands: a parry. */
+function botGuard(m: Match, f: Fighter, s: Mem) {
+  if (f.guarding && m.time > s.guardUntil) m.setGuard(f, false);
+  if (f.guarding || f.swing || m.time < f.guardCd || f.stunUntil > m.time) return;
+  let threat = false;
+  for (const o of m.fighters) {
+    if (o === f || o.team === f.team || !o.swing || o.role === 'out') continue;
+    const left = o.swing.at - m.time;
+    if (left > s.react || left < 0.02) continue;
+    if (dist(o, f) > o.dv.reach * 1.4 + f.r + 0.4) continue;
+    threat = true;
+    break;
+  }
+  if (!threat) {
+    for (const o of m.mobs) {
+      if (!o.strikeAt || o.hp <= 0) continue;
+      const left = o.strikeAt - m.time;
+      if (left > s.react + 0.1 || left < 0.02 || dist(o, f) > o.r + 3.4) continue;
+      threat = true;
+      break;
+    }
+  }
+  // sharper players parry more often; cautious ones guard more
+  if (threat && m.rnd() < 0.5 + (1 - s.style) * 0.25) {
+    m.setGuard(f, true);
+    s.guardUntil = m.time + 0.5;
+  }
+}

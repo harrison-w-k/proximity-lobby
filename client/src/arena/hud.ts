@@ -5,86 +5,142 @@ import type { Global, InvItem, RosterEntry, YouState } from '../../../shared/are
 import { MAP_RADIUS, Biome, type Terrain } from '../../../shared/arena/terrain';
 
 const CSS = `
-#br-root { position: fixed; inset: 0; z-index: 7; pointer-events: none; font-family: var(--font-body); color: #fff; }
+#br-root, #br-menu {
+  --bark: #241810; --bark2: #3a271a; --bark3: #5a3d24; --ink: #120c07; --moss: #4f8a3a; --leaf: #9bd15a; --amber: #f3b43c;
+  --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf; --font: 'Fredoka', 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-family: var(--font); letter-spacing: .01em;
+}
+#br-root { position: fixed; inset: 0; z-index: 7; pointer-events: none; color: var(--cream); font-size: 18px; }
 #br-root[hidden] { display: none; }
-#br-root .chip { pointer-events: none; }
-.br-top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.br-phase { display: flex; gap: 10px; align-items: center; font-family: var(--font-pixel); font-size: 11px; text-transform: uppercase; background: var(--blue); padding: 8px 14px;
-  border: 4px solid var(--ink); box-shadow: inset 3px 3px 0 var(--blue-light), inset -3px -3px 0 var(--blue-dark), 4px 4px 0 rgba(0,0,0,.45); }
-.br-phase b { color: var(--yellow); font-weight: 400; }
-.br-ring { font-size: 22px; padding: 2px 12px; background: rgba(11,11,26,.75); border: 3px solid var(--ink); text-shadow: 2px 2px 0 var(--ink); }
-.br-ring.warn { background: rgba(156,36,24,.9); animation: brpulse .8s infinite alternate; }
-@keyframes brpulse { from { filter: brightness(1); } to { filter: brightness(1.5); } }
-.br-banner { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); font-family: var(--font-pixel); font-size: 20px; text-transform: uppercase; text-align: center;
-  color: var(--yellow); text-shadow: 3px 3px 0 var(--ink), -2px -2px 0 var(--ink), 2px -2px 0 var(--ink), -2px 2px 0 var(--ink); opacity: 0; transition: opacity .3s; white-space: nowrap; }
-.br-banner.on { opacity: 1; }
-.br-banner small { display: block; margin-top: 10px; font-size: 11px; color: #fff; }
-.br-mapbox { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.br-mapbox canvas { width: 180px; height: 180px; border: 4px solid var(--ink); outline: 3px solid #fff; background: #123; image-rendering: pixelated; border-radius: 50%; }
-.br-hunted { font-size: 20px; text-shadow: 2px 2px 0 var(--ink); text-align: right; }
-.br-hunted div { padding: 1px 8px; background: rgba(11,11,26,.7); margin-top: 2px; border-left: 4px solid var(--yellow); }
-.br-feed { position: absolute; top: 96px; left: 14px; width: 330px; display: flex; flex-direction: column; gap: 3px; font-size: 20px; text-shadow: 2px 2px 0 var(--ink); }
-.br-feed div { background: rgba(11,11,26,.62); padding: 1px 8px; border-left: 4px solid var(--red); transition: opacity .6s; }
+/* carved-wood panel used everywhere */
+.wood { background: repeating-linear-gradient(92deg, rgba(255,255,255,.025) 0 3px, rgba(0,0,0,.05) 3px 7px), linear-gradient(#3d2a1c, #271910);
+  border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 0 0 2px #6e4c2d, inset 0 3px 0 rgba(255,255,255,.14), 0 5px 0 rgba(0,0,0,.45); color: var(--cream); }
+.br-btn { font-family: var(--font); font-weight: 700; font-size: 20px; color: #17210c; background: linear-gradient(#b7e46f, #6faa3a); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 7px 20px; cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.4); }
+.br-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.br-btn:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 1px 0 var(--ink); }
+.br-btn:disabled { opacity: .5; cursor: default; }
+.br-btn.amber { background: linear-gradient(#ffd77a, #e09a1f); }
+.br-btn.red { background: linear-gradient(#ff9c86, #d4412a); color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+.br-btn.wood { background: linear-gradient(#7a5a3a, #52381f); color: var(--cream); text-shadow: 0 1px 0 rgba(0,0,0,.5); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 4px 0 var(--ink); }
+
+.br-top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.br-phase { display: flex; gap: 14px; align-items: center; padding: 6px 20px; font-weight: 700; font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
+.br-phase b { color: var(--amber); font-weight: 700; font-size: 26px; letter-spacing: .02em; }
+.br-phase span:first-child::before { content: '🍃'; margin-right: 6px; }
+.br-ring { font-size: 20px; font-weight: 600; padding: 3px 18px; border-radius: 999px; background: rgba(18,12,7,.8); border: 2px solid #6e4c2d; text-shadow: 0 2px 0 var(--ink); }
+.br-ring.warn { background: linear-gradient(#e2573a, #a82a14); border-color: #3a0e06; animation: brpulse .7s infinite alternate; }
+@keyframes brpulse { from { filter: brightness(1); } to { filter: brightness(1.45); } }
+.br-banner { position: absolute; top: 20%; left: 50%; transform: translateX(-50%) scale(.92); font-weight: 700; font-size: 44px; text-align: center; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--cream); -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 rgba(0,0,0,.4); opacity: 0; transition: opacity .3s, transform .3s; white-space: nowrap; }
+.br-banner.on { opacity: 1; transform: translateX(-50%) scale(1); }
+.br-banner small { display: block; margin-top: 10px; font-size: 21px; font-weight: 500; text-transform: none; letter-spacing: 0; -webkit-text-stroke: 4px var(--ink); color: var(--amber); }
+
+.br-mapbox { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.br-mapbox canvas { width: 184px; height: 184px; border-radius: 50%; background: #123; image-rendering: pixelated; border: 6px solid #4a311c;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #8a6338, 0 6px 0 rgba(0,0,0,.4); }
+.br-hunted { font-size: 19px; text-align: right; }
+.br-hunted .t { font-weight: 700; letter-spacing: .12em; color: var(--amber); font-size: 15px; text-shadow: 0 2px 0 var(--ink); }
+.br-hunted div.r { padding: 1px 12px; margin-top: 3px; background: rgba(18,12,7,.78); border-radius: 999px; border: 2px solid #6e4c2d; }
+
+.br-feed { position: absolute; top: 102px; left: 14px; width: 340px; display: flex; flex-direction: column; gap: 4px; font-size: 19px; text-shadow: 0 2px 0 var(--ink); }
+.br-feed div { background: rgba(18,12,7,.74); padding: 2px 12px; border-radius: 999px; border: 2px solid #6e4c2d; transition: opacity .6s; }
+.br-feed div::before { content: '🐾 '; }
 .br-feed div.old { opacity: 0; }
-.br-feed div.me { border-left-color: var(--yellow); }
-.br-bottom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(560px, 94vw); }
-.br-row { display: flex; gap: 8px; align-items: flex-end; justify-content: center; }
-.br-slot { position: relative; width: 62px; height: 62px; background: rgba(11,11,26,.82); border: 4px solid var(--ink); box-shadow: inset 3px 3px 0 rgba(255,255,255,.15); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.br-slot .k { position: absolute; top: 1px; left: 4px; font-family: var(--font-pixel); font-size: 9px; color: var(--yellow); }
-.br-slot .n { font-size: 15px; text-align: center; line-height: 1; padding: 0 2px; text-shadow: 1px 1px 0 var(--ink); }
-.br-slot .cd { position: absolute; left: 0; bottom: 0; width: 100%; background: rgba(0,0,0,.72); }
-.br-slot .cdt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-pixel); font-size: 12px; }
-.br-slot.ready { border-color: var(--green); }
-.br-slot.locked { opacity: .45; }
-.br-slot.passive { border-color: #6b7aa8; }
-.br-slot .q { position: absolute; bottom: 1px; right: 4px; font-size: 14px; color: var(--cream); }
-.br-slot.sm { width: 52px; height: 52px; }
-.br-bar { position: relative; height: 24px; width: 100%; background: var(--ink); border: 4px solid var(--ink); }
-.br-bar > i { display: block; height: 100%; }
-.br-bar span { position: absolute; inset: 0; text-align: center; font-size: 19px; line-height: 16px; text-shadow: 1px 1px 0 var(--ink); }
-.br-bar.hp > i { background: linear-gradient(#ff6b5a, #c8321f); }
-.br-bar.sta > i { background: linear-gradient(#ffe27a, #d9a400); }
-.br-bar.xp > i { background: linear-gradient(#78b7ff, #2a6fd6); }
-.br-bar.sm { height: 16px; } .br-bar.sm span { font-size: 14px; line-height: 8px; }
-.br-lvl { font-family: var(--font-pixel); font-size: 12px; background: var(--blue); padding: 6px 10px; border: 4px solid var(--ink); }
-.br-buffs { display: flex; gap: 6px; min-height: 24px; font-size: 18px; }
-.br-buffs span { background: rgba(11,11,26,.8); border: 2px solid var(--yellow); padding: 0 6px; }
-.br-point { animation: brpulse .6s infinite alternate; background: var(--green) !important; color: var(--ink); }
-.br-hint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: 24px; background: rgba(11,11,26,.85); border: 3px solid #fff; padding: 2px 12px; text-shadow: 2px 2px 0 var(--ink); }
-.br-chan { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); width: 220px; height: 16px; background: var(--ink); border: 3px solid #fff; padding: 2px; }
-.br-chan i { display: block; height: 100%; background: var(--green); }
-.br-vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(255,30,10,.55) 100%); opacity: 0; transition: opacity .25s; }
-.br-lavavig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,120,0,.15) 20%, rgba(255,60,0,.65) 100%); opacity: 0; transition: opacity .2s; }
+.br-feed div.me { border-color: var(--amber); }
+
+.br-bottom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(600px, 96vw); }
+.br-row { display: flex; gap: 10px; align-items: flex-end; justify-content: center; }
+.br-slot { position: relative; width: 66px; height: 66px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 14px; }
+.br-slot .ic { font-size: 30px; line-height: 1; margin-top: -8px; filter: drop-shadow(0 2px 0 rgba(0,0,0,.5)); }
+.br-slot .n { position: absolute; left: 0; right: 0; bottom: 3px; font-size: 12px; font-weight: 600; text-align: center; line-height: 1; padding: 0 2px; color: var(--cream); text-shadow: 0 1px 0 var(--ink); }
+.br-slot .k { position: absolute; top: 3px; left: 3px; min-width: 20px; height: 20px; padding: 0 3px; border-radius: 999px; background: var(--leaf); color: #17210c; font-size: 13px; font-weight: 700; line-height: 20px; text-align: center; border: 2px solid var(--ink); z-index: 2; }
+.br-slot .cd { position: absolute; inset: 0; border-radius: 12px; background: conic-gradient(rgba(10,6,3,.72) var(--p, 0%), transparent 0); }
+.br-slot .cdt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 var(--ink); z-index: 2; }
+.br-slot.ready { box-shadow: inset 0 0 0 2px var(--leaf), inset 0 3px 0 rgba(255,255,255,.14), 0 5px 0 rgba(0,0,0,.45); }
+.br-slot.locked { opacity: .5; filter: grayscale(.7); }
+.br-slot.sm { width: 54px; height: 54px; border-radius: 12px; }
+.br-slot.sm .ic { font-size: 24px; margin-top: -6px; }
+.br-slot.sm .n { font-size: 11px; }
+.br-slot .q { position: absolute; top: 3px; right: 5px; font-size: 15px; font-weight: 700; color: var(--amber); text-shadow: 0 1px 0 var(--ink); z-index: 2; }
+.br-slot.dash { width: 78px; }
+.br-slot.dash .k { background: var(--amber); font-size: 10px; padding: 0 5px; height: 17px; line-height: 15px; }
+.br-bar { position: relative; height: 26px; width: 100%; border: 3px solid var(--ink); border-radius: 999px; background: #1a110a; overflow: hidden; box-shadow: inset 0 3px 0 rgba(0,0,0,.4), 0 3px 0 rgba(0,0,0,.35); }
+.br-bar > i { display: block; height: 100%; border-radius: 999px; transition: width .12s linear; box-shadow: inset 0 4px 0 rgba(255,255,255,.28), inset 0 -4px 0 rgba(0,0,0,.18); }
+.br-bar span { position: absolute; inset: 0; text-align: center; font-size: 17px; font-weight: 700; line-height: 20px; text-shadow: 0 2px 0 var(--ink); }
+.br-bar.hp > i { background: linear-gradient(#ff7a62, #d2432c); }
+.br-bar.sta > i { background: linear-gradient(#ffd96a, #e0a020); }
+.br-bar.xp > i { background: linear-gradient(#78d6e8, #2c8fb8); }
+.br-bar.sm { height: 18px; } .br-bar.sm span { font-size: 13px; line-height: 12px; }
+.br-lvl { min-width: 74px; text-align: center; font-weight: 700; font-size: 20px; padding: 3px 10px; border-radius: 14px; }
+.br-lvl.br-point { animation: brpulse .6s infinite alternate; background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+.br-buffs { display: flex; gap: 6px; min-height: 26px; font-size: 16px; flex-wrap: wrap; justify-content: center; }
+.br-buffs span { background: rgba(18,12,7,.82); border: 2px solid var(--amber); border-radius: 999px; padding: 0 10px; text-transform: capitalize; }
+.br-hint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: 24px; font-weight: 600; padding: 4px 18px; border-radius: 999px; background: rgba(18,12,7,.85); border: 3px solid var(--leaf); text-shadow: 0 2px 0 var(--ink); }
+.br-chan { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); width: 240px; height: 18px; background: #1a110a; border: 3px solid var(--ink); border-radius: 999px; padding: 2px; }
+.br-chan i { display: block; height: 100%; background: linear-gradient(#b7e46f, #6faa3a); border-radius: 999px; }
+.br-vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(217,80,58,.6) 100%); opacity: 0; transition: opacity .25s; }
+.br-lavavig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,120,0,.12) 20%, rgba(255,60,0,.62) 100%); opacity: 0; transition: opacity .2s; }
 .br-blind { position: absolute; inset: 0; background: #fff; opacity: 0; transition: opacity .3s; }
-.br-panel { position: absolute; left: 14px; top: 14px; bottom: 14px; width: 360px; padding: 14px; pointer-events: auto; overflow-y: auto; }
-.br-panel h3 { margin: 0 0 8px; font-family: var(--font-pixel); font-size: 12px; text-transform: uppercase; color: var(--yellow); text-shadow: 2px 2px 0 var(--ink); }
-.br-stat { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 22px; }
-.br-stat .nm { flex: 1; } .br-stat .key { min-width: 26px; height: 26px; font-size: 9px; }
-.br-stat button { width: 34px; height: 30px; min-height: 0; padding: 0; font-size: 18px; }
-.br-pick { margin: 6px 0; padding: 6px; background: rgba(11,11,26,.5); border: 2px solid var(--ink); }
-.br-pick .opts { display: flex; gap: 6px; }
-.br-pick .opt { flex: 1; padding: 4px 6px; background: var(--blue-dark); border: 3px solid var(--ink); font-size: 18px; line-height: 1.05; cursor: pointer; text-align: left; }
-.br-pick .opt.chosen { background: var(--green-dark); border-color: var(--green); }
-.br-pick .opt.off { opacity: .4; cursor: default; }
-.br-pick .opt b { display: block; color: var(--yellow); font-weight: 400; }
-.br-pick .t { font-size: 18px; color: var(--cream); }
-.br-gulag { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 14vh; background: linear-gradient(rgba(10,10,18,.55), rgba(10,10,18,0) 55%); pointer-events: none; }
-.br-gulag h2 { font-family: var(--font-pixel); font-size: 34px; margin: 0; color: #ff6b5a; text-shadow: 4px 4px 0 var(--ink); }
-.br-gulag p { font-size: 26px; margin: 8px 0; text-shadow: 2px 2px 0 var(--ink); text-align: center; max-width: 560px; }
-.br-choice { display: flex; gap: 10px; margin-top: 10px; pointer-events: auto; }
-.br-choice .btn { font-size: 10px; }
-.br-leader { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); width: min(520px, 92vw); padding: 8px 12px; background: rgba(11,11,26,.82); border: 4px solid var(--ink); text-align: center; font-size: 22px; }
-.br-leader b { color: var(--yellow); font-weight: 400; }
-.br-end { position: absolute; inset: 0; background: rgba(8,12,30,.88); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
-.br-end .box { width: min(720px, 94vw); max-height: 90vh; overflow: auto; padding: 22px; }
-.br-end h2 { font-family: var(--font-pixel); font-size: 22px; margin: 0 0 4px; color: var(--yellow); text-shadow: 3px 3px 0 var(--ink); }
-.br-end table { width: 100%; border-collapse: collapse; font-size: 21px; margin: 12px 0; }
-.br-end td, .br-end th { padding: 2px 8px; text-align: left; border-bottom: 2px solid rgba(255,255,255,.15); }
-.br-end tr.me td { color: var(--yellow); background: rgba(255,210,63,.12); }
-.br-pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(8,12,30,.55); pointer-events: auto; }
-.br-pause .box { padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 300px; }
-.br-pause h2 { font-family: var(--font-pixel); font-size: 16px; margin: 0; text-align: center; }
-.br-help { position: absolute; right: 14px; bottom: 14px; max-width: 320px; text-align: right; font-size: 17px; line-height: 1.1; color: #dfe9ff; text-shadow: 2px 2px 0 var(--ink); opacity: .85; }
+.br-cursor { position: absolute; left: 50%; bottom: 190px; transform: translateX(-50%); font-size: 18px; padding: 2px 14px; border-radius: 999px; background: rgba(18,12,7,.85); border: 2px solid var(--river); }
+
+.br-panel { position: absolute; left: 14px; top: 14px; bottom: 14px; width: 380px; padding: 14px 16px; pointer-events: auto; overflow-y: auto; }
+.br-panel h3 { margin: 4px 0 8px; font-size: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); text-shadow: 0 2px 0 var(--ink); }
+.br-panel .pts { font-size: 20px; margin-bottom: 4px; }
+.br-panel .pts b { color: var(--leaf); font-size: 26px; }
+.br-stat { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 21px; }
+.br-stat .nm { flex: 1; }
+.br-stat .key { min-width: 26px; height: 26px; border-radius: 999px; background: var(--leaf); color: #17210c; font-weight: 700; font-size: 15px; line-height: 22px; text-align: center; border: 2px solid var(--ink); }
+.br-stat .val { font-weight: 700; min-width: 30px; text-align: right; }
+.br-stat .br-btn { padding: 0; width: 34px; height: 30px; font-size: 20px; line-height: 22px; }
+.br-pick { margin: 8px 0; padding: 8px; background: rgba(0,0,0,.3); border-radius: 12px; border: 2px solid #5a3d24; }
+.br-pick .opts { display: flex; gap: 8px; }
+.br-pick .opt { flex: 1; padding: 6px 8px; background: linear-gradient(#f7edd3, #e1d0a2); color: #2a1b0c; border: 3px solid var(--ink); border-radius: 12px; font-size: 16px; line-height: 1.1; cursor: pointer; text-align: left; }
+.br-pick .opt:hover { filter: brightness(1.06); }
+.br-pick .opt.chosen { background: linear-gradient(#b7e46f, #7fb844); }
+.br-pick .opt.off { opacity: .45; cursor: default; filter: grayscale(.5); }
+.br-pick .opt b { display: block; font-size: 18px; color: #6a3410; }
+.br-pick .opt.chosen b { color: #1d3009; }
+.br-pick .t { font-size: 17px; color: #e8d7ad; margin-bottom: 4px; }
+.br-gulag { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 13vh; background: linear-gradient(rgba(14,8,6,.62), rgba(14,8,6,0) 60%); pointer-events: none; }
+.br-gulag h2 { font-size: 54px; margin: 0; color: #ff7a5e; letter-spacing: .12em; -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 rgba(0,0,0,.4); }
+.br-gulag p { font-size: 26px; margin: 8px 0; text-shadow: 0 2px 0 var(--ink); text-align: center; max-width: 600px; }
+.br-choice { display: flex; gap: 12px; margin-top: 10px; pointer-events: auto; }
+.br-leader { position: absolute; bottom: 160px; left: 50%; transform: translateX(-50%); width: min(540px, 92vw); padding: 10px 14px; text-align: center; font-size: 21px; line-height: 1.25; }
+.br-leader b { color: var(--amber); font-weight: 700; }
+.br-end { position: absolute; inset: 0; background: rgba(12,8,5,.84); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+.br-end .box { width: min(740px, 94vw); max-height: 90vh; overflow: auto; padding: 22px 26px; }
+.br-end h2 { font-size: 40px; margin: 0 0 4px; color: var(--amber); letter-spacing: .06em; text-shadow: 0 4px 0 var(--ink); }
+.br-end table { width: 100%; border-collapse: collapse; font-size: 20px; margin: 12px 0 16px; }
+.br-end td, .br-end th { padding: 3px 10px; text-align: left; border-bottom: 2px solid rgba(255,255,255,.12); }
+.br-end th { color: var(--amber); font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
+.br-end tr.me td { color: var(--amber); background: rgba(243,180,60,.14); }
+.br-pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(12,8,5,.55); pointer-events: auto; }
+.br-pause .box { padding: 24px 30px; display: flex; flex-direction: column; gap: 12px; min-width: 320px; align-items: stretch; }
+.br-pause h2 { font-size: 30px; margin: 0 0 4px; text-align: center; color: var(--amber); letter-spacing: .08em; text-transform: uppercase; }
+.br-pause small { font-size: 17px; color: #e8d7ad; text-align: center; }
+.br-help { position: absolute; right: 14px; bottom: 14px; max-width: 330px; text-align: right; font-size: 16px; line-height: 1.15; color: #f1e4c0; text-shadow: 0 2px 0 var(--ink); opacity: .9; }
+
+.br-reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.br-reticle .dot { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--cream); border: 2px solid var(--ink); }
+.br-reticle .ring { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%; border: 3px solid rgba(247,237,211,.0); transition: border-color .08s, transform .08s; }
+.br-reticle.guard .ring { border-color: rgba(143,216,255,.85); transform: scale(1); }
+.br-reticle.parry .ring { border-color: #ffe27a; box-shadow: 0 0 16px #ffe27a, inset 0 0 12px rgba(255,226,122,.6); transform: scale(1.12); }
+.br-reticle.counter .dot { background: #ffe27a; box-shadow: 0 0 12px #ffe27a; }
+.br-reticle.wind .dot { background: var(--blood); }
+.br-pips { position: absolute; left: -27px; top: 30px; display: flex; gap: 6px; }
+.br-pips i { width: 14px; height: 14px; border-radius: 50%; background: rgba(18,12,7,.7); border: 2px solid var(--cream); transition: background .08s, transform .08s; }
+.br-pips i.on { background: var(--amber); transform: scale(1.15); }
+.br-pips i.heavy { border-radius: 4px; border-color: var(--blood); }
+.br-pips i.heavy.on { background: var(--blood); }
+.br-guardtag { position: absolute; left: -40px; top: 52px; width: 80px; text-align: center; font-weight: 700; font-size: 14px; letter-spacing: .14em; color: #bfe8ff; text-shadow: 0 2px 0 var(--ink); }
+.br-callout { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%) scale(.6); font-size: 58px; font-weight: 700; letter-spacing: .06em; opacity: 0; -webkit-text-stroke: 7px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 rgba(0,0,0,.4); pointer-events: none; white-space: nowrap; }
+.br-callout.pop { animation: brcallout .75s ease-out forwards; }
+@keyframes brcallout { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.5); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.25); } 30% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -80%) scale(1); } }
+.br-lowhp { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 35%, rgba(190,20,10,.55) 100%); opacity: 0; pointer-events: none; }
+.br-lowhp.on { animation: brheart 0.9s ease-in-out infinite; }
+@keyframes brheart { 0%, 100% { opacity: .25; } 18% { opacity: .85; } 34% { opacity: .35; } 50% { opacity: .7; } }
+.br-bar.sta.empty > i { background: linear-gradient(#ff8a6a, #d2432c); }
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = ''): T => {
@@ -94,6 +150,12 @@ const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = '
   return e;
 };
 
+const FX_ICON: Record<string, string> = { cone: '🦷', dash: '💨', aoe: '💥', proj: '🪨', buff: '✨', heal: '💚', grab: '✊', submerge: '🌊' };
+const SKILL_ICON: Record<string, string> = {
+  howl: '🌙', alpha_howl: '🌕', roar: '📢', frenzy: '🔥', thick_hide: '🛡️', quill_coat: '🛡️', burst: '⚡', swerve: '↩️', musk_spray: '☁️', rock_throw: '🪨',
+  quill_shot: '🪶', quill_burst: '🌵', quill_storm: '🌵', earthshaker: '🌋', splash: '💦', tail_whip: '🌀', death_roll: '🐊', submerge: '🌊', rampage: '😡',
+};
+const skillIcon = (s: { id: string; fx?: { k: string } } | null) => (s ? (SKILL_ICON[s.id] ?? (s.fx ? (FX_ICON[s.fx.k] ?? '✨') : '⭐')) : '🔒');
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const ITEM_NAMES: Record<string, string> = {
   meat: 'Meat', berry: 'Berries', herb: 'Herb', water: 'Water', mud: 'Mud', honey: 'Honeycomb', feather: 'Feather', tusk: 'Tusk', musk: 'Musk', reed: 'Reed',
@@ -119,7 +181,7 @@ export interface HudCtx {
 export class Hud {
   readonly root = el('div');
   private top = el('div', 'br-top');
-  private phase = el('div', 'br-phase');
+  private phase = el('div', 'br-phase wood');
   private ring = el('div', 'br-ring');
   private banner = el('div', 'br-banner');
   private mapCanvas = el<HTMLCanvasElement>('canvas');
@@ -128,7 +190,7 @@ export class Hud {
   private hp = el('div', 'br-bar hp');
   private sta = el('div', 'br-bar sta sm');
   private xp = el('div', 'br-bar xp sm');
-  private lvl = el('div', 'br-lvl');
+  private lvl = el('div', 'br-lvl wood');
   private buffs = el('div', 'br-buffs');
   private skillRow = el('div', 'br-row');
   private invRow = el('div', 'br-row');
@@ -137,14 +199,19 @@ export class Hud {
   private vig = el('div', 'br-vig');
   private lavaVig = el('div', 'br-lavavig');
   private blind = el('div', 'br-blind');
-  private panel = el('div', 'br-panel box');
+  private panel = el('div', 'br-panel wood');
   private gulag = el('div', 'br-gulag');
-  private leader = el('div', 'br-leader');
+  private leader = el('div', 'br-leader wood');
+  private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
+  private callouts = el('div', 'br-callout');
+  private lowhp = el('div', 'br-lowhp');
+  private cursor = el('div', 'br-cursor', 'Cursor free — click things, then press Left Alt to go back');
+  private dashEl = { root: el('div', 'br-slot dash wood'), cd: el('div', 'cd'), cdt: el('div', 'cdt') };
   private help = el('div', 'br-help');
   private end = el('div', 'br-end');
   private pause = el('div', 'br-pause');
-  private skillEls: { root: HTMLElement; name: HTMLElement; cd: HTMLElement; cdt: HTMLElement; k: HTMLElement }[] = [];
-  private invEls: { root: HTMLElement; n: HTMLElement; q: HTMLElement }[] = [];
+  private skillEls: { root: HTMLElement; name: HTMLElement; cd: HTMLElement; cdt: HTMLElement; k: HTMLElement; ic: HTMLElement }[] = [];
+  private invEls: { root: HTMLElement; n: HTMLElement; q: HTMLElement; ic: HTMLElement }[] = [];
   private mapBase: HTMLCanvasElement | null = null;
   private bannerTimer = 0;
   private bannerQueue: { title: string; sub?: string; ms: number }[] = [];
@@ -178,25 +245,32 @@ export class Hud {
     mapbox.append(this.mapCanvas, this.hunted);
 
     const bottom = el('div', 'br-bottom');
-    // skills
+    // the dash every animal has, then the four skills
+    {
+      const d = this.dashEl;
+      d.root.append(el('div', 'ic', '💨'), el('span', 'k', 'SHIFT'), el('div', 'n', 'Dash'), d.cd, d.cdt);
+      this.skillRow.append(d.root);
+    }
     ['Q', 'E', 'R', 'F'].forEach((k) => {
-      const s = el('div', 'br-slot');
+      const s = el('div', 'br-slot wood');
       const kk = el('span', 'k', k);
+      const ic = el('div', 'ic');
       const name = el('div', 'n');
       const cd = el('div', 'cd');
       const cdt = el('div', 'cdt');
-      s.append(kk, name, cd, cdt);
+      s.append(ic, kk, name, cd, cdt);
       this.skillRow.append(s);
-      this.skillEls.push({ root: s, name, cd, cdt, k: kk });
+      this.skillEls.push({ root: s, name, cd, cdt, k: kk, ic });
     });
     for (let i = 0; i < 6; i++) {
-      const s = el('div', 'br-slot sm');
+      const s = el('div', 'br-slot sm wood');
       s.append(el('span', 'k', String(i + 1)));
+      const ic = el('div', 'ic');
       const n = el('div', 'n');
       const q = el('span', 'q');
-      s.append(n, q);
+      s.append(ic, n, q);
       this.invRow.append(s);
-      this.invEls.push({ root: s, n, q });
+      this.invEls.push({ root: s, n, q, ic });
     }
     const bars = el('div', '');
     bars.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:3px';
@@ -213,7 +287,7 @@ export class Hud {
     rows.append(this.skillRow, el('div', '', '&nbsp;'), this.invRow);
     bottom.append(this.buffs, rows, bars);
 
-    this.help.innerHTML = 'WASD move · Shift sprint · C sneak · LMB bite · Q E R F skills · X harvest · G pick up · V drink · 1-6 use · Tab upgrades';
+    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (3-hit combo) · hold RMB guard — raise it just before a hit to PARRY<br>Q E R F skills · X harvest · V drink · 1-6 eat/use · Tab upgrades · Left Alt cursor';
     this.gulag.hidden = true;
     this.leader.hidden = true;
     this.panel.hidden = true;
@@ -222,7 +296,8 @@ export class Hud {
     this.hint.hidden = true;
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
-    this.root.append(this.vig, this.lavaVig, this.blind, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.cursor.hidden = true;
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -455,11 +530,18 @@ export class Hud {
       const max = Math.max(0.1, you.cdMax[i] || 1);
       ready = !locked && cd <= 0.05;
       e.name.textContent = name;
+      e.ic.textContent = role === 2 ? (i === 0 ? '🐀' : i === 1 ? '🔥' : '🔒') : skillIcon(this.skillFor(def, you, i).skill);
       e.root.classList.toggle('locked', locked);
       e.root.classList.toggle('ready', ready);
-      e.cd.style.height = locked ? '0' : `${Math.min(100, (cd / max) * 100)}%`;
+      e.cd.style.setProperty('--p', locked ? '0%' : `${Math.min(100, (cd / max) * 100)}%`);
       e.cdt.textContent = !locked && cd > 0.05 ? (cd >= 10 ? String(Math.ceil(cd)) : cd.toFixed(1)) : '';
     }
+    // dash
+    const dd = you.dash ?? 0;
+    this.dashEl.cd.style.setProperty('--p', `${Math.min(100, (dd / Math.max(0.1, you.dashMax || 2.4)) * 100)}%`);
+    this.dashEl.cdt.textContent = dd > 0.05 ? dd.toFixed(1) : '';
+    this.dashEl.root.classList.toggle('ready', dd <= 0.05 && you.sta >= 22);
+    this.dashEl.root.classList.toggle('locked', role === 3);
     // inventory
     this.invRow.style.display = role === 0 ? '' : 'none';
     for (let i = 0; i < 6; i++) {
@@ -467,13 +549,15 @@ export class Hud {
       const e = this.invEls[i];
       if (!it) {
         e.n.textContent = '';
+        e.ic.textContent = '';
         e.q.textContent = '';
         e.root.title = '';
         e.root.style.opacity = '.5';
         continue;
       }
       e.root.style.opacity = it.k === 'water' && it.n === 0 ? '.55' : '1';
-      e.n.innerHTML = `${ITEM_ICON[it.k] ?? ''}<br>${ITEM_NAMES[it.k]}`;
+      e.ic.textContent = ITEM_ICON[it.k] ?? '';
+      e.n.textContent = ITEM_NAMES[it.k];
       e.q.textContent = it.k === 'water' ? `${it.n}/2` : it.n > 1 ? String(it.n) : '';
       e.root.title = ITEM_HINTS[it.k] ?? '';
     }
@@ -486,9 +570,9 @@ export class Hud {
 
     // hunted list
     const hl = g.top
-      .map(([id, lvl], i) => `<div>${i === 0 ? '🎯 ' : ''}${c.roster.get(id)?.name ?? '?'} · Lv ${lvl}${id === c.myId ? ' (you)' : ''}</div>`)
+      .map(([id, lvl], i) => `<div class="r">${i === 0 ? '🎯 ' : ''}${c.roster.get(id)?.name ?? '?'} · Lv ${lvl}${id === c.myId ? ' (you)' : ''}</div>`)
       .join('');
-    const hh = hl ? `<div style="color:var(--yellow);font-size:16px;font-family:var(--font-pixel)">HUNTED</div>${hl}` : '';
+    const hh = hl ? `<div class="t">HUNTED</div>${hl}` : '';
     if (this.hunted.innerHTML !== hh) this.hunted.innerHTML = hh;
 
     this.renderPanel(c);
@@ -511,11 +595,11 @@ export class Hud {
     this.lastPanelKey = key;
     this.panel.innerHTML = '';
     this.panel.append(el('h3', '', `${def.name} · Level ${you.lvl}`));
-    this.panel.append(el('div', '', `<span style="color:var(--yellow)">${you.pts}</span> stat point${you.pts === 1 ? '' : 's'} to spend`));
+    this.panel.append(el('div', 'pts', `<b>${you.pts}</b> stat point${you.pts === 1 ? '' : 's'} to spend`));
     STAT_KEYS.forEach((k, i) => {
       const row = el('div', 'br-stat');
-      row.append(el('span', 'key', String(i + 1)), el('span', 'nm', STAT_NAMES[k]), el('span', '', String(def.stats[k] + you.alloc[k])));
-      const b = el<HTMLButtonElement>('button', 'btn primary', '+');
+      row.append(el('span', 'key', String(i + 1)), el('span', 'nm', STAT_NAMES[k]), el('span', 'val', String(def.stats[k] + you.alloc[k])));
+      const b = el<HTMLButtonElement>('button', 'br-btn', '+');
       b.disabled = you.pts <= 0;
       b.addEventListener('click', () => this.onStat(k));
       row.append(b);
@@ -524,7 +608,7 @@ export class Hud {
     const tiers = [0, 1, 2, 3];
     this.panel.append(el('h3', '', 'Skills'));
     const inn = def.innate;
-    this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--yellow)">${inn.name}</b> (innate): ${inn.desc}</div>`));
+    this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${inn.name}</b> (innate): ${inn.desc}</div>`));
     for (const t of tiers) {
       const box = el('div', 'br-pick');
       const need = UNLOCK_LEVELS[t];
@@ -559,14 +643,14 @@ export class Hud {
         'p',
         '',
         gu.phase === 'duel'
-          ? `Duel vs <b style="color:var(--yellow)">${gu.foe}</b> · ${Math.ceil(gu.left)}s<br>Equal stats. Win to lead a bigger swarm.`
+          ? `Duel vs <b style="color:var(--amber)">${gu.foe}</b> · ${Math.ceil(gu.left)}s<br>Equal stats. Win to lead a bigger swarm.`
           : 'Waiting for an opponent. If nobody comes, you fight the Warden.<br>Gulag voice chat is separate from the match.',
       ),
     );
     const row = el('div', 'br-choice');
     for (const k of gu.choose) {
       const sw = SWARMS.find((s) => s.id === k)!;
-      const b = el<HTMLButtonElement>('button', `btn ${picked === k ? 'primary' : 'glass'}`, `${sw.name} — ${sw.skill.name}`);
+      const b = el<HTMLButtonElement>('button', `br-btn ${picked === k ? '' : 'wood'}`, `${sw.name} — ${sw.skill.name}`);
       b.addEventListener('click', () => this.onSwarm(k));
       row.append(b);
     }
@@ -594,16 +678,16 @@ export class Hud {
   showEnd(res: { winner: string; team: number; results: { id: string; name: string; animal: string; lvl: number; kills: number; place: number; dmg: number }[] }, myId: string, myTeam: number) {
     this.end.hidden = false;
     this.end.innerHTML = '';
-    const box = el('div', 'box');
+    const box = el('div', 'box wood');
     const won = res.team === myTeam;
     box.append(el('h2', '', won ? 'VICTORY!' : 'Match over'));
-    box.append(el('div', '', `Last one standing: <b style="color:var(--yellow)">${res.winner}</b>`));
+    box.append(el('div', '', `Last one standing: <b style="color:var(--amber)">${res.winner}</b>`));
     const rows = res.results
       .slice(0, 20)
       .map((r) => `<tr class="${r.id === myId ? 'me' : ''}"><td>${r.place}</td><td>${r.name}</td><td>${ANIMAL_BY_ID.get(r.animal)?.name ?? r.animal}</td><td>Lv ${r.lvl}</td><td>${r.kills}</td><td>${r.dmg}</td></tr>`)
       .join('');
     box.append(el('table', '', `<tr><th>#</th><th>Player</th><th>Animal</th><th>Level</th><th>Kills</th><th>Damage</th></tr>${rows}`));
-    const b = el<HTMLButtonElement>('button', 'btn primary', 'Back to the lobby');
+    const b = el<HTMLButtonElement>('button', 'br-btn', 'Back to the lobby');
     b.addEventListener('click', () => this.onBack());
     box.append(b);
     this.end.append(box);
@@ -613,15 +697,15 @@ export class Hud {
   }
 
   private buildPause() {
-    const box = el('div', 'box');
+    const box = el('div', 'box wood');
     box.append(el('h2', '', 'Paused'));
-    const resume = el<HTMLButtonElement>('button', 'btn primary', 'Resume');
+    const resume = el<HTMLButtonElement>('button', 'br-btn', 'Resume');
     resume.addEventListener('click', () => this.onResume());
-    const settings = el<HTMLButtonElement>('button', 'btn glass', 'Settings');
+    const settings = el<HTMLButtonElement>('button', 'br-btn wood', 'Settings');
     settings.addEventListener('click', () => this.onSettings());
-    const leave = el<HTMLButtonElement>('button', 'btn danger', 'Leave the match');
+    const leave = el<HTMLButtonElement>('button', 'br-btn red', 'Leave the match');
     leave.addEventListener('click', () => this.onLeave());
-    box.append(resume, settings, leave, el('div', '', '<small style="font-size:18px;color:#cfe3ff">The match keeps running. If you leave, an AI takes your animal.</small>'));
+    box.append(resume, settings, leave, el('small', '', 'The match keeps running. If you leave, an AI takes your animal.'));
     this.pause.append(box);
   }
   showPause(on: boolean) {
@@ -629,6 +713,39 @@ export class Hud {
   }
   get pauseVisible() {
     return !this.pause.hidden;
+  }
+  /** Crosshair: combo pips, guard ring (gold during the parry window), counter-attack glow. */
+  setReticle(you: YouState, guarding: boolean, show: boolean) {
+    this.reticle.style.display = show ? '' : 'none';
+    if (!show) return;
+    const parry = guarding && (you.guardAge < 0.24 || !you.guard);
+    this.reticle.classList.toggle('guard', guarding && !parry);
+    this.reticle.classList.toggle('parry', guarding && parry);
+    this.reticle.classList.toggle('counter', you.counter > 0);
+    this.reticle.classList.toggle('wind', !!you.wind);
+    const pips = this.reticle.querySelectorAll('.br-pips i');
+    // `combo` is the swing that comes next; light the ones already thrown in this chain
+    pips.forEach((p, i) => p.classList.toggle('on', i < you.combo));
+    (this.reticle.querySelector('.br-guardtag') as HTMLElement).textContent = guarding ? (parry ? 'PARRY' : 'GUARD') : '';
+    this.sta.classList.toggle('empty', you.sta < 8);
+  }
+
+  /** A big word in the middle of the screen: PARRY!, DODGED, GUARD BROKEN. */
+  callout(text: string, color = '#fff') {
+    const c = this.callouts;
+    c.textContent = text;
+    c.style.color = color;
+    c.classList.remove('pop');
+    void c.offsetWidth; // restart the animation
+    c.classList.add('pop');
+  }
+
+  setLowHp(on: boolean) {
+    this.lowhp.classList.toggle('on', on);
+  }
+
+  setCursorMode(on: boolean) {
+    this.cursor.hidden = !on;
   }
   setLava(on: boolean) {
     this.lavaVig.style.opacity = on ? '1' : '0';

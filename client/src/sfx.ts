@@ -270,6 +270,30 @@ export class Sfx {
     [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, f, 0.3, 0.1, 'triangle', i * 0.12));
   }
 
+  /** The telegraph of an incoming attack: a rising growl-whoosh that says "block or dodge now". */
+  windup(heavy = false) {
+    this.tone(heavy ? 90 : 160, heavy ? 240 : 330, heavy ? 0.34 : 0.16, heavy ? 0.1 : 0.06, 'sawtooth');
+    this.burst('bandpass', 500, heavy ? 2400 : 1800, heavy ? 0.34 : 0.16, heavy ? 0.1 : 0.06, 1.2);
+  }
+
+  /** A parry: a bright metallic clang. */
+  parry() {
+    this.tone(1480, 1480, 0.28, 0.12, 'square');
+    this.tone(2220, 1900, 0.22, 0.07, 'triangle');
+    this.tone(740, 700, 0.3, 0.08, 'sine', 0.01);
+    this.burst('highpass', 3500, 5000, 0.12, 0.12, 0.8);
+  }
+
+  block(broke = false) {
+    if (broke) {
+      this.tone(220, 70, 0.35, 0.2, 'sawtooth');
+      this.burst('lowpass', 1400, 180, 0.3, 0.22, 0.8);
+      return;
+    }
+    this.tone(180, 110, 0.12, 0.14, 'triangle');
+    this.burst('bandpass', 1800, 900, 0.07, 0.1, 1.4);
+  }
+
   // ---------- interface ----------
   click() {
     this.tone(this.jitter(880, 0.03), 700, 0.045, 0.07, 'square');

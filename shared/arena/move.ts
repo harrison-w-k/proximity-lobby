@@ -47,7 +47,7 @@ const MAX_SLOPE = 1.5; // rise per metre you can walk up
  * Move a circle `dist` metres along (dx, dz), sliding along trees, rocks and cliffs.
  * Writes the result into `p`. Returns true if it moved at all.
  */
-export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz: number, dist: number, radius: number, bound: Bound = MAP_BOUND): boolean {
+export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz: number, dist: number, radius: number, bound: Bound = MAP_BOUND, feet = 0): boolean {
   const len = Math.hypot(dx, dz);
   if (len < 1e-6 || dist <= 0) return false;
   const ux = dx / len;
@@ -56,7 +56,7 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
     let nx = p.x + mx * d;
     let nz = p.z + mz * d;
     if (!inGulagZone(nx)) {
-      const c = t.collide(nx, nz, radius);
+      const c = t.collide(nx, nz, radius, feet);
       nx = c.x;
       nz = c.z;
       const rise = t.heightAt(nx, nz) - t.heightAt(p.x, p.z);
@@ -85,4 +85,25 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
     else break;
   }
   return any;
+}
+
+// --- jumping ----------------------------------------------------------------------------------
+
+export const JUMP_V = 8.8; // m/s upward: about 1.6 m high, a bit under 0.75 s in the air
+export const GRAVITY = 24;
+export const JUMP_COST = 8; // stamina
+
+/** Advance the vertical motion of a jump. `jy` is the height above the ground. */
+export function stepVertical(s: { jy: number; jv: number }, dt: number) {
+  if (s.jy <= 0 && s.jv <= 0) {
+    s.jy = 0;
+    s.jv = 0;
+    return;
+  }
+  s.jv -= GRAVITY * dt;
+  s.jy += s.jv * dt;
+  if (s.jy <= 0) {
+    s.jy = 0;
+    s.jv = 0;
+  }
 }

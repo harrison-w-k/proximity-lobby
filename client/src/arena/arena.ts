@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
-import { GULAG_R, GULAG_X, inGulagZone, medium, stepPos, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { COMBO, COMBO_RESET, PARRY_WINDOW } from '../../../shared/arena/combat';
+import { GULAG_R, GULAG_X, JUMP_COST, JUMP_V, inGulagZone, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
@@ -34,6 +35,7 @@ interface Cmd {
   dz: number;
   sprint: boolean;
   crouch: boolean;
+  jump: boolean;
 }
 
 const SKILL_COLORS: Record<string, number> = {
@@ -54,17 +56,31 @@ export class Arena {
   private roster = new Map<string, RosterEntry>();
   private you: YouState | null = null;
   private g: Global | null = null;
-  private pos = { x: 0, z: 0 };
+  private pos = { x: 0, z: 0, jy: 0, jv: 0 }; // jy / jv: the jump, predicted like the walk
   private haveSnap = false;
   private camYaw = 0;
-  private camPitch = 0.45;
-  private zoom = 7.5;
+  private camPitch = 0.62;
+  private zoom = 9.5;
   private keys = new Set<string>();
   private mouseDown = false;
   private panelOpen = false;
+  private freeCursor = false; // Left Alt: the mouse is released so you can click the panels
+  private panelBeforeAlt = false;
+  private jumpQueued = false;
+  private shiftAt = 0; // a quick tap of Shift is a dash; holding it is a sprint
+  private guardHeld = false;
+  private shake = 0;
+  private hitstop = 0;
+  private slowmo = 0;
+  private fovNow = 62;
+  private localCombo = 0;
+  private localComboAt = -9;
+  private localSwingAt = -9;
+  private lastXp = 0;
+  private wasAir = false;
   private seq = 0;
   private acc = 0;
-  private cur = { dx: 0, dz: 0, sprint: false, crouch: false };
+  private cur = { dx: 0, dz: 0, sprint: false, crouch: false, jump: false };
   private pending: Cmd[] = [];
   private lastSend = 0;
   private lastYawSent = 0;
@@ -104,19 +120,33 @@ export class Arena {
     this.hud.onLeave = () => this.leave();
     this.hud.onBack = () => this.stop();
     window.addEventListener('keydown', this.onKeyDown);
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    document.addEventListener('pointerlockchange', () => {
+      // clicking back into the game (or Alt again) captures the mouse: leave cursor mode
+      if (this.active && document.pointerLockElement === this.d.canvas && this.freeCursor) this.setFreeCursor(false);
+    });
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && this.active && performance.now() - this.shiftAt < 200 && this.hasControl() && this.you && this.you.role !== 3) this.dash();
+    });
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.mouseDown = false;
+      this.setGuard(false);
     });
     document.addEventListener('mousedown', (e) => {
-      if (this.active && e.button === 0 && this.hasControl()) this.mouseDown = true;
+      if (!this.active || !this.hasMouse()) return;
+      if (e.button === 0) this.mouseDown = true;
+      else if (e.button === 2) this.setGuard(true);
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouseDown = false;
+      else if (e.button === 2) this.setGuard(false);
+    });
+    document.addEventListener('contextmenu', (e) => {
+      if (this.active) e.preventDefault();
     });
     document.addEventListener('mousemove', (e) => {
-      if (!this.active || !this.hasControl()) return;
+      if (!this.active || !this.hasMouse()) return;
       const k = 0.0022 * this.d.world.lookSensitivity;
       this.camYaw -= e.movementX * k;
       this.camPitch = Math.max(-0.25, Math.min(1.35, this.camPitch + e.movementY * k));
@@ -124,7 +154,7 @@ export class Arena {
     window.addEventListener(
       'wheel',
       (e) => {
-        if (!this.active || !this.hasControl()) return;
+        if (!this.active || !this.hasMouse()) return;
         e.preventDefault();
         this.zoom = Math.max(3.5, Math.min(16, this.zoom + Math.sign(e.deltaY) * 0.8));
       },
@@ -132,14 +162,50 @@ export class Arena {
     );
   }
 
+  /** Keys work while the mouse is captured, or while Left Alt has released it. */
   private hasControl() {
-    return document.pointerLockElement === this.d.canvas && !this.d.isBlocked() && !this.hud.pauseVisible && !this.hud.isEndVisible();
+    return (document.pointerLockElement === this.d.canvas || this.freeCursor) && !this.d.isBlocked() && !this.hud.pauseVisible && !this.hud.isEndVisible();
+  }
+
+  /** Mouse look, attacking and zoom only work while the mouse is captured. */
+  private hasMouse() {
+    return document.pointerLockElement === this.d.canvas && this.hasControl();
+  }
+
+  /** Hold the guard up (right mouse). A guard raised just before a blow lands is a parry. */
+  private setGuard(on: boolean) {
+    if (on === this.guardHeld) return;
+    this.guardHeld = on;
+    this.d.net.send({ t: 'mguard', on: on ? 1 : 0 });
+  }
+
+  private dash() {
+    const inp = this.readInput();
+    this.d.net.send({ t: 'mdash', x: Math.round(inp.dx * 100) / 100, z: Math.round(inp.dz * 100) / 100 });
+  }
+
+  private setFreeCursor(on: boolean) {
+    if (on === this.freeCursor) return;
+    this.freeCursor = on;
+    this.mouseDown = false;
+    this.setGuard(false);
+    this.hud.setCursorMode(on);
+    if (on) {
+      // show the upgrade panel so there is something to click
+      this.panelBeforeAlt = this.panelOpen;
+      if (this.you?.role === 0) this.panelOpen = true;
+      document.exitPointerLock();
+    } else {
+      this.panelOpen = this.panelBeforeAlt;
+      if (document.pointerLockElement !== this.d.canvas) this.d.world.lock();
+    }
   }
 
   /** Called by the page when the mouse is released (Esc). */
   onPointerLockLost() {
-    if (!this.active || this.ended || this.d.isBlocked()) return;
+    if (!this.active || this.ended || this.d.isBlocked() || this.freeCursor) return;
     this.mouseDown = false;
+    this.setGuard(false);
     this.keys.clear();
     this.hud.showPause(true);
   }
@@ -246,20 +312,26 @@ export class Arena {
       this.pos.z = you.z;
     } else {
       this.pending = this.pending.filter((c) => c.s > m.ack);
-      const r = { x: you.x, z: you.z };
+      const r = { x: you.x, z: you.z, jy: you.jy ?? 0, jv: you.jv ?? 0 };
       if (!you.noMove) {
-        const bound = this.boundFor(r.x, r.z);
-        const rad = this.radius();
-        for (const c of this.pending) stepPos(sc.terrain, r, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * c.dt, rad, bound);
-        if (this.acc > 0) stepPos(sc.terrain, r, this.cur.dx, this.cur.dz, this.stepDist(you, this.cur.dx, this.cur.dz, this.cur.sprint, this.cur.crouch) * this.acc, rad, bound);
+        for (const c of this.pending) this.simStep(r, c, c.dt, you);
+        if (this.acc > 0) this.simStep(r, this.cur, this.acc, you);
       }
       const err = Math.hypot(r.x - this.pos.x, r.z - this.pos.z);
       if (!this.haveSnap || err > 3 || you.noMove) {
         this.pos.x = r.x;
         this.pos.z = r.z;
-      } else if (err > 0.03) {
-        this.pos.x += (r.x - this.pos.x) * 0.4;
-        this.pos.z += (r.z - this.pos.z) * 0.4;
+        this.pos.jy = r.jy;
+        this.pos.jv = r.jv;
+      } else {
+        if (err > 0.03) {
+          this.pos.x += (r.x - this.pos.x) * 0.4;
+          this.pos.z += (r.z - this.pos.z) * 0.4;
+        }
+        if (Math.abs(r.jy - this.pos.jy) > 0.35) {
+          this.pos.jy = r.jy;
+          this.pos.jv = r.jv;
+        }
       }
       if (!this.haveSnap) {
         this.visYaw = this.camYaw = Math.atan2(-r.x, -r.z) + 0; // look toward the middle of the map
@@ -277,6 +349,10 @@ export class Arena {
       this.d.sfx.levelUp();
       this.scene.burst(this.pos.x, this.scene.groundY(this.pos.x, this.pos.z) + 1, this.pos.z, 0xffe27a, 18, 5, 0.9);
     }
+    if (you.role === 0 && you.lvl === this.lastLvl && you.xp > this.lastXp + 0.5) {
+      sc.floater(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 3.0, this.pos.z, `+${Math.round(you.xp - this.lastXp)} XP`, '#9fe8ff', 0.9);
+    }
+    this.lastXp = you.xp;
     this.lastLvl = you.lvl;
     if (you.hp < this.prevHp - 0.5 && you.role !== 3) this.hud.flashHurt();
     this.prevHp = you.hp;
@@ -311,8 +387,16 @@ export class Arena {
         sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xff4b3a, 5, 2.5, 0.35);
         const v = sc.fighter(e.id);
         if (v) v.hurt = 1;
-        if (me) this.d.sfx.bite(true);
-        else this.nearSfx(e.x, e.z, () => this.d.sfx.bite());
+        if (me) {
+          this.d.sfx.bite(true);
+          this.addShake(Math.min(0.9, 0.25 + e.n / 60));
+        } else {
+          this.nearSfx(e.x, e.z, () => this.d.sfx.bite());
+          if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 3.5 && this.clock - this.localSwingAt < 0.45) {
+            this.hitstop = Math.max(this.hitstop, e.n > 20 ? 0.07 : 0.035);
+            this.addShake(0.18);
+          }
+        }
         break;
       }
       case 'mobhit':
@@ -320,7 +404,39 @@ export class Arena {
         sc.burst(e.x, sc.groundY(e.x, e.z) + 0.6, e.z, 0xcc3322, 4, 2, 0.3);
         this.nearSfx(e.x, e.z, () => this.d.sfx.bite());
         break;
+      case 'swing': {
+        const hostile = this.isHostile(e.id);
+        const own = e.id === this.myId;
+        // our own swing already started when we pressed the button
+        if (!(own && this.clock - this.localSwingAt < 0.35)) sc.cue(e.id, { kind: 'swing', combo: e.c, heavy: e.h, skill: '', fx: '', wind: e.w, rec: e.c === 2 ? 0.55 : 0.26 });
+        sc.telegraph(e.x, e.z, e.yaw, { shape: 'arc', r: e.r, arc: e.a, width: 0 }, e.w, hostile, e.h);
+        if (hostile) this.nearSfx(e.x, e.z, () => this.d.sfx.windup(e.h), 22);
+        break;
+      }
+      case 'mswing':
+        sc.cueMob(e.id, e.w, e.big);
+        sc.telegraph(e.x, e.z, e.yaw, e.big ? { shape: 'circle', r: e.r, arc: 360, width: 0 } : { shape: 'arc', r: e.r, arc: 110, width: 0 }, e.w, true, e.big);
+        this.nearSfx(e.x, e.z, () => this.d.sfx.windup(true), 40);
+        break;
       case 'skill': {
+        const sk = SKILL_BY_ID.get(e.s);
+        const fx = sk?.fx;
+        const hostile = this.isHostile(e.id);
+        if (e.s === 'dash') break;
+        if (fx) {
+          const wind = e.w ?? 0;
+          const instant = fx.k === 'buff' || fx.k === 'heal' || fx.k === 'submerge';
+          sc.cue(e.id, { kind: instant ? 'flex' : 'skill', combo: -1, heavy: fx.k === 'grab' || (fx.k === 'aoe' && fx.dmg > 0), skill: e.s, fx: fx.k, wind, rec: 0.4 });
+          if (wind > 0) {
+            sc.telegraphSkill(e.x, e.z, e.yaw, e.s, wind, hostile, fx.k === 'grab' || fx.k === 'aoe');
+            if (hostile) this.nearSfx(e.x, e.z, () => this.d.sfx.windup(true), 30);
+            if (e.s === 'howl' || e.s === 'alpha_howl') this.nearSfx(e.x, e.z, () => this.d.sfx.howl(), 60);
+            else if (e.s === 'roar') this.nearSfx(e.x, e.z, () => this.d.sfx.roar(), 40);
+          }
+        }
+        break;
+      }
+      case 'strike': {
         const sk = SKILL_BY_ID.get(e.s);
         const col = SKILL_COLORS[e.s] ?? 0xffffff;
         const fx = sk?.fx;
@@ -331,12 +447,55 @@ export class Arena {
         else if (fx?.k === 'buff') sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xffd23f, 10, 3, 0.7);
         else if (fx?.k === 'heal') sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0x6af06a, 12, 3, 0.8);
         else if (fx?.k === 'submerge') sc.burst(e.x, WATER_Y, e.z, 0x6ec6ff, 14, 3, 0.7);
-        else if (e.s.startsWith('sw_')) sc.ringFx(e.x, e.z, e.r ?? 10, col, 0.9);
+        else if (e.s.startsWith('sw_')) sc.ringFx(e.x, e.z, e.s === 'sw_bird' ? 7 : 10, col, 0.9);
         else if (e.s === 'frenzy') sc.ringFx(e.x, e.z, 6, col, 0.7);
+        if (e.s === 'earthshaker' || e.s === 'roar') this.addShake(Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 20 ? 0.45 : 0);
         if (e.s === 'howl' || e.s === 'alpha_howl') this.nearSfx(e.x, e.z, () => this.d.sfx.howl(), 60);
         else if (e.s === 'roar' || e.s === 'earthshaker') this.nearSfx(e.x, e.z, () => this.d.sfx.roar(), 40);
         else if (fx?.k === 'dash') this.nearSfx(e.x, e.z, () => this.d.sfx.whoosh());
         else if (self) this.d.sfx.swing();
+        break;
+      }
+      case 'parry': {
+        const gy = sc.groundY(e.x, e.z);
+        sc.cue(e.id, { kind: 'parry', combo: 0, heavy: false, skill: '', fx: '', wind: 0, rec: 0.3 });
+        sc.ringFx(e.x, e.z, e.heavy ? 4.2 : 3, 0xffe27a, 0.45);
+        sc.burst(e.x, gy + 1.1, e.z, 0xfff2b0, 22, 6, 0.5);
+        sc.floater(e.x, gy + 2.6, e.z, 'PARRY!', '#ffe27a', 1.5);
+        const mine = e.id === this.myId || e.by === this.myId;
+        if (mine) {
+          this.hitstop = 0.11;
+          this.slowmo = 0.35;
+          this.addShake(0.8);
+          if (e.id === this.myId) this.hud.callout('PARRY!', '#ffe27a');
+        } else this.addShake(Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 14 ? 0.3 : 0);
+        this.nearSfx(e.x, e.z, () => this.d.sfx.parry(), 40);
+        break;
+      }
+      case 'block': {
+        const gy = sc.groundY(e.x, e.z);
+        sc.burst(e.x, gy + 1.0, e.z, e.broke ? 0xff6a3a : 0x9fdcff, e.broke ? 18 : 8, e.broke ? 5 : 3, 0.35);
+        sc.floater(e.x, gy + 2.4, e.z, e.broke ? 'GUARD BREAK!' : 'BLOCK', e.broke ? '#ff6b5a' : '#bfe8ff', e.broke ? 1.3 : 0.9);
+        if (e.id === this.myId) {
+          this.addShake(e.broke ? 0.7 : 0.3);
+          if (e.broke) {
+            this.hitstop = 0.08;
+            this.hud.callout('GUARD BROKEN', '#ff6b5a');
+          }
+        }
+        this.nearSfx(e.x, e.z, () => this.d.sfx.block(e.broke), 35);
+        break;
+      }
+      case 'dodge': {
+        const gy = sc.groundY(e.x, e.z);
+        sc.floater(e.x, gy + 2.4, e.z, 'DODGE', '#d8f0ff', 1.1);
+        if (e.id === this.myId) this.hud.callout('DODGED', '#d8f0ff');
+        break;
+      }
+      case 'pickup': {
+        if (e.id !== this.myId) break;
+        sc.floater(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 2.3, this.pos.z, `+${e.n} ${itemLabel(e.item)}`, '#ffb38a', 1.1);
+        this.d.sfx.pickup();
         break;
       }
       case 'kill': {
@@ -393,6 +552,14 @@ export class Arena {
     }
   }
 
+  private isHostile(id: string) {
+    const v = this.scene?.fighter(id);
+    return !!v && v.id !== this.myId && v.team !== this.myTeam;
+  }
+  private addShake(a: number) {
+    this.shake = Math.min(1, Math.max(this.shake, a));
+  }
+
   /** Play a sound only if it happened close enough to hear. */
   private nearSfx(x: number, z: number, f: () => void, range = 35) {
     if (Math.hypot(x - this.pos.x, z - this.pos.z) < range) f();
@@ -419,6 +586,9 @@ export class Arena {
     w.external = undefined;
     w.inputEnabled = true;
     w.setRenderHeight(480);
+    this.freeCursor = false;
+    this.guardHeld = false;
+    this.hud.setCursorMode(false);
     this.hud.show(false);
     this.hud.hideEnd();
     this.hud.showPause(false);
@@ -444,6 +614,11 @@ export class Arena {
   // --- input ---------------------------------------------------------------------------------------
 
   private onKeyDown = (e: KeyboardEvent) => {
+    if (this.active && e.code === 'AltLeft') {
+      e.preventDefault(); // the browser would otherwise focus its menu bar
+      if (!e.repeat && !this.d.isBlocked() && !this.hud.isEndVisible()) this.setFreeCursor(!this.freeCursor);
+      return;
+    }
     if (!this.active || e.repeat) {
       if (this.active && e.code === 'Tab') e.preventDefault();
       if (this.active && this.hasControl() && e.repeat) return;
@@ -457,6 +632,7 @@ export class Arena {
     }
     if (!this.hasControl()) return;
     this.keys.add(e.code);
+    if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.shiftAt = performance.now();
     const you = this.you;
     if (!you || e.ctrlKey || e.metaKey) return;
     const role = you.role;
@@ -472,6 +648,11 @@ export class Arena {
         if (tier !== undefined) this.d.net.send({ t: 'mpick', i: tier, o: opt });
         return;
       }
+    }
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (role !== 3) this.jumpQueued = true; // hop over low rocks, or just for fun
+      return;
     }
     if (e.code in KEYS_SKILL) {
       if (role === 2) {
@@ -543,9 +724,17 @@ export class Arena {
     const moving = Math.hypot(dx, dz) > 0.05;
     let s = you.speed;
     const med = medium(this.scene!.terrain, this.pos.x, this.pos.z, false, 0);
-    if (sprint && moving && !med.noSprint && you.sta > 1 && you.role !== 2) s *= 1.45;
+    if (sprint && moving && !med.noSprint && you.sta > 1 && you.role !== 2 && !you.guard && !you.wind) s *= 1.45;
     if (crouch) s *= 0.6;
     return s;
+  }
+
+  /** One step of our own movement, exactly as the server will run it (so the two agree). */
+  private simStep(st: { x: number; z: number; jy: number; jv: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
+    const sc = this.scene!;
+    if (c.jump && st.jy <= 0.001 && st.jv <= 0.001 && !you.noMove && (you.sta >= JUMP_COST || you.role === 2) && !(inGulagZone(st.x) ? false : sc.terrain.isDeep(st.x, st.z))) st.jv = JUMP_V;
+    if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy);
+    stepVertical(st, dt);
   }
 
   private readInput() {
@@ -562,18 +751,28 @@ export class Arena {
       dx /= l;
       dz /= l;
     }
-    return { dx, dz, sprint: k.has('ShiftLeft') || k.has('ShiftRight'), crouch: k.has('KeyC') || k.has('ControlLeft'), at: this.mouseDown };
+    // holding Shift for more than a moment sprints; a quick tap is a dash (see the key-up handler)
+    const sprint = (k.has('ShiftLeft') || k.has('ShiftRight')) && performance.now() - this.shiftAt > 200;
+    return { dx, dz, sprint, crouch: k.has('KeyC'), at: this.mouseDown };
   }
 
   // --- the frame -------------------------------------------------------------------------------------
 
-  private update(dt: number) {
+  private update(dtReal: number) {
     const sc = this.scene;
     if (!sc) return;
+    // a parry or a heavy hit briefly freezes the moment; movement and the network keep real time
+    this.hitstop = Math.max(0, this.hitstop - dtReal);
+    this.slowmo = Math.max(0, this.slowmo - dtReal);
+    this.shake = Math.max(0, this.shake - dtReal * 2.4);
+    const dt = dtReal;
+    const dtWorld = dtReal * (this.hitstop > 0 ? 0.04 : this.slowmo > 0 ? 0.45 : 1);
     this.clock += dt;
     const you = this.you;
     const g = this.g;
-    const inp = this.readInput();
+    const jump = this.jumpQueued;
+    this.jumpQueued = false;
+    const inp = { ...this.readInput(), jump };
 
     if (you && g && this.haveSnap) {
       if (you.role !== 3) this.moveAndSend(dt, inp, you);
@@ -589,23 +788,35 @@ export class Arena {
       const self = sc.fighter(this.myId);
       const moving = Math.hypot(inp.dx, inp.dz) > 0.05;
       if (self && you.role !== 3) {
-        if (inp.at && this.clock > this.nextSwing) {
-          this.nextSwing = this.clock + 0.62;
-          this.attackUntil = this.clock + 0.3;
+        // start our own swing animation the instant the button goes down (the server confirms it a moment later)
+        if (inp.at && !this.guardHeld && !you.wind && this.clock > this.nextSwing && !you.buffs.includes('stunned') && (you.sta >= 5 || you.role === 2)) {
+          const combo = this.clock - this.localComboAt < COMBO_RESET ? (this.localCombo + 1) % 3 : 0;
+          const c = COMBO[combo];
+          this.localCombo = combo;
+          this.localComboAt = this.clock;
+          this.localSwingAt = this.clock;
+          this.nextSwing = this.clock + c.wind + c.rec;
+          if (you.role !== 2) sc.cue(this.myId, { kind: 'swing', combo, heavy: combo === 2, skill: '', fx: '', wind: c.wind, rec: c.rec });
           this.d.sfx.swing();
         }
         let flags = 0;
-        if (this.clock < this.attackUntil) flags |= FL.atk;
         if (g.top.some(([id]) => id === this.myId)) flags |= FL.hunted;
         if (you.buffs.includes('stunned')) flags |= FL.stun;
-        if (inp.at) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
+        if (this.guardHeld || you.guard) flags |= FL.guard;
+        if (you.wind) flags |= FL.wind;
+        if (you.counter > 0) flags |= FL.counter;
+        if (inp.at || this.guardHeld) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
         else if (moving) this.visYaw = Math.atan2(inp.dx, inp.dz);
-        sc.setSelf(this.pos.x, this.pos.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, moving ? you.speed : 0);
+        sc.setSelf(this.pos.x, this.pos.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, moving ? you.speed : 0, this.pos.jy);
+        // landing
+        const air = this.pos.jy > 0.05;
+        if (this.wasAir && !air) this.d.sfx.step('grass', 0.45);
+        this.wasAir = air;
         // sneaking in a bush or underwater: show it
         self.group.visible = true;
       }
       // sounds underfoot
-      if (moving && you.role !== 3) this.footsteps(dt, inp.sprint);
+      if (moving && you.role !== 3 && this.pos.jy < 0.05) this.footsteps(dt, inp.sprint);
       // lava
       const burning = Math.hypot(this.pos.x, this.pos.z) > g.ring && you.role !== 1 && you.role !== 3;
       this.hud.setLava(burning);
@@ -616,8 +827,8 @@ export class Arena {
       sc.gulagLook = inGulagZone(this.pos.x);
     }
 
-    this.updateCamera(dt);
-    sc.update(dt, this.myTeam, g?.time ?? 0);
+    this.updateCamera(dt, you);
+    sc.update(dtWorld, this.myTeam, g?.time ?? 0);
 
     if (you && g) {
       if (this.clock - this.hintAt > 0.15) {
@@ -625,6 +836,8 @@ export class Arena {
         this.hint = this.computeHint(you);
       }
       this.hud.render({ you, g, def: this.def, roster: this.roster, myId: this.myId, now: this.clock, hint: this.hint, panelOpen: this.panelOpen });
+      this.hud.setReticle(you, this.guardHeld || you.guard, you.role === 0 || you.role === 1 || you.role === 2);
+      this.hud.setLowHp(you.role === 0 && you.hp / you.maxHp < 0.3);
       this.pings = this.pings.filter((p) => p.until > this.clock);
       this.hud.drawMap({ x: this.pos.x, z: this.pos.z, yaw: this.camYaw }, g, this.blips(you));
       if (this.clock - this.lastVoice > 0.1) {
@@ -634,17 +847,13 @@ export class Arena {
     }
   }
 
-  private moveAndSend(dt: number, inp: { dx: number; dz: number; sprint: boolean; crouch: boolean; at: boolean }, you: YouState) {
-    const sc = this.scene!;
+  private moveAndSend(dt: number, inp: { dx: number; dz: number; sprint: boolean; crouch: boolean; at: boolean; jump: boolean }, you: YouState) {
     // predicted movement this frame
-    if (!you.noMove) {
-      const bound = this.boundFor(this.pos.x, this.pos.z);
-      stepPos(sc.terrain, this.pos, inp.dx, inp.dz, this.stepDist(you, inp.dx, inp.dz, inp.sprint, inp.crouch) * dt, this.radius(), bound);
-    }
+    this.simStep(this.pos, inp, dt, you);
     // timed steps for the server: a change of input closes the current one
-    const same = inp.dx === this.cur.dx && inp.dz === this.cur.dz && inp.sprint === this.cur.sprint && inp.crouch === this.cur.crouch;
+    const same = inp.dx === this.cur.dx && inp.dz === this.cur.dz && inp.sprint === this.cur.sprint && inp.crouch === this.cur.crouch && inp.jump === this.cur.jump;
     if (!same && this.acc > 0) this.flush();
-    this.cur = { dx: inp.dx, dz: inp.dz, sprint: inp.sprint, crouch: inp.crouch };
+    this.cur = { dx: inp.dx, dz: inp.dz, sprint: inp.sprint, crouch: inp.crouch, jump: inp.jump };
     this.acc += dt;
     const now = performance.now();
     if (this.acc >= 0.033) this.flush(inp.at);
@@ -660,10 +869,10 @@ export class Arena {
     this.seq++;
     const aim = at ? this.aimYaw(this.you?.role === 0 ? 8 : 6) : this.camYaw;
     const c = this.cur;
-    if (dtMs > 0.5 && !(you?.noMove)) this.pending.push({ s: this.seq, dt: dtMs / 1000, dx: c.dx, dz: c.dz, sprint: c.sprint, crouch: c.crouch });
-    else if (dtMs > 0.5) this.pending.push({ s: this.seq, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false });
+    if (dtMs > 0.5 && !(you?.noMove)) this.pending.push({ s: this.seq, dt: dtMs / 1000, dx: c.dx, dz: c.dz, sprint: c.sprint, crouch: c.crouch, jump: c.jump });
+    else if (dtMs > 0.5) this.pending.push({ s: this.seq, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false, jump: false });
     if (this.pending.length > 40) this.pending.shift();
-    this.d.net.send({ t: 'min', s: this.seq, dt: Math.round(dtMs * 10) / 10, x: Math.round(c.dx * 100) / 100, z: Math.round(c.dz * 100) / 100, yaw: Math.round(aim * 1000) / 1000, sp: c.sprint ? 1 : 0, cr: c.crouch ? 1 : 0, at: at ? 1 : 0 });
+    this.d.net.send({ t: 'min', s: this.seq, dt: Math.round(dtMs * 10) / 10, x: Math.round(c.dx * 100) / 100, z: Math.round(c.dz * 100) / 100, yaw: Math.round(aim * 1000) / 1000, sp: c.sprint ? 1 : 0, cr: c.crouch ? 1 : 0, at: at ? 1 : 0, j: c.jump ? 1 : 0 });
     this.acc = 0;
     this.lastSend = performance.now();
     this.lastYawSent = this.camYaw;
@@ -673,29 +882,35 @@ export class Arena {
   private footsteps(dt: number, sprint: boolean) {
     const sc = this.scene!;
     this.stepAcc += (this.you?.speed ?? 6) * (sprint ? 1.45 : 1) * dt;
-    if (this.stepAcc < 2.1) return;
+    if (this.stepAcc < 2.7) return;
     this.stepAcc = 0;
     const h = sc.terrain.heightAt(this.pos.x, this.pos.z);
     const surface = inGulagZone(this.pos.x) ? 'block' : h < WATER_Y - 0.1 ? 'water' : h < WATER_Y + 0.6 ? 'sand' : sc.terrain.biomeAt(this.pos.x, this.pos.z) === 3 ? 'block' : 'grass';
-    this.d.sfx.step(surface, (this.def.size === 'large' ? 1.2 : this.def.size === 'small' ? 0.6 : 0.9) * (this.hasCrouch() ? 0.4 : 1));
+    this.d.sfx.step(surface, (this.def.size === 'large' ? 0.42 : this.def.size === 'small' ? 0.16 : 0.27) * (this.hasCrouch() ? 0.35 : sprint ? 1.25 : 1));
   }
   private hasCrouch() {
-    return this.keys.has('KeyC') || this.keys.has('ControlLeft');
+    return this.keys.has('KeyC');
   }
 
-  private updateCamera(dt: number) {
+  private updateCamera(dt: number, you: YouState | null) {
     const sc = this.scene!;
     const cam = sc.camera;
     const rend = this.d.world.renderer;
     const size = rend.getSize(new THREE.Vector2());
     cam.aspect = size.x / Math.max(1, size.y);
+    // the view widens when you dash or sprint, a little rush of speed
+    const dashing = !!you && you.dash > you.dashMax - 0.3;
+    const sprinting = this.keys.has('ShiftLeft') && performance.now() - this.shiftAt > 200 && (this.you?.speed ?? 0) > 0;
+    const targetFov = 62 + (dashing ? 14 : 0) + (sprinting ? 4 : 0);
+    this.fovNow += (targetFov - this.fovNow) * (1 - Math.exp(-dt * 12));
+    cam.fov = this.fovNow;
     cam.updateProjectionMatrix();
     const gy = sc.groundY(this.pos.x, this.pos.z);
     const self = sc.fighter(this.myId);
     const height = Math.min(2.4, (self?.rig.height ?? 1.6) * 0.62) + 0.35;
     const tx = this.pos.x;
     const tz = this.pos.z;
-    const ty = gy + height - (this.you && sc.terrain.depthAt(tx, tz) > 0.4 ? 0.3 : 0);
+    const ty = gy + this.pos.jy * 0.6 + height - (this.you && sc.terrain.depthAt(tx, tz) > 0.4 ? 0.3 : 0);
     const sizeK = this.you?.role === 2 ? 0.7 : this.def.size === 'large' ? 1.35 : this.def.size === 'small' ? 0.8 : 1;
     const dist = this.zoom * sizeK;
     const cp = Math.cos(this.camPitch);
@@ -717,6 +932,12 @@ export class Arena {
     this.camPos.set(px, py, pz);
     const k = 1 - Math.exp(-dt * 22);
     cam.position.lerp(this.camPos, cam.position.distanceTo(this.camPos) > 8 ? 1 : k);
+    if (this.shake > 0.01) {
+      const a = this.shake * this.shake * 0.5;
+      cam.position.x += (Math.random() - 0.5) * a;
+      cam.position.y += (Math.random() - 0.5) * a;
+      cam.position.z += (Math.random() - 0.5) * a;
+    }
     this.lookAt.set(tx + rx * shoulder * 0.9 + sy * 6, ty + 0.1 - sp * 0.5, tz + rz * shoulder * 0.9 + cy * 6);
     cam.lookAt(this.lookAt);
     px = 0;

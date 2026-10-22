@@ -56,4 +56,23 @@ const before = { x: me.x, z: me.z };
 for (let i = 0; i < 12; i++) m.handle('p0', { t: 'min', s: 10_000 + i, dt: 100, x: 1, z: 0, yaw: 0, sp: 1, cr: 0, at: 0 });
 m.tick();
 assert.ok(Math.hypot(me.x - before.x, me.z - before.z) <= me.walkSpeed * 1.45 * DT * 1.4 + 0.01, 'one tick moves at most ~1.35 ticks of distance');
+// every animal can dash: a burst of speed, with a cooldown and a stamina cost
+{
+  me.stunUntil = 0;
+  me.sta = me.dv.maxSta;
+  const spot = m.terrain.randomLand(m.rnd, 120, 60);
+  me.x = spot.x;
+  me.z = spot.z;
+  me.cmds.length = 0;
+  const from = { x: me.x, z: me.z };
+  m.handle('p0', { t: 'mdash', x: 0, z: 1 });
+  for (let i = 0; i < 12; i++) m.tick();
+  const gone = Math.hypot(me.x - from.x, me.z - from.z);
+  assert.ok(gone > 3 && gone < 14, `a dash covers a few metres (${gone.toFixed(1)})`);
+  assert.ok(me.sta < me.dv.maxSta, 'a dash costs stamina');
+  const again = { x: me.x, z: me.z };
+  m.handle('p0', { t: 'mdash', x: 0, z: 0 });
+  m.tick();
+  assert.equal(Math.hypot(me.x - again.x, me.z - again.z) < 1, true, 'the second dash is on cooldown');
+}
 console.log('prediction tests passed');
