@@ -93,17 +93,20 @@ export const JUMP_V = 8.8; // m/s upward: about 1.6 m high, a bit under 0.75 s i
 export const GRAVITY = 24;
 export const JUMP_COST = 8; // stamina
 
-/** Advance the vertical motion of a jump. `jy` is the height above the ground. */
-export function stepVertical(s: { jy: number; jv: number }, dt: number) {
-  if (s.jy <= 0 && s.jv <= 0) {
-    s.jy = 0;
+/**
+ * Advance the vertical motion of a jump. `jy` is the height above the ground, `floor` the top of the rock you are over
+ * (0 on the bare ground): you stand on it, land on it, and fall when you walk off it.
+ */
+export function stepVertical(s: { jy: number; jv: number }, dt: number, floor = 0) {
+  if (s.jy <= floor + 1e-3 && s.jv <= 0) {
+    s.jy = floor;
     s.jv = 0;
     return;
   }
   s.jv -= GRAVITY * dt;
   s.jy += s.jv * dt;
-  if (s.jy <= 0) {
-    s.jy = 0;
+  if (s.jy <= floor && s.jv <= 0) {
+    s.jy = floor;
     s.jv = 0;
   }
 }

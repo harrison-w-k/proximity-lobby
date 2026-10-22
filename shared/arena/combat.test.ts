@@ -1,5 +1,6 @@
 // Telegraphed swings, parry and jumping.
 import assert from 'node:assert/strict';
+import { stepVertical } from './move';
 import { COMBO, DT, Match, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW, type Entrant, type Fighter } from './match';
 
 const ents: Entrant[] = [
@@ -171,7 +172,7 @@ const ticks = (m: Match, n: number) => {
   const meat = a.inv.filter((i) => i?.k === 'meat');
   assert.equal(meat.length, 1, 'meat stacks into one slot');
   assert.equal(meat[0]!.n, 3);
-  assert.equal(m.drops.length, 0, 'the drops were picked up');
+  assert.equal(m.drops.filter((d) => d.items[0]?.k !== 'morsel').length, 0, 'the drops were picked up');
 }
 
 // 8. you can hop over a low rock, but not walk through it
@@ -211,4 +212,56 @@ const ticks = (m: Match, n: number) => {
   assert.equal(a.streak, 0, 'dying ends the streak');
 }
 void ({} as Fighter);
+// 6. a dash stops on the first animal it hits and becomes a basic attack on it
+{
+  const { m, a, b } = fresh();
+  const hp = b.hp;
+  assert.equal(m.dash(a, 0, 1), true, 'the dash starts');
+  ticks(m, 12);
+  assert.equal(a.dash, undefined, 'it stopped');
+  assert.ok(b.hp < hp, 'and hit the animal it ran into');
+}
+
+// 7. wild animals do not run away
+{
+  const { m, a } = fresh();
+  m.spawnWildAt(1, a.x + 2, a.z + 6);
+  const mob = m.mobs[m.mobs.length - 1];
+  mob.awake = true;
+  m.hurt(mob, 1, a, { kind: 'bite' });
+  ticks(m, 60);
+  assert.notEqual(mob.state, 'flee', 'a hit animal stands its ground');
+}
+
+// 8. morsels on the ground are eaten by walking over them, and eating at full health gives a little XP
+{
+  const { m, a } = fresh();
+  assert.ok(m.drops.filter((d) => d.items[0]?.k === 'morsel').length > 100, 'morsels are scattered over the ground');
+  m.drops.push({ id: 9000, x: a.x, z: a.z, items: [{ k: 'morsel', n: 1, born: m.time }], ttl: m.time + 99, pile: false });
+  const xp = a.xp + a.totalXp;
+  ticks(m, 6);
+  assert.ok(a.xp + a.totalXp > xp, 'a morsel gives XP');
+  assert.equal(m.drops.some((d) => d.id === 9000), false, 'and is gone');
+  a.hp = a.maxHp;
+  a.inv[1] = { k: 'berry', n: 2, born: m.time };
+  const before = a.xp + a.totalXp;
+  (m as unknown as { finishEat: (f: Fighter, slot: number) => void }).finishEat(a, 1);
+  assert.ok(a.xp + a.totalXp > before, 'eating at full health gives a little XP');
+}
+
+// 9. you can stand on a rock you jump onto
+{
+  const { m, a } = fresh();
+  const rock = m.terrain.res.find((r) => (r.kind === 'rock' || r.kind === 'stone') && r.r > 0.4 && r.h > 0.6 && r.h < 1.3)!;
+  assert.ok(rock, 'there is a rock to test on');
+  assert.equal(m.terrain.floorAt(rock.x, rock.z, 0), 0, 'a rock above step height is a wall from the ground');
+  assert.ok(Math.abs(m.terrain.floorAt(rock.x, rock.z, rock.h + 0.5) - rock.h) < 1e-6, 'but a body above it can stand on it');
+  const s = { jy: rock.h + 0.6, jv: 0 };
+  for (let i = 0; i < 60; i++) stepVertical(s, DT, m.terrain.floorAt(rock.x, rock.z, s.jy));
+  assert.ok(Math.abs(s.jy - rock.h) < 1e-6 && s.jv === 0, 'it lands on top and stays there');
+  const off = { jy: rock.h, jv: 0 };
+  for (let i = 0; i < 60; i++) stepVertical(off, DT, 0); // walked off the edge
+  assert.equal(off.jy, 0, 'and falls to the ground when it walks off');
+}
+
 console.log('combat tests passed');

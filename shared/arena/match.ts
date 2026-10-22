@@ -306,6 +306,8 @@ export interface Host {
   send(id: string, msg: ServerMatchMsg): void;
 }
 
+/** XP for eating one of the morsels scattered over the ground. */
+const MORSEL_XP = 5;
 const NODE_RESPAWN: Record<string, number> = { berry: 50, fruit: 90, herb: 80, mud: 45, hive: 120, reed: 30 };
 const HARVEST_TIME: Record<string, number> = { berry: 2.2, fruit: 3, herb: 2.5, mud: 2, hive: 3.5, reed: 1.8 };
 
@@ -382,6 +384,7 @@ export class Match {
     this.rnd = mulberry32(seed ^ 0xfaceb00c);
     this.createFighters(entrants);
     this.populateStart();
+    this.scatterMorsels(400);
     if (this.campus) {
       // farming has to be worth it for the whole evolution path, so every tier of horde is out from the start
       for (let i = 0; i < 70; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
@@ -1019,6 +1022,28 @@ export class Match {
     this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
   }
 
+  /** An instant basic attack on one animal: what a dash turns into when it runs into something. */
+  private strikeNow(f: Fighter, b: Body) {
+    const c = COMBO[0];
+    f.swing = null;
+    f.combo = 0;
+    f.comboAt = this.time;
+    f.lastCombat = this.time;
+    f.atkAt = this.time + c.rec;
+    f.atkFlash = 0.3;
+    const reach = f.dv.reach * c.reach;
+    this.emit({ k: 'swing', id: f.id, c: 0, w: 0.05, h: false, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
+    this.hurt(b, f.dv.dmg * c.dmg * this.dmgMult(f, b), f, { kind: 'bite', blockable: true });
+    if (this.lastResult === 'hit') {
+      if (f.mods.bleedOnHit > 0) this.statusTo(f, b, [{ s: 'bleed', dur: f.mods.bleedOnHit, dps: 0.2 }], f.dv.dmg);
+      if (f.tusk > 0) {
+        f.tusk--;
+        this.statusTo(f, b, [{ s: 'bleed', dur: 5, dps: 0.3 }], f.dv.dmg);
+      }
+    }
+    this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
+  }
+
   /** The wind-up is over: the swing (or skill) lands now. */
   private resolveSwing(f: Fighter) {
     const sw = f.swing;
@@ -1198,11 +1223,7 @@ export class Match {
       m.until = this.time + 12;
       return;
     }
-    // everything else just runs
-    if (m.state !== 'flee') m.fleeAt = this.time;
-    m.state = 'flee';
-    m.until = this.time + 3.2;
-    m.target = by;
+    // everything else stays put: wild animals do not run away
   }
 
   // --- deaths --------------------------------------------------------------------------------
@@ -1366,6 +1387,16 @@ export class Match {
   private autoPickup(f: Fighter) {
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
+      if (d.items[0]?.k === 'morsel') {
+        // a morsel is eaten the moment you touch it: a little XP and a nibble of health
+        if (Math.hypot(d.x - f.x, d.z - f.z) > 1.6) continue;
+        this.drops.splice(i, 1);
+        this.gainXp(f, MORSEL_XP);
+        f.hp = Math.min(f.maxHp, f.hp + f.maxHp * 0.01);
+        f.sta = Math.min(f.dv.maxSta, f.sta + 3);
+        this.emit({ k: 'pickup', id: f.id, item: 'morsel', n: 1 }, f.x, f.z);
+        continue;
+      }
       if (d.pile || Math.abs(d.x - f.x) > 1.9 || Math.abs(d.z - f.z) > 1.9 || Math.hypot(d.x - f.x, d.z - f.z) > 1.9) continue;
       const before = d.items.reduce((s, it) => s + it.n, 0);
       d.items = d.items.filter((it) => !this.give(f, { ...it }));
@@ -1479,7 +1510,7 @@ export class Match {
   }
   private finishLoot(f: Fighter, id: number) {
     const i = this.drops.findIndex((d) => d.id === id);
-    if (i < 0) return;
+    if (i < 0 || this.drops[i].items[0]?.k === 'morsel') return;
     const d = this.drops[i];
     if (f.role === 'leader') {
       // leaders eat: it makes them stronger
@@ -1543,6 +1574,7 @@ export class Match {
     const it = f.inv[slot];
     if (!it) return;
     const boost = 1 + f.mods.eatBoost;
+    if (f.role === 'alive' && f.hp >= f.maxHp - 0.5 && (it.k === 'meat' || it.k === 'berry')) this.gainXp(f, 8); // a full belly still teaches you something
     switch (it.k) {
       case 'meat': {
         // one piece at a time: a stack of four keeps you fed through a fight
@@ -1963,9 +1995,22 @@ export class Match {
     }
   }
 
+  /** Small food scattered at random over the ground, like the pellets in deeeep.io: always something to nibble. */
+  private scatterMorsels(max: number) {
+    const ring = ringAt(this.ringTime()).r;
+    const want = this.campus ? 300 : 240;
+    let have = 0;
+    for (const d of this.drops) if (d.items[0]?.k === 'morsel') have++;
+    for (let i = 0; i < Math.min(want - have, max); i++) {
+      const p = this.terrain.randomLand(this.rnd, Math.min(ring - 6, MAP_RADIUS - 25));
+      this.drops.push({ id: this.nextDrop++, x: p.x, z: p.z, items: [{ k: 'morsel', n: 1, born: this.time }], ttl: this.time + 1500, pile: false });
+    }
+  }
+
   private maintainPopulation() {
     if (this.time - this.lastPop < 4) return;
     this.lastPop = this.time;
+    this.scatterMorsels(40);
     const ring = ringAt(this.ringTime()).r;
     // only animals still inside the lava count, and the herds shrink with the ring (a small ring cannot hold hundreds)
     const wild = this.mobs.filter((m) => m.hp > 0 && !m.owner && !m.warden && Math.hypot(m.x, m.z) < ring);
@@ -2156,12 +2201,7 @@ export class Match {
       this.aggro(m, f);
       return;
     }
-    if (m.state !== 'flee') m.fleeAt = this.time;
-    m.state = 'flee';
-    m.target = f;
-    m.until = this.time + 2.6;
-    // the herd is slow to catch on: only the animals right beside it join in
-    if (m.pack) for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && o.state !== 'flee' && dist(o, m) < 5) this.aggro(o, f);
+    // everything else stands its ground: wild animals do not run away
   }
 
   /** Alphas and the Warden: a slow, readable attack. The wind-up can be parried to stagger the beast. */
@@ -2443,23 +2483,19 @@ export class Match {
         f.dash = undefined;
       } else {
         stepPos(this.terrain, f, d.dx, d.dz, d.speed * dt, f.r, bound);
-        const bs = this.bodies(f.x, f.z, d.aoe ? d.aoe : f.r + 0.4, (b) => b !== f && this.canHit(f, b) && !d.hit.has(b));
-        for (const b of bs) {
-          d.hit.add(b);
-          if (d.dmg > 0) this.hurt(b, d.dmg * this.dmgMult(f, b), f, { kind: 'dash', blockable: true });
-          if (d.dmg <= 0 || this.lastResult === 'hit') this.statusTo(f, b, d.st, f.dv.dmg);
-          if (d.knock > 0 && (d.dmg <= 0 || this.lastResult === 'hit')) {
-            const p = { x: b.x, z: b.z };
-            stepPos(this.terrain, p, d.dx, d.dz, d.knock, b.r, MAP_BOUND);
-            b.x = p.x;
-            b.z = p.z;
-          }
+        const bs = this.bodies(f.x, f.z, d.aoe ? d.aoe : f.r + 0.4, (b) => b !== f && this.canHit(f, b)).sort((a, b) => dist(a, f) - dist(b, f));
+        if (bs.length) {
+          // a dash stops dead on the first animal it hits, and becomes a basic attack on it
+          const b = bs[0];
+          f.dash = undefined;
+          f.yaw = yawOf(b.x - f.x, b.z - f.z);
+          this.strikeNow(f, b);
         }
       }
       // the player's queued steps are skipped, not saved up
       for (const c of f.cmds) f.ack = c.s;
       f.cmds.length = 0;
-      stepVertical(f, dt);
+      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy));
     } else if (f.bot) {
       this.applyMove(f, inp.dx, inp.dz, inp.sprint, inp.crouch, false, dt, base, med.noSprint, blocked, bound);
     } else {
@@ -2505,7 +2541,7 @@ export class Match {
   /** One step of walking: stamina, facing, and the move itself. */
   private applyMove(f: Fighter, dx: number, dz: number, sprint: boolean, crouch: boolean, jump: boolean, dt: number, base: number, noSprint: boolean, blocked: boolean, bound: Bound) {
     // jumping: a hop that clears low rocks and stones
-    if (jump && !blocked && this.time >= f.whiffUntil && f.jy <= 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
+    if (jump && !blocked && this.time >= f.whiffUntil && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
       const leader = f.role === 'leader';
       if (leader || f.sta >= JUMP_COST || this.hasFree(f)) {
         if (!leader && !this.hasFree(f)) f.sta -= JUMP_COST;
@@ -2513,7 +2549,7 @@ export class Match {
         f.chan = null;
       }
     }
-    const wasAir = f.jy > 0;
+    const wasAir = f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.001 || f.jv > 0.001;
     const k = Math.hypot(dx, dz);
     const moving = k > 0.05;
     let sp = base;
@@ -2533,15 +2569,15 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
-      stepVertical(f, dt);
-      if (wasAir && f.jy <= 0) this.landed(f);
+      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy));
+      if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) this.landed(f);
       return;
     }
     f.moving = true;
     f.sprinting = sprinting;
     stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
-    stepVertical(f, dt);
-    if (wasAir && f.jy <= 0) this.landed(f);
+    stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy));
+    if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) this.landed(f);
     // a player always faces the camera, so strafing and backpedalling never turn the animal around; bots face where they walk
     f.yaw += clampTurn(angDiff(f.bot ? yawOf(dx, dz) : f.input.yaw, f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
   }
@@ -2549,7 +2585,7 @@ export class Match {
   /** Back on the ground: if we came down inside a rock, step out of it. */
   private landed(f: Fighter) {
     if (inGulagZone(f.x)) return;
-    const c = this.terrain.collide(f.x, f.z, f.r, 0);
+    const c = this.terrain.collide(f.x, f.z, f.r, f.jy); // landing on a rock keeps you on it
     f.x = c.x;
     f.z = c.z;
   }
@@ -2737,7 +2773,7 @@ export class Match {
     if (f.roarFlash > 0) fl |= FL.roar;
     if (f.guarding) fl |= FL.guard;
     if (f.swing) fl |= FL.wind | (f.swing.heavy ? FL.heavy : 0);
-    if (f.jy > 0.05) fl |= FL.air;
+    if (f.jy - this.terrain.floorAt(f.x, f.z, f.jy) > 0.05) fl |= FL.air;
     if (f.counterUntil > t) fl |= FL.counter;
     return fl;
   }

@@ -5,7 +5,7 @@ import type { SwarmKind } from './mobs';
 export type Role = 'alive' | 'gulag' | 'leader' | 'out';
 export const ROLE_CODE: Record<Role, number> = { alive: 0, gulag: 1, leader: 2, out: 3 };
 
-export type ItemKind = 'meat' | 'berry' | 'herb' | 'water' | 'mud' | 'honey' | 'feather' | 'tusk' | 'musk' | 'reed';
+export type ItemKind = 'morsel' | 'meat' | 'berry' | 'herb' | 'water' | 'mud' | 'honey' | 'feather' | 'tusk' | 'musk' | 'reed';
 export interface InvItem {
   k: ItemKind;
   n: number; // stack size, or sips for water

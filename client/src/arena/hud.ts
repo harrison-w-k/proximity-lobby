@@ -1,5 +1,6 @@
 // The match HUD: bars, skills, inventory, minimap, banners, the upgrade panel and the end screen.
 import { ANIMAL_EMOJI } from './emoji';
+import { buildTreeCircle } from './treeView';
 import { ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, EVOLVE_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
 import { SWARMS } from '../../../shared/arena/mobs';
 import type { Global, InvItem, RosterEntry, YouState } from '../../../shared/arena/proto';
@@ -161,6 +162,9 @@ const CSS = `
 .br-zone small { display: block; font-size: 13px; font-weight: 500; color: var(--amber); letter-spacing: .08em; text-transform: uppercase; }
 .br-zone.on { animation: brzone 3.2s ease-out forwards; }
 @keyframes brzone { 0% { opacity: 0; transform: translate(-50%, -18px) scale(.9); } 10% { opacity: 1; transform: translate(-50%, 0) scale(1.06); } 16% { transform: translate(-50%, 0) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, 0) scale(1); } }
+.br-evolve { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); padding: 4px 22px; border: 3px solid var(--ink); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: 16px; color: #3a0f1a; pointer-events: none;
+  background: linear-gradient(#ffd5cc, #ff6f7d); clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%); animation: brevo 1s ease-in-out infinite alternate; }
+@keyframes brevo { from { transform: translate(-50%, 0) scale(1); filter: brightness(1); } to { transform: translate(-50%, -8px) scale(1.06); filter: brightness(1.15); } }
 .br-streak { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; pointer-events: none; opacity: 0; }
 .br-streak.pop { animation: brstreak 2.4s ease-out forwards; }
 .br-streak b { display: block; font-size: 64px; font-weight: 700; letter-spacing: .08em; color: #ffb23a; -webkit-text-stroke: 8px var(--ink); paint-order: stroke fill; text-shadow: 0 7px 0 rgba(0,0,0,.45), 0 0 30px rgba(255,120,20,.7); }
@@ -398,7 +402,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.evolveEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -633,6 +637,7 @@ export class Hud {
     this.xp.style.display = role === 0 ? '' : 'none';
     this.lvl.textContent = role === 2 ? `T${you.swarm?.tier ?? 1}` : role === 1 ? 'GULAG' : `LV ${you.lvl}`;
     this.lvl.classList.toggle('br-point', role === 0 && (you.pts > 0 || this.canEvolve(you)));
+    this.evolveEl.hidden = !(role === 0 && this.canEvolve(you) && !c.panelOpen);
 
     // buffs
     const buffs = you.buffs.map((b) => `<span>${b.replace(/_/g, ' ')}</span>`).join('') + (you.ability ? `<span>${you.ability}</span>` : '');
@@ -716,6 +721,8 @@ export class Hud {
     this.blind.style.opacity = you.buffs.includes('blind') ? '0.8' : '0';
   }
 
+  private evolveEl = el('div', 'br-evolve', '▲ EVOLVE READY · press Tab');
+
   private canEvolve(you: YouState) {
     return you.evolve.length > 0;
   }
@@ -745,6 +752,7 @@ export class Hud {
     this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${def.skill.name}</b> (Q): ${def.skill.desc}</div>`));
     this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${inn.name}</b> (passive): ${inn.desc}</div>`));
     this.panel.append(el('h3', '', 'Evolve'));
+    this.panel.append(buildTreeCircle({ tree: def.tree, current: def.id, open: you.evolve, onPick: (id) => { if (you.evolve.includes(id)) this.onEvolve(id); }, size: 270 }));
     if (def.stage >= 3) this.panel.append(el('div', 'br-pick', '<div class="t">This is your final form.</div>'));
     else if (you.evolve.length === 0) this.panel.append(el('div', 'br-pick', `<div class="t">Reach level ${EVOLVE_LEVELS[def.stage - 1]} to evolve. It takes 3 s standing still and a hit cancels it.</div>`));
     else {

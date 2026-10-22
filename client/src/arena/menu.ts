@@ -5,6 +5,7 @@ import { loadPaint, savePaint } from './paintStore';
 import { SPAWN_BY_ID, SPAWN_CHOICES, bestSpawn, isSpawnId, type SpawnId } from '../../../shared/arena/spawn';
 import { ANIMAL_BY_ID, CLASS_BY_ID, EVOLVE_LEVELS, FORMS_OF_TREE, STAGE_BUDGET, STARTERS, STAT_KEYS, STAT_NAMES, TREE_BY_ID, type AnimalDef } from '../../../shared/arena/animals';
 import { ANIMAL_EMOJI } from './emoji';
+import { buildTreeCircle } from './treeView';
 import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
 import type { Sfx } from '../sfx';
@@ -47,12 +48,15 @@ const CSS = `
 #br-menu .perks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 15px; line-height: 1.1; }
 #br-menu .perks .p { color: #ff9aa2; } #br-menu .perks .d { color: #ff9a82; }
 #br-menu .perks h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: #d9c99a; }
-#br-menu .tree { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; align-items: center; padding: 6px 2px; }
+#br-menu .tree { display: flex; justify-content: center; padding: 10px 2px 22px; }
 #br-menu .tree .col { display: flex; flex-direction: column; gap: 6px; }
 #br-menu .tree .col.last { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 #br-menu .tree .node { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 3px solid #120c07; border-radius: 12px; cursor: pointer; color: #0b3b3f; font-weight: 700; font-size: 16px;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 rgba(0,0,0,.4); transition: transform .1s; }
 #br-menu .tree .node:hover { transform: translateY(-2px); }
+#br-menu .tree .node { animation: nodein .4s calc(var(--i, 0) * 50ms) ease-out both; }
+@keyframes nodein { from { opacity: 0; transform: translateY(10px) scale(.95); } to { opacity: 1; transform: none; } }
+#br-menu .tile:hover { transform: translateY(-6px) rotate(-1.5deg); }
 #br-menu .tree .node.on { background: linear-gradient(#ffd5cc, #ff8f95); box-shadow: 0 0 0 3px #f3b43c, 0 3px 0 rgba(0,0,0,.4); }
 #br-menu .tree .node small { display: block; font-size: 12px; font-weight: 500; opacity: .75; }
 #br-menu .tree .node .em { font-size: 22px; }
@@ -506,22 +510,8 @@ export class BrMenu {
     const a = ANIMAL_BY_ID.get(this.focus);
     if (!a) return;
     const tree = TREE_BY_ID.get(a.tree)!;
-    this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · ${tree.blurb}. Evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}, into any form of the next stage: click one to preview it.`;
-    const forms = FORMS_OF_TREE(tree.id);
-    const node = (f: AnimalDef) => {
-      const d = document.createElement('div');
-      d.className = `node${f.id === this.focus ? ' on' : ''}`;
-      d.innerHTML = `<span class="em">${EMOJI[f.id] ?? '🐾'}</span><div>${f.name}<small>Stage ${f.stage} · ${f.role}</small></div>`;
-      d.addEventListener('click', () => this.bringUp(f.id));
-      return d;
-    };
-    const cols = [1, 2, 3].map((stage) => {
-      const c = document.createElement('div');
-      c.className = `col${stage === 3 ? ' last' : ''}`;
-      for (const f of forms.filter((x) => x.stage === stage)) c.append(node(f));
-      return c;
-    });
-    this.treeBox.replaceChildren(...cols);
+    this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · ${tree.blurb}. Evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]} into any form of the next ring: click one to preview it.`;
+    this.treeBox.replaceChildren(buildTreeCircle({ tree: tree.id, focus: this.focus, onPick: (id) => this.bringUp(id), size: 440 }));
   }
 
   open() {

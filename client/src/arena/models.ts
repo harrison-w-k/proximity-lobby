@@ -31,6 +31,8 @@ export interface Rig {
   setTint(color: number | null): void;
 }
 
+// a thin dark hull behind every part: a toon outline that makes the low-poly shapes pop
+const OUTLINE = new THREE.MeshBasicMaterial({ color: 0x0b2a2e, side: THREE.BackSide });
 const SHADOW_GEO = new THREE.CircleGeometry(1, 20);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
 
@@ -171,7 +173,21 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     if (e) {
       acc(e);
       head.add(e);
+      // the inner ear
+      if (spec.ears === 'point') head.add(acc(cone(es * 0.26, es * 0.62, 0xf0a8a8, sx * hs * 0.32, hs * 0.6, -hs * 0.05 + es * 0.14)));
+      else if (spec.ears === 'round') head.add(acc(ball(es * 0.3, es * 0.3, es * 0.12, 0xf0a8a8, sx * hs * 0.38, hs * 0.5, -hs * 0.1 + es * 0.2)));
       ears.push({ o: e, side: sx });
+    }
+  }
+  // a mouth line under the snout, and whiskers on the short-nosed furry ones
+  head.add(box(hs * 0.28, hs * 0.03, hs * 0.04, 0x241410, 0, -hs * 0.2, hs * 0.5 + sn * 0.5));
+  if (sn <= 0.2 && !spec.crawl && (spec.ears === 'point' || spec.ears === 'round')) {
+    for (const sx of [-1, 1]) {
+      for (let k = -1; k <= 1; k++) {
+        const w = box(hs * 0.36, hs * 0.012, hs * 0.012, 0xf4f0e6, sx * hs * 0.24, -hs * 0.1 + k * hs * 0.045, hs * 0.5 + sn * 0.55);
+        w.rotation.z = sx * k * 0.18;
+        head.add(w);
+      }
     }
   }
   torso.add(head);
@@ -209,7 +225,10 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     for (let i = 0; i < n; i++) {
       const k = 1 - i * 0.28;
       const seg = spec.tail.len / n;
-      tail.add(acc(spike(spec.tail.t * 0.75 * k, seg * 1.25, tc, -1, 0, y, z - seg / 2, CONE5)));
+      const rise = (spec.tail.up ?? 0) * seg;
+      const tube = part(LEG, tc, spec.tail.t * 1.5 * k, seg * 1.3, spec.tail.t * 1.5 * k, 0, y + rise * 0.5, z - seg * 0.475);
+      tube.rotation.x = Math.PI / 2 + Math.atan2(rise, seg * 0.95); // thick end at the body, thinning backwards and curving up
+      tail.add(acc(tube));
       z -= seg * 0.95;
       y += (spec.tail.up ?? 0) * seg;
     }
@@ -230,6 +249,7 @@ class QuadRig implements Rig {
   private flash = 0;
   private baseY: number;
   private headZ: number;
+  private headY = 0;
   private wasAir = 0;
   private squash = 0;
   private seed = Math.random() * 100;
@@ -250,13 +270,22 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
+    const parts: THREE.Mesh[] = [];
     b.root.traverse((o) => {
       if (o instanceof THREE.Mesh) {
+        parts.push(o);
         // each rig needs its own materials so a hit can flash one animal
         o.material = (o.material as Mat).clone();
         this.mats.push(o.material as Mat);
       }
     });
+    for (const o of parts) {
+      if (Math.max(o.scale.x, o.scale.y, o.scale.z) < 0.07) continue; // tiny parts need no outline
+      const ol = new THREE.Mesh(o.geometry, OUTLINE);
+      ol.scale.setScalar(1.09);
+      o.add(ol);
+    }
+    this.headY = b.head.position.y;
   }
   setTint(color: number | null) {
     this.tint = color;
@@ -296,11 +325,16 @@ class QuadRig implements Rig {
     b.torso.rotation.y = p?.ry ?? 0;
     b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0) + (p?.rz ?? 0) + Math.max(-0.22, Math.min(0.22, -(s.turn ?? 0) * 0.06)) * moving;
     b.head.position.z = this.headZ + s.attack * 0.2 * (b.spec.scale ?? 1);
+    // the head bobs with the stride, and the body leans into a run
+    b.head.position.y = this.headY + Math.sin(this.phase * 2) * 0.02 * moving * (b.spec.scale ?? 1);
+    b.torso.rotation.x += Math.min(0.16, s.speed * 0.012) * (1 - air);
+    b.torso.rotation.y += Math.sin(this.phase) * (b.spec.crawl ? 0.14 : 0.025) * moving; // the spine sways, a lizard's most
     b.head.rotation.x = (p?.hx ?? 0) + s.attack * 0.25 - (s.stun ? 0.4 : 0) + g * 0.4;
     const glance = Math.sin(s.t * 0.55 + this.seed) > 0.55 ? Math.sin(s.t * 1.3 + this.seed) * 0.5 : 0;
     b.head.rotation.y = (p?.hy ?? 0) + glance * idle;
+    b.head.rotation.x += Math.sin(s.t * 7 + this.seed) * 0.025 * idle * (glance !== 0 ? 1 : 0); // a sniff while it looks around
     if (b.tail) {
-      b.tail.rotation.y = Math.sin(s.t * 6 + this.phase) * 0.35 * (0.4 + moving);
+      b.tail.rotation.y = b.spec.crawl ? Math.sin(this.phase * 1.3) * 0.55 * (0.3 + moving) : Math.sin(s.t * 6 + this.phase) * 0.35 * (0.4 + moving);
       b.tail.rotation.x = (p?.tail ?? 0) + air * 0.4;
     }
     const sc = (b.spec.scale ?? 1) * (p?.sc ?? 1);
@@ -323,7 +357,7 @@ class QuadRig implements Rig {
     const e = this.flash > 0.01 ? 0.7 * this.flash : 0;
     const warn = (s.warn ?? 0) * (0.55 + 0.45 * Math.sin(s.t * 30));
     for (const m of this.mats) {
-      if (this.tint !== null) m.emissive.setHex(this.tint).multiplyScalar(0.35);
+      if (this.tint !== null) m.emissive.setHex(this.tint).multiplyScalar(0.5);
       else if (warn > 0.01) m.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
       else if (s.counter) m.emissive.setRGB(0.5, 0.4, 0.05);
       else m.emissive.setRGB(e, e * 0.25, e * 0.2);
@@ -609,7 +643,10 @@ class MergedRig implements Rig {
     this.height = height;
     this.radius = radius;
   }
-  setTint(): void {}
+  private tint: number | null = null;
+  setTint(color: number | null): void {
+    this.tint = color;
+  }
   update(dt: number, s: RigState) {
     const moving = Math.min(1, s.speed / 2.5);
     this.phase += dt * (6 + s.speed * 2.2);
@@ -634,6 +671,7 @@ class MergedRig implements Rig {
     const e = this.flash > 0.01 ? 0.8 * this.flash : 0;
     const warn = (s.warn ?? 0) * (0.6 + 0.4 * Math.sin(s.t * 34));
     if (warn > 0.01) mat.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
+    else if (this.tint !== null) mat.emissive.setHex(this.tint).multiplyScalar(0.45 + e);
     else mat.emissive.setRGB(e, e * 0.3, e * 0.3);
     // fleeing animals crouch low; so do winding-up ones, ready to spring
     m.scale.y = this.scale * (s.flee ? 0.92 : (s.warn ?? 0) > 0 ? 0.82 : 1);
@@ -758,8 +796,16 @@ type Extras = NonNullable<QuadSpec['extras']>;
 const spotted = (c: number, n: number, w: number, len: number, sz: number): Extras => (torso, _h, r) => {
   for (let i = 0; i < n; i++) torso.add(box(sz, sz * 0.6, sz, c, (r() - 0.5) * w, 0.2 + (r() - 0.5) * 0.1 + (r() < 0.4 ? -0.18 : 0), (r() - 0.5) * len));
 };
-const striped = (c: number, n: number, w: number, len: number, hgt: number): Extras => (torso) => {
-  for (let i = 0; i < n; i++) torso.add(box(w, hgt, 0.05, c, 0, 0.17, len * (0.5 - i / (n - 1))));
+const striped = (c: number, n: number, w: number, len: number, top: number): Extras => (torso) => {
+  for (let i = 0; i < n; i++) {
+    const z = len * (0.4 - i / Math.max(1, n - 1) * 0.8);
+    torso.add(box(w * 0.55, 0.035, 0.06, c, 0, top - 0.005, z)); // across the back
+    for (const sx of [-1, 1]) {
+      const side = box(0.035, top * 1.1, 0.06, c, sx * w * 0.5, top * 0.35, z);
+      side.rotation.z = sx * -0.35;
+      torso.add(side);
+    }
+  }
 };
 const both = (...fs: Extras[]): Extras => (t, h, r) => fs.forEach((f) => f(t, h, r));
 const tufts = (c: number): Extras => (_t, head) => {
@@ -784,16 +830,19 @@ const PS: Record<string, QuadSpec> = {};
 
 // cats: stealth and burst
 PS.house_cat = {
-  ...SPECS.leopard, fur: 0xd98a4c, belly: 0xf7e8d2, paw: 0xf7e8d2, scale: 0.55, ears: 'point', earS: 0.55,
-  tail: { len: 1.0, t: 0.1, up: 0.55 }, extras: striped(0x9a5524, 5, 0.34, 1.0, 0.07),
+  len: 0.78, w: 0.28, h: 0.3, legLen: 0.28, legT: 0.075, fur: 0xd98a4c, belly: 0xf7e8d2, paw: 0xf7e8d2,
+  head: { s: 0.28, snout: 0.07, snoutC: 0xf7e8d2 }, ears: 'point', earS: 0.62, tail: { len: 0.62, t: 0.07, up: 0.3 }, eye: 0x1c3a12,
+  extras: striped(0x8a4a1c, 5, 0.3, 0.7, 0.15),
 };
 PS.bobcat = {
-  ...SPECS.leopard, fur: 0xb78a58, belly: 0xf1e4cf, paw: 0x8a6a40, scale: 0.8, ears: 'point', earS: 0.5,
-  tail: { len: 0.25, t: 0.13 }, extras: both(spotted(0x4a3320, 22, 0.36, 1.1, 0.08), tufts(0x1c1410)),
+  len: 1.0, w: 0.34, h: 0.36, legLen: 0.36, legT: 0.095, fur: 0xb78a58, belly: 0xf1e4cf, paw: 0x8a6a40,
+  head: { s: 0.33, snout: 0.08, snoutC: 0xf1e4cf }, ears: 'point', earS: 0.55, tail: { len: 0.28, t: 0.1, c: 0x3a2a18 }, eye: 0x2a3a10,
+  extras: both(spotted(0x4a3320, 14, 0.32, 0.9, 0.07), tufts(0x1c1410)),
 };
 PS.lynx = {
-  ...SPECS.leopard, fur: 0xcdb892, belly: 0xf3ecdc, paw: 0x9a8868, scale: 0.9, ears: 'point', earS: 0.6,
-  tail: { len: 0.25, t: 0.13, c: 0x2a2018 }, extras: both(spotted(0x6a5a40, 16, 0.36, 1.1, 0.07), tufts(0x161210)),
+  len: 1.05, w: 0.34, h: 0.38, legLen: 0.5, legT: 0.1, fur: 0xcdb892, belly: 0xf3ecdc, paw: 0x9a8868,
+  head: { s: 0.34, snout: 0.08, snoutC: 0xf3ecdc }, ears: 'point', earS: 0.6, tail: { len: 0.26, t: 0.1, c: 0x2a2018 }, eye: 0x6a8a20,
+  extras: both(spotted(0x6a5a40, 10, 0.3, 0.9, 0.06), tufts(0x161210)),
 };
 PS.cheetah = { ...SPECS.cheetah, scale: 1.0 };
 PS.panther = {

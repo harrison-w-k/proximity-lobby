@@ -51,6 +51,8 @@ export interface FighterView {
   drop?: number; // seconds since the arrival began (negative = still waiting)
   dying?: number; // seconds left of the fall-over
   fallDir?: number;
+  pop?: number; // 1 -> 0 while a newly evolved form springs into being
+  evolveUntil?: number; // glowing while it evolves
   lastState?: RigState;
   shield: THREE.Mesh;
   stars?: THREE.Group;
@@ -661,7 +663,8 @@ varying vec3 vWP;`)
     g.fillText(sub, 128, 60);
     g.font = '20px sans-serif';
     if ((v.flags & FL.hunted) !== 0) g.fillText('🎯', 238, 22);
-    if (v.speaking) g.fillText('🔊', 18, 24);
+    if (friend && !v.self) g.fillText('🛡️', 18, 24); // a teammate
+    if (v.speaking) g.fillText('🔊', 238, 50);
     const tex = new THREE.CanvasTexture(c);
     tex.minFilter = THREE.LinearFilter;
     return tex;
@@ -698,11 +701,13 @@ varying vec3 vWP;`)
         group.add(plate);
         const shadow = this.makeShadow(rig.radius * 1.1);
         const old = this.fighters.get(r.id);
+        const evolved = !!old && old.animal !== r.animal;
         v = {
           id: r.id, name: r.name, animal: r.animal, team: r.team, role: r.role, swarm: r.swarm, tier, rig, group, plate, plateKey: '', shadow,
           x: old?.x ?? 0, z: old?.z ?? 0, tx: old?.tx ?? 0, tz: old?.tz ?? 0, yaw: old?.yaw ?? 0, tyaw: old?.tyaw ?? 0, hp: 100, level: old?.level ?? 1, flags: 0, speed: 0,
           seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false, cue: null, guard: false, guardStart: -9, jy: 0, vy: 0, shield: this.makeShield(),
         };
+        if (evolved) v.pop = 1;
         group.add(v.shield);
         v.stars = this.makeStars(rig.height + 0.15);
         group.add(v.stars);
@@ -1026,10 +1031,22 @@ varying vec3 vWP;`)
     return t;
   }
 
-  private dropMesh(kind: string): THREE.Group {
+  private dropMesh(kind: string, id = 0): THREE.Group {
     const g = new THREE.Group();
     const m = (c: number) => new THREE.MeshLambertMaterial({ color: c, flatShading: true, emissive: c, emissiveIntensity: 0.25 });
     switch (kind) {
+      case 'morsel': {
+        // a small bright pellet, a different colour each, like the food in deeeep.io
+        const c = [0xff7a8a, 0x7fe3c4, 0x7fc8ff, 0xffd23f, 0xc78bff, 0xff9a52][id % 6];
+        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.17, 0), m(c));
+        gem.scale.y = 1.25;
+        g.add(gem);
+        const glow = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 12), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.y = -0.25;
+        g.add(glow);
+        return g;
+      }
       case 'meat': {
         g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), m(0xc4443b)));
         const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6, 5), m(0xf2eee0));
@@ -1073,7 +1090,7 @@ varying vec3 vWP;`)
     for (const [id, kind, x, z] of list) {
       let d = this.drops.get(id);
       if (!d) {
-        const g = this.dropMesh(kind);
+        const g = this.dropMesh(kind, id);
         this.scene.add(g);
         d = { g, kind, seen: now, y0: 0 };
         this.drops.set(id, d);
@@ -1192,6 +1209,12 @@ varying vec3 vWP;`)
     return 1;
   }
 
+  /** An animal glows and trembles while it evolves. */
+  evolveGlow(id: string, secs: number) {
+    const v = this.fighters.get(id);
+    if (v) v.evolveUntil = this.clock + secs;
+  }
+
   /** Everyone drops in from the sky at the start, landing one after another in a puff of dust. */
   dropIn() {
     for (const v of this.fighters.values()) v.drop = v.self ? 0 : -Math.random() * 0.7;
@@ -1303,6 +1326,8 @@ varying vec3 vWP;`)
       v.swim = v.x < GULAG_X - 400 && depth > 0.4;
       const y = ground - (v.swim ? Math.min(0.5, depth * 0.3) : 0) + (aquaticBody ? 1.1 : 0) + (bird ? 1.6 : 0);
       const prevJy = v.jy;
+      const rockFloor = this.terrain.floorAt(v.x, v.z, v.jy);
+      const airH = Math.max(0, v.jy - rockFloor); // height above whatever it stands on, a rock included
       let dropOff = 0;
       if (v.drop !== undefined) {
         v.drop += dt;
@@ -1328,8 +1353,8 @@ varying vec3 vWP;`)
           v.group.rotation.z = 0;
         }
       }
-      v.shadow.position.set(v.x, ground + 0.06, v.z);
-      v.shadow.scale.setScalar(Math.max(0.45, 1 - v.jy * 0.25) * Math.max(0.2, 1 - dropOff / 30));
+      v.shadow.position.set(v.x, ground + rockFloor + 0.06, v.z);
+      v.shadow.scale.setScalar(Math.max(0.45, 1 - airH * 0.25) * Math.max(0.2, 1 - dropOff / 30));
       v.vy += ((v.jy - (v.lastJy ?? prevJy)) / Math.max(dt, 1e-3) - v.vy) * 0.5;
       v.lastJy = v.jy;
       const moved = Math.hypot(v.x - v.lastX, v.z - v.lastZ) / Math.max(dt, 1e-3);
@@ -1377,18 +1402,25 @@ varying vec3 vWP;`)
         const ground2 = this.groundY(v.x, v.z);
         const wet = this.terrain.depthAt(v.x, v.z) > 0.1;
         const col = wet ? 0xcfeeff : this.terrain.biomeAt(v.x, v.z) === 0 ? 0x8a7a55 : 0xd2c299;
-        if (was > 0.15 && v.jy < 0.05) this.burst(v.x, ground2 + 0.15, v.z, col, 9, 2.6, 0.45);
-        else if (v.speedS > 7 && v.jy < 0.05 && this.clock - (this.dustAt.get(v.id) ?? -1) > 0.17) {
+        if (was > 0.15 && airH < 0.05) this.burst(v.x, ground2 + rockFloor + 0.15, v.z, col, 9, 2.6, 0.45);
+        else if (v.speedS > 7 && airH < 0.05 && this.clock - (this.dustAt.get(v.id) ?? -1) > 0.17) {
           this.dustAt.set(v.id, this.clock);
           this.burst(v.x - Math.sin(v.yaw) * 0.5, ground2 + 0.12, v.z - Math.cos(v.yaw) * 0.5, col, 4, 1.4, 0.38);
         }
       }
-      this.prevJy.set(v.id, v.jy);
-      const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: v.jy, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
+      this.prevJy.set(v.id, airH);
+      const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: airH, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
       v.lastState = st;
       v.rig.update(dt, st);
+      if ((v.evolveUntil ?? 0) > now) v.rig.root.scale.setScalar(1 + Math.sin(now * 16) * 0.04);
+      else if (v.pop !== undefined) {
+        v.pop = Math.max(0, v.pop - dt * 2.2);
+        const c = 1.9;
+        v.rig.root.scale.setScalar(1 - (c + 1) * v.pop ** 3 + c * v.pop ** 2);
+        if (v.pop === 0) v.pop = undefined;
+      } else if (v.rig.root.scale.x !== 1) v.rig.root.scale.setScalar(1);
       if (v.stars) this.spinStars(v.stars, (v.flags & FL.stun) !== 0, now, Math.max(0.35, v.rig.radius * 0.7));
-      v.rig.setTint((v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : null);
+      v.rig.setTint((v.evolveUntil ?? 0) > now ? 0xbff0ff : (v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : v.self ? null : v.team === mineTeam ? 0x2f9bff : 0xff3a3a); // blue teammates, red hostiles
       // hide models in bushes/underwater from far away is the server's job; here just the plate
       const key = `${v.hp}|${v.level}|${v.flags & 1}|${v.role}|${v.tier}|${mineTeam}`;
       if (key !== v.plateKey) {
@@ -1439,6 +1471,7 @@ varying vec3 vWP;`)
       }
       if (now < v.warnUntil) mwarn = 0.5 + 0.5 * (1 - (v.warnUntil - now) / Math.max(0.1, v.cue?.wind ?? 0.5));
       if (v.flags & 128) mwarn = Math.max(mwarn, 0.9); // a swarm animal crouching to bite
+      v.rig.setTint(0xffd23f); // wild animals glow yellow
       v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now, pose: mpose, warn: mwarn });
       const mstars = (v.group as unknown as { stars?: THREE.Group }).stars;
       if (mstars) this.spinStars(mstars, (v.flags & 32) !== 0, now, Math.max(0.4, v.rig.radius * 0.6));

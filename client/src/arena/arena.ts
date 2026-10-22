@@ -578,7 +578,6 @@ export class Arena {
         sc.burst(e.x, gy + 0.9, e.z, 0xbfc8d8, 8, 2, 0.4);
         if (e.id === this.myId) {
           this.hud.callout('FUMBLED', '#ff9a82');
-          this.hud.dizzy(0.9);
           this.d.sfx.block();
         }
         break;
@@ -602,6 +601,10 @@ export class Arena {
       }
       case 'pickup': {
         if (e.id !== this.myId) break;
+        if (e.item === 'morsel') {
+          this.d.sfx.step('grass', 0.4); // a tiny nibble; the XP floater shows the gain
+          break;
+        }
         sc.floater(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 2.3, this.pos.z, `+${e.n} ${itemLabel(e.item)}`, '#ffb38a', 1.1);
         this.d.sfx.pickup();
         break;
@@ -615,6 +618,7 @@ export class Arena {
       case 'evolving': {
         const gy = sc.groundY(e.x, e.z);
         sc.floater(e.x, gy + 2.6, e.z, 'EVOLVING…', '#bff0ff', 1.2);
+        sc.evolveGlow(e.id, 3);
         sc.ringFx(e.x, e.z, 3.2, 0xbff0ff, 2.6);
         sc.burst(e.x, gy + 1, e.z, 0xbff0ff, 14, 2, 1.2);
         break;
@@ -858,9 +862,9 @@ export class Arena {
   /** One step of our own movement, exactly as the server will run it (so the two agree). */
   private simStep(st: { x: number; z: number; jy: number; jv: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
     const sc = this.scene!;
-    if (c.jump && st.jy <= 0.001 && st.jv <= 0.001 && !you.noMove && (you.sta >= JUMP_COST || you.role === 2) && !(inGulagZone(st.x) ? false : sc.terrain.isDeep(st.x, st.z))) st.jv = JUMP_V;
+    if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && (you.sta >= JUMP_COST || you.role === 2) && !(inGulagZone(st.x) ? false : sc.terrain.isDeep(st.x, st.z))) st.jv = JUMP_V;
     if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy);
-    stepVertical(st, dt);
+    stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy));
   }
 
   private readInput() {
@@ -938,14 +942,14 @@ export class Arena {
         else this.visYaw = this.camYaw; // always facing where the camera looks: strafing never turns you
         sc.setSelf(this.pos.x, this.pos.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, moving ? you.speed : 0, this.pos.jy);
         // landing
-        const air = this.pos.jy > 0.05;
+        const air = this.pos.jy - sc.terrain.floorAt(this.pos.x, this.pos.z, this.pos.jy) > 0.05;
         if (this.wasAir && !air) this.d.sfx.step('grass', 0.45);
         this.wasAir = air;
         // sneaking in a bush or underwater: show it
         self.group.visible = true;
       }
       // sounds underfoot
-      if (moving && you.role !== 3 && this.pos.jy < 0.05) this.footsteps(dt, inp.sprint);
+      if (moving && you.role !== 3 && this.pos.jy - sc.terrain.floorAt(this.pos.x, this.pos.z, this.pos.jy) < 0.05) this.footsteps(dt, inp.sprint);
       // lava
       const burning = Math.hypot(this.pos.x, this.pos.z) > g.ring && you.role !== 1 && you.role !== 3;
       this.hud.setLava(burning);
@@ -1114,12 +1118,12 @@ export class Arena {
     const sc = this.scene!;
     if (you.role === 2 || you.role === 3 || you.role === 1) {
       if (you.role === 2) {
-        const d = this.drops.find((x) => Math.hypot(x[2] - this.pos.x, x[3] - this.pos.z) < 3.2);
+        const d = this.drops.find((x) => x[1] !== 'morsel' && Math.hypot(x[2] - this.pos.x, x[3] - this.pos.z) < 3.2);
         return d ? '[G] Eat' : '';
       }
       return '';
     }
-    const drop = this.drops.find((x) => Math.hypot(x[2] - this.pos.x, x[3] - this.pos.z) < 3.2);
+    const drop = this.drops.find((x) => x[1] !== 'morsel' && Math.hypot(x[2] - this.pos.x, x[3] - this.pos.z) < 3.2);
     if (drop) return `[G] Pick up ${drop[1] === 'pile' ? 'loot pile' : itemLabel(drop[1])}`;
     let best = '';
     let bd = 3.4;

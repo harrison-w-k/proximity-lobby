@@ -216,6 +216,19 @@ export class Terrain {
     return out;
   }
 
+  /**
+   * How high (above the ground) the top of the rock under you is, if you can stand on it: 0 if none.
+   * A rock counts when its top is no more than a small step above your feet, so you land on one by jumping onto it.
+   */
+  floorAt(x: number, z: number, feet: number): number {
+    let best = 0;
+    for (const r of this.near(x, z, 3)) {
+      if (r.r <= 0 || r.h < 0.15 || r.h > feet + 0.35) continue;
+      if (Math.hypot(x - r.x, z - r.z) < r.r * 0.95 && r.h > best) best = r.h;
+    }
+    return best;
+  }
+
   /** Push a circle out of trees and rocks. Returns the corrected position. */
   collide(x: number, z: number, radius: number, feet = 0): { x: number; z: number; hit: boolean } {
     let hit = false;
