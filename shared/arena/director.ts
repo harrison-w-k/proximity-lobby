@@ -39,6 +39,11 @@ export class Director {
 
   constructor(private host: DirectorHost) {}
 
+  /** Something is waiting or running, so the host must keep calling tick(). */
+  busy(): boolean {
+    return this.queue.size > 0 || this.match !== null || this.startAt !== null;
+  }
+
   info(id: string): QueueInfo {
     return {
       queued: this.queue.size,

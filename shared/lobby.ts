@@ -92,6 +92,11 @@ export class Lobby {
     this.director?.tick(now);
   }
 
+  /** True while a queue or match needs tickMatch() to keep being called. */
+  matchBusy(): boolean {
+    return this.director?.busy() ?? false;
+  }
+
   /** Put the items back after a restart. Anything held by a player who is no longer here is set down. */
   restoreItems(list: ItemState[]) {
     for (const it of list) {

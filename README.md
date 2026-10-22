@@ -49,5 +49,5 @@ animals and queue; 25 s after the first player queues the match starts and AI an
   1-6 use item, Tab upgrade panel (1-5 spend, Z / X pick a skill). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
 - **Squads**: friends who type the same squad code on the menu share a team (max 4): no friendly fire, shared win.
 - **Voice**: 10 m full / 40 m silent, 15 m for leaders, whisper when sneaking, muffled behind rocks/trees and underwater, separate Gulag channel.
-- Matches run on the Node server only (`enableMatches()`); the Cloudflare Worker host does not start a match. `MATCH_COUNTDOWN_MS` and `MATCH_BOTS=0` tune the queue.
+- Matches run on both hosts (the Node server and the Cloudflare Durable Object, which stays awake while a queue or match is active). On Node, `MATCH_COUNTDOWN_MS` and `MATCH_BOTS=0` tune the queue.
 - Tests: `npm test` runs a full 20-bot match headlessly (`shared/arena/match.test.ts [seed]`).

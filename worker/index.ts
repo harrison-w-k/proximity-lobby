@@ -54,6 +54,7 @@ export class LobbyDO extends DurableObject<Env> {
         ? supabaseAuth({ url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY })
         : undefined;
     this.lobby = new Lobby(iceServersFrom(env), verify);
+    this.lobby.enableMatches();
     // Profile photos are too big for a socket attachment (2 KiB), so they live in storage.
     this.lobby.onAvatar = (id, img) => {
       const op: Promise<unknown> = img ? ctx.storage.put(`av:${id}`, img) : ctx.storage.delete(`av:${id}`);
@@ -104,6 +105,7 @@ export class LobbyDO extends DurableObject<Env> {
       // closed during handling (e.g. lobby full)
     }
     this.ensureTick();
+    this.ensureMatchTick();
   }
 
   webSocketClose(ws: WebSocket) {
@@ -124,6 +126,24 @@ export class LobbyDO extends DurableObject<Env> {
     } catch {
       // already closed
     }
+  }
+
+  private matchTimer: ReturnType<typeof setInterval> | undefined;
+
+  // While anyone is queued or a match runs, the object stays awake and steps it; then the timer stops.
+  private ensureMatchTick() {
+    if (this.matchTimer !== undefined || !this.lobby.matchBusy()) return;
+    const timer = setInterval(() => {
+      try {
+        this.lobby.tickMatch();
+        if (this.lobby.matchBusy()) return;
+      } catch (e) {
+        console.error('match tick failed', e);
+      }
+      clearInterval(timer);
+      this.matchTimer = undefined;
+    }, 15);
+    this.matchTimer = timer;
   }
 
   // The timer only runs while positions are changing, so an idle lobby can hibernate.
