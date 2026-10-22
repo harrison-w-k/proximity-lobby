@@ -507,9 +507,11 @@ class MergedRig implements Rig {
     this.flash = Math.max(0, this.flash - dt * 3);
     const mat = m.material as Mat;
     const e = this.flash > 0.01 ? 0.8 * this.flash : 0;
-    mat.emissive.setRGB(e, e * 0.3, e * 0.3);
-    // fleeing animals crouch low
-    m.scale.y = this.scale * (s.flee ? 0.92 : 1);
+    const warn = (s.warn ?? 0) * (0.6 + 0.4 * Math.sin(s.t * 34));
+    if (warn > 0.01) mat.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
+    else mat.emissive.setRGB(e, e * 0.3, e * 0.3);
+    // fleeing animals crouch low; so do winding-up ones, ready to spring
+    m.scale.y = this.scale * (s.flee ? 0.92 : (s.warn ?? 0) > 0 ? 0.82 : 1);
   }
 }
 
@@ -548,13 +550,17 @@ class BirdRig implements Rig {
     const moving = Math.min(1, s.speed / 3);
     this.b.legs[0].rotation.x = Math.sin(this.phase) * 0.6 * moving;
     this.b.legs[1].rotation.x = -Math.sin(this.phase) * 0.6 * moving;
-    this.b.head.rotation.x = s.attack * 0.6;
-    this.b.torso.position.y = this.b.hip + 0.1 + (flying ? Math.sin(this.phase * 1.1) * 0.05 : 0);
+    this.b.head.rotation.x = s.attack * 0.6 + (s.pose?.hx ?? 0);
+    this.b.torso.position.y = this.b.hip + 0.1 + (flying ? Math.sin(this.phase * 1.1) * 0.05 : 0) + (s.pose?.y ?? 0);
+    this.b.torso.position.z = s.pose?.z ?? 0;
+    this.b.torso.rotation.x = s.pose?.rx ?? 0;
     this.flash = Math.max(this.flash, s.hurt);
     this.flash = Math.max(0, this.flash - dt * 3);
     const e = this.flash > 0.01 ? 0.7 * this.flash : 0;
+    const warn = (s.warn ?? 0) * (0.6 + 0.4 * Math.sin(s.t * 34));
     for (const m of this.mats) {
       if (this.tint !== null) m.emissive.setHex(this.tint).multiplyScalar(0.3);
+      else if (warn > 0.01) m.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
       else m.emissive.setRGB(e, e * 0.3, e * 0.3);
     }
   }
@@ -587,12 +593,16 @@ class FishRig implements Rig {
   update(dt: number, s: RigState) {
     this.phase += dt * (6 + s.speed * 2);
     this.g.rotation.y = Math.sin(this.phase) * 0.3;
-    this.g.position.y = 0.3 + Math.sin(s.t * 2 + this.phase) * 0.06;
+    this.g.position.y = 0.3 + Math.sin(s.t * 2 + this.phase) * 0.06 + (s.pose?.y ?? 0);
+    this.g.position.z = s.pose?.z ?? 0;
+    this.g.rotation.x = s.pose?.rx ?? 0;
     this.flash = Math.max(this.flash, s.hurt);
     this.flash = Math.max(0, this.flash - dt * 3);
     const e = this.flash > 0.01 ? 0.7 * this.flash : 0;
+    const warn = (s.warn ?? 0) * (0.6 + 0.4 * Math.sin(s.t * 34));
     for (const m of this.mats) {
       if (this.tint !== null) m.emissive.setHex(this.tint).multiplyScalar(0.3);
+      else if (warn > 0.01) m.emissive.setRGB(0.9 * warn, 0.28 * warn, 0.06 * warn);
       else m.emissive.setRGB(e, e * 0.3, e * 0.3);
     }
   }

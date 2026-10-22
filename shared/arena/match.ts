@@ -222,6 +222,7 @@ interface Swing {
   fx?: Effect;
   yaw: number;
   wind: number;
+  lead?: { kind: string; tx: number; tz: number; tid: string }; // a Horde Leader skill aimed at a marked spot
 }
 
 type MobState = 'idle' | 'flee' | 'attack' | 'investigate' | 'stampede';
@@ -915,6 +916,10 @@ export class Match {
     const sw = f.swing;
     f.swing = null;
     if (!sw) return;
+    if (sw.lead) {
+      this.fireLeaderSkill(f, sw.lead);
+      return;
+    }
     if (sw.kind === 'skill') {
       if (sw.skill && sw.fx) this.fireSkill(f, sw.skill, sw.fx, f.yaw);
       return;
@@ -1562,20 +1567,27 @@ export class Match {
       return false;
     }
     f.cdAt[0] = this.time + def.skill.cd;
-    this.emit({ k: 'skill', id: f.id, s: `sw_${def.id}`, x: tgt.x, z: tgt.z, yaw: f.yaw, r: 12 }, tgt.x, tgt.z);
-    if (def.id === 'rat') this.statusTo(f, tgt, [{ s: 'bleed', dur: 8, dps: (tgt.maxHp * 0.018) / Math.max(1, f.dv.dmg) }], f.dv.dmg);
-    else if (def.id === 'bird') {
-      for (const b of this.bodies(tgt.x, tgt.z, 7, (x) => x.kind === 'f' && (x as Fighter).role === 'alive' && (x as Fighter).team !== f.team) as Fighter[]) {
+    const wind = 0.45;
+    this.emit({ k: 'skill', id: f.id, s: `sw_${def.id}`, x: tgt.x, z: tgt.z, yaw: f.yaw, w: wind }, tgt.x, tgt.z);
+    f.swing = { at: this.time + wind, start: this.time, kind: 'skill', combo: -1, heavy: true, yaw: f.yaw, wind, lead: { kind: def.id, tx: tgt.x, tz: tgt.z, tid: tgt.id } };
+    return true;
+  }
+
+  /** The marked spot is hit now: anyone who stayed in it pays. */
+  private fireLeaderSkill(f: Fighter, lead: { kind: string; tx: number; tz: number }) {
+    this.emit({ k: 'strike', id: f.id, s: `sw_${lead.kind}`, x: lead.tx, z: lead.tz, yaw: f.yaw }, lead.tx, lead.tz);
+    const foes = (r: number) => this.bodies(lead.tx, lead.tz, r, (x) => x.kind === 'f' && (x as Fighter).role === 'alive' && (x as Fighter).team !== f.team) as Fighter[];
+    if (lead.kind === 'rat') {
+      for (const b of foes(3.5)) this.statusTo(f, b, [{ s: 'bleed', dur: 8, dps: (b.maxHp * 0.018) / Math.max(1, f.dv.dmg) }], f.dv.dmg);
+    } else if (lead.kind === 'bird') {
+      for (const b of foes(7)) {
         b.blindUntil = this.time + 3.5;
         this.hurt(b, 4, f, { kind: 'dive' });
       }
     } else {
-      const wet = this.terrain.depthAt(tgt.x, tgt.z) > 0.1 || this.nearWater(tgt.x, tgt.z);
-      for (const b of this.bodies(tgt.x, tgt.z, 12, (x) => x.kind === 'f' && (x as Fighter).role === 'alive' && (x as Fighter).team !== f.team) as Fighter[]) {
-        b.slow = { until: this.time + 4, f: wet ? 0.5 : 0.25 };
-      }
+      const wet = this.terrain.depthAt(lead.tx, lead.tz) > 0.1 || this.nearWater(lead.tx, lead.tz);
+      for (const b of foes(12)) b.slow = { until: this.time + 4, f: wet ? 0.5 : 0.25 };
     }
-    return true;
   }
 
   private checkTier(f: Fighter) {
@@ -2110,6 +2122,10 @@ export class Match {
       m.hp = 0;
       return;
     }
+    if (m.stunUntil > this.time) {
+      m.strikeAt = 0;
+      return;
+    }
     const frenzy = L.frenzyUntil > this.time;
     const speed = m.def.speed * (frenzy ? 1.3 : 1) * (L.tier === 3 ? 1.1 : 1);
     const dmg = m.def.dmg * (1 + (L.tier - 1) * 0.25) * (frenzy ? 1.6 : 1);
@@ -2133,10 +2149,15 @@ export class Match {
     if (tgt) {
       const d = dist(m, tgt);
       if (d > m.r + tgt.r + 0.4) this.moveMob(m, tgt.x - m.x, tgt.z - m.z, speed, dt);
-      else if (this.time >= m.atkAt) {
-        m.atkAt = this.time + 1;
-        m.atkFlash = 0.25;
-        this.hurt(tgt, dmg, m, { kind: 'swarm', blockable: true });
+      else if (m.strikeAt) {
+        if (this.time >= m.strikeAt) {
+          m.strikeAt = 0;
+          if (d < m.r + tgt.r + 0.9) this.hurt(tgt, dmg, m, { kind: 'swarm', blockable: true });
+        }
+      } else if (this.time >= m.atkAt) {
+        m.atkAt = this.time + 1.1;
+        m.atkFlash = 0.5;
+        m.strikeAt = this.time + 0.3; // a visible crouch before the bite
       }
     } else if (L.order === 'scatter') {
       m.wander -= dt;
@@ -2699,6 +2720,7 @@ export class Match {
         if (o.owner) fl |= 16;
         if (o.stunUntil > this.time) fl |= 32;
         if (o.warden) fl |= 64;
+        if (o.strikeAt) fl |= 128; // winding up a bite
         m.push([o.id, mobIndex(o.def.id), r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), fl]);
       }
       const d: [number, string, number, number, number][] = [];

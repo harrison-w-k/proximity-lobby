@@ -1242,6 +1242,7 @@ varying vec3 vWP;`)
         if (!mpose) v.cue = null;
       }
       if (now < v.warnUntil) mwarn = 0.5 + 0.5 * (1 - (v.warnUntil - now) / Math.max(0.1, v.cue?.wind ?? 0.5));
+      if (v.flags & 128) mwarn = Math.max(mwarn, 0.9); // a swarm animal crouching to bite
       v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now, pose: mpose, warn: mwarn });
       if (v.bar && Math.abs(v.hp - v.barHp) > 1) {
         v.barHp = v.hp;

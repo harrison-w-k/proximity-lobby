@@ -423,6 +423,14 @@ export class Arena {
         const fx = sk?.fx;
         const hostile = this.isHostile(e.id);
         if (e.s === 'dash') break;
+        if (e.s.startsWith('sw_') && e.w) {
+          // a Horde Leader marks the ground where its skill will land: step out of it
+          const r = e.s === 'sw_rat' ? 3.5 : e.s === 'sw_bird' ? 7 : 12;
+          sc.cue(e.id, { kind: 'skill', combo: -1, heavy: true, skill: e.s, fx: 'aoe', wind: e.w, rec: 0.4 });
+          sc.telegraph(e.x, e.z, 0, { shape: 'circle', r, arc: 360, width: 0 }, e.w, hostile, true);
+          if (hostile) this.nearSfx(e.x, e.z, () => this.d.sfx.windup(true), 40);
+          break;
+        }
         if (fx) {
           const wind = e.w ?? 0;
           const instant = fx.k === 'buff' || fx.k === 'heal' || fx.k === 'submerge';
