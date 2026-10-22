@@ -7,8 +7,8 @@ import { FL } from '../../../shared/arena/proto';
 import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
 import { makeLeaderRig, makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
 
-const SKY_TOP = 0x5d8fd0;
-const SKY_HORIZON = 0xcfe0ea;
+const SKY_TOP = 0x7aa9ee;
+const SKY_HORIZON = 0xfbe6d6;
 
 export interface FighterView {
   id: string;
@@ -132,8 +132,8 @@ export class ArenaScene {
     this.scene.fog = this.fog;
     this.scene.background = new THREE.Color(SKY_HORIZON);
     this.camera.rotation.order = 'YXZ';
-    this.scene.add(new THREE.HemisphereLight(0xdcecff, 0x6f7a55, 1.15));
-    this.sun = new THREE.DirectionalLight(0xfff2d6, 1.7);
+    this.scene.add(new THREE.HemisphereLight(0xfff0e0, 0x86ad76, 1.2));
+    this.sun = new THREE.DirectionalLight(0xffedc0, 1.8);
     this.sun.position.set(180, 260, 90);
     this.scene.add(this.sun);
     this.scene.add(this.makeSky());
@@ -167,24 +167,24 @@ export class ArenaScene {
     const c = new THREE.Color();
     const n = noise(x * 0.31, z * 0.27) * 0.12 - 0.06;
     if (h < WATER_Y - 0.1) c.setHex(h < -1.5 ? 0x4b5f55 : 0x9c9570);
-    else if (h < WATER_Y + 0.5) c.setHex(0xd8c88c);
+    else if (h < WATER_Y + 0.5) c.setHex(0xe8d9a8);
     else {
       switch (bio) {
         case Biome.Forest:
-          c.setHex(0x3f6e38);
+          c.setHex(0x4f8f48);
           break;
         case Biome.Wetlands:
-          c.setHex(0x5f8a45);
+          c.setHex(0x70ad5c);
           break;
         case Biome.Grassland:
-          c.setHex(0xa3b94d);
+          c.setHex(0xb9d268);
           break;
         default:
-          c.setHex(0x8b8672);
-          if (h > 24) c.setHex(0xe3e6e8);
-          else if (h > 15) c.lerp(new THREE.Color(0xc7c8c2), (h - 15) / 9);
+          c.setHex(0xcfc9b8);
+          if (h > 24) c.setHex(0xf6f3ea);
+          else if (h > 15) c.lerp(new THREE.Color(0xe6e1d3), (h - 15) / 9);
       }
-      if (slope > 0.75) c.lerp(new THREE.Color(0x77716a), Math.min(1, (slope - 0.75) * 2.5));
+      if (slope > 0.75) c.lerp(new THREE.Color(0xa59f92), Math.min(1, (slope - 0.75) * 2.5));
     }
     c.multiplyScalar(1 + n);
     return c;
@@ -460,15 +460,15 @@ varying vec3 vWP;`)
     })();
 
     const kinds: Record<string, { geo: THREE.BufferGeometry; mat: THREE.Material; node?: boolean; jitter?: boolean }> = {
-      tree: { geo: treeGeo(0x3f7f3a, 0x6b4a2e, 'round'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
-      pine: { geo: treeGeo(0x2f6b45, 0x5b3f29, 'pine'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
-      fruit: { geo: treeGeo(0x5c9a3c, 0x6b4a2e, 'fruit'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
-      hive: { geo: treeGeo(0x3f7f3a, 0x6b4a2e, 'hive'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
-      bush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x4d8a3c, flatShading: true }) },
-      berryBush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x3d7a34, flatShading: true }) },
+      tree: { geo: treeGeo(0xec93b8, 0x7a5238, 'round'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
+      pine: { geo: treeGeo(0x2a7a58, 0x5b3f29, 'pine'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
+      fruit: { geo: treeGeo(0x6dba4c, 0x7a5238, 'fruit'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
+      hive: { geo: treeGeo(0x6fae4a, 0x7a5238, 'hive'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
+      bush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x68a84f, flatShading: true }) },
+      berryBush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x56933f, flatShading: true }) },
       berry: { geo: berriesGeo, mat: new THREE.MeshLambertMaterial({ color: 0xd42a3c, flatShading: true, emissive: 0x330508 }), node: true },
-      rock: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0x8c8a85, flatShading: true }), jitter: true },
-      stone: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0x9a9890, flatShading: true }), jitter: true },
+      rock: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0xe6e1d3, flatShading: true }), jitter: true },
+      stone: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0xf2eee2, flatShading: true }), jitter: true },
       herb: { geo: herbGeo, mat: new THREE.MeshLambertMaterial({ color: 0x7ec06a, flatShading: true, emissive: 0x0a1a0a }), node: true },
       reed: { geo: reedGeo, mat: new THREE.MeshLambertMaterial({ color: 0x9aa655, flatShading: true }), node: true },
       mud: { geo: mudGeo, mat: new THREE.MeshLambertMaterial({ color: 0x5a4330, flatShading: true }), node: true },
@@ -579,7 +579,7 @@ varying vec3 vWP;`)
 
   private buildGulag() {
     const g = new THREE.Group();
-    const stone = new THREE.MeshLambertMaterial({ color: 0x77736b, flatShading: true });
+    const stone = new THREE.MeshLambertMaterial({ color: 0xd8d2c4, flatShading: true });
     const dark = new THREE.MeshLambertMaterial({ color: 0x4b4944, flatShading: true });
     const arena = (cx: number, cz: number) => {
       const floor = new THREE.Mesh(new THREE.CylinderGeometry(GULAG_R + 1, GULAG_R + 1.5, 1.2, 28), new THREE.MeshLambertMaterial({ color: 0xa79d85, flatShading: true }));
@@ -641,7 +641,7 @@ varying vec3 vWP;`)
     g.font = 'bold 22px "Courier New", monospace';
     g.textAlign = 'center';
     g.lineWidth = 5;
-    g.strokeStyle = '#120c07';
+    g.strokeStyle = '#14213d';
     const label = `${v.name}${v.role === 2 ? ' ☠' : ''}`;
     g.strokeText(label, 128, 22);
     g.fillStyle = (v.flags & FL.hunted) !== 0 ? '#ffd23f' : friend ? '#9bf08a' : '#ffffff';
@@ -1169,6 +1169,26 @@ varying vec3 vWP;`)
     });
   }
 
+  /**
+   * How far along the line from the animal (t) to the wanted camera spot (c) is clear, 0..1: the camera
+   * is pulled in so trees, rocks and hills never come between you and your animal.
+   */
+  cameraClear(tx: number, ty: number, tz: number, cx: number, cy: number, cz: number): number {
+    const n = 16;
+    for (let i = 1; i <= n; i++) {
+      const f = i / n;
+      const x = tx + (cx - tx) * f;
+      const y = ty + (cy - ty) * f;
+      const z = tz + (cz - tz) * f;
+      if (y < this.groundY(x, z) + 0.45) return (i - 1) / n;
+      for (const r of this.terrain.near(x, z, 2)) {
+        if (r.r <= 0 || r.h < 1) continue;
+        if (Math.hypot(x - r.x, z - r.z) < r.r + 0.25 && y < this.groundY(r.x, r.z) + r.h) return (i - 1) / n;
+      }
+    }
+    return 1;
+  }
+
   /** A creature that has gone (usually killed) tips over and shrinks away instead of blinking out. */
   private mobFall(v: MobView) {
     const g = v.group;
@@ -1194,7 +1214,7 @@ varying vec3 vWP;`)
     c.width = 128;
     c.height = 48;
     const g = c.getContext('2d')!;
-    g.font = '700 38px Fredoka, "Trebuchet MS", sans-serif';
+    g.font = '700 38px Nunito, "Trebuchet MS", sans-serif';
     g.textAlign = 'center';
     g.lineWidth = 6;
     g.strokeStyle = '#0b0b1a';

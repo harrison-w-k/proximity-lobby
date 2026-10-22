@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
-import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input } from '../../shared/movement';
+import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input, type MoveProfile } from '../../shared/movement';
 import { HOOP, OBSTACLES, SCENERY, blockTop, type Block } from '../../shared/obstacles';
 import { HATS, LOOK_COLORS, type Look } from '../../shared/look';
 import { REACH, throughHoop, throwPath, type Flight, type ItemKind, type ItemState } from '../../shared/items';
@@ -11,6 +11,9 @@ import { validAvatar } from '../../shared/avatar';
 import * as T from './textures';
 import { makePlayerRig, type Rig } from './arena/models';
 import { poseFor, type Cue } from './arena/anim';
+import { ANIMAL_BY_ID, derive, emptyStats, sumMods } from '../../shared/arena/animals';
+import { DASH_COOLDOWN, DASH_SPEED, DASH_TIME } from '../../shared/arena/combat';
+import { GRAVITY as MATCH_GRAVITY, JUMP_V } from '../../shared/arena/move';
 import { inShape, makeMove, type Move, type Slot } from './arena/sparring';
 import { ANIMAL_EMOJI } from './arena/emoji';
 
@@ -129,19 +132,19 @@ function paintName(sprite: THREE.Sprite, name: string, emoji?: string) {
   g.clearRect(0, 0, c.width, c.height);
   // a little carved plank with a leaf-green rim
   const grad = g.createLinearGradient(0, 8, 0, 56);
-  grad.addColorStop(0, '#5a3d24');
-  grad.addColorStop(1, '#2e1d11');
+  grad.addColorStop(0, '#3b5a8f');
+  grad.addColorStop(1, '#1a2b4d');
   g.beginPath();
   g.roundRect(4, 8, 248, 48, 24);
   g.fillStyle = grad;
   g.fill();
   g.lineWidth = 4;
-  g.strokeStyle = '#120c07';
+  g.strokeStyle = '#14213d';
   g.stroke();
   g.beginPath();
   g.roundRect(8, 12, 240, 40, 20);
   g.lineWidth = 2;
-  g.strokeStyle = emoji ? '#9bd15a' : '#6e4c2d';
+  g.strokeStyle = emoji ? '#9bd15a' : '#c9a24a';
   g.stroke();
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -149,10 +152,10 @@ function paintName(sprite: THREE.Sprite, name: string, emoji?: string) {
   if (emoji) {
     g.font = '28px system-ui, sans-serif';
     g.fillText(emoji, 36, 34);
-    g.font = '700 28px Fredoka, system-ui, sans-serif';
+    g.font = '700 28px Nunito, system-ui, sans-serif';
     g.fillText(name, 146, 33, 180);
   } else {
-    g.font = '700 28px Fredoka, system-ui, sans-serif';
+    g.font = '700 28px Nunito, system-ui, sans-serif';
     g.fillText(name, 128, 33, 232);
   }
   (sprite.material.map as THREE.CanvasTexture).needsUpdate = true;
@@ -173,7 +176,7 @@ function makeNameSprite(name: string): THREE.Sprite {
 }
 
 // ---------- sky, sun, clouds, hills ----------
-const SKY_HORIZON = 0xcfeeff; // fog and sea fade into this, so the horizon is seamless
+const SKY_HORIZON = 0xfce8d6; // fog and sea fade into this, so the horizon is seamless
 
 function makeSkyDome(): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
@@ -1382,6 +1385,9 @@ export class World {
   onSpar?: (slot: Slot, combo: number) => void;
   onSparHit?: (to: string, n: number, kx: number, kz: number) => void;
   onDamage?: (total: number) => void;
+  private shiftAt = 0;
+  private dashQueued = false;
+  private profileCache: { animal: string; p: MoveProfile } | null = null;
   private cdLeft: Record<Slot, number> = { a: 0, q: 0, x: 0 };
   private cdMax: Record<Slot, number> = { a: 1, q: 1, x: 1 };
   private combo = 0;
@@ -1468,9 +1474,14 @@ export class World {
       if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
       // Stop Ctrl+S / Ctrl+D / Ctrl+A etc. from opening browser dialogs mid-game.
       if ((e.ctrlKey || e.metaKey) && document.pointerLockElement === this.canvas) e.preventDefault();
+      if (e.code === 'ShiftLeft' && !e.repeat) this.shiftAt = performance.now();
       this.keys.add(e.code);
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      // a quick tap of Shift is a dash (hold it to sprint), as in the match
+      if (e.code === 'ShiftLeft' && this.selfAnimal && this.inputEnabled && performance.now() - this.shiftAt < 200) this.dashQueued = true;
+      this.keys.delete(e.code);
+    });
     window.addEventListener('blur', () => this.keys.clear());
     document.addEventListener('mousemove', (e) => {
       if (this.touchMode || document.pointerLockElement !== this.canvas || !this.inputEnabled) return;
@@ -1523,6 +1534,7 @@ export class World {
   /** Over the shoulder -> in front of you -> first person -> over the shoulder. */
   cycleView() {
     this.viewMode = ({ 1: 2, 2: 0, 0: 1 } as const)[this.viewMode];
+    if (this.selfAnimal && this.viewMode === 0) this.viewMode = 1; // an animal is always seen from outside
   }
 
   setFov(deg: number) {
@@ -1731,6 +1743,23 @@ export class World {
     this.selfThird.add(this.selfRig.root);
   }
 
+  /** The movement rules of your animal, the same as in the match. */
+  private moveProfile(): MoveProfile | undefined {
+    if (!this.selfAnimal) return undefined;
+    if (this.profileCache?.animal === this.selfAnimal) return this.profileCache.p;
+    const def = ANIMAL_BY_ID.get(this.selfAnimal);
+    if (!def) return undefined;
+    const base = derive(def, emptyStats(), sumMods([def.innate])).speed;
+    const p: MoveProfile = { walk: base, sprint: base * 1.45, jump: JUMP_V, gravity: MATCH_GRAVITY, dashSpeed: base * DASH_SPEED, dashTime: DASH_TIME, dashCd: DASH_COOLDOWN };
+    this.profileCache = { animal: this.selfAnimal, p };
+    return p;
+  }
+
+  /** Dash cooldown, 1 (just used) down to 0 (ready). */
+  get dashFrac(): number {
+    return this.sim.dashCd <= 0 ? 0 : Math.min(1, this.sim.dashCd / DASH_COOLDOWN);
+  }
+
   /** Remaining cooldown of one of your moves, 1 (just used) down to 0 (ready). */
   cooldown(slot: Slot): number {
     return this.cdLeft[slot] <= 0 ? 0 : Math.min(1, this.cdLeft[slot] / this.cdMax[slot]);
@@ -1840,12 +1869,12 @@ export class World {
     g.textAlign = 'center';
     g.lineJoin = 'round';
     g.lineWidth = 8;
-    g.strokeStyle = '#120c07';
-    g.font = '700 54px Fredoka, "Trebuchet MS", sans-serif';
+    g.strokeStyle = '#14213d';
+    g.font = '700 54px Nunito, "Trebuchet MS", sans-serif';
     g.strokeText(n, 96, 50);
     g.fillStyle = '#ffffff';
     g.fillText(n, 96, 50);
-    g.font = '700 22px Fredoka, "Trebuchet MS", sans-serif';
+    g.font = '700 22px Nunito, "Trebuchet MS", sans-serif';
     g.lineWidth = 5;
     g.strokeText('✦ INVINCIBLE', 96, 82);
     g.fillStyle = '#ffd77a';
@@ -2262,10 +2291,13 @@ export class World {
       jumpPressed: jump && !this.prevJump,
       crouch,
       crouchPressed: crouch && !this.prevCrouch,
-      sprint: on && (k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSprint),
+      sprint: on && ((k.has('ShiftLeft') && (!this.selfAnimal || performance.now() - this.shiftAt > 200)) || k.has('ShiftRight') || this.touchSprint),
+      profile: this.moveProfile(),
+      dashPressed: on && this.dashQueued,
       grab,
       grabPressed: grab && !this.prevGrab,
     };
+    this.dashQueued = false;
     this.prevJump = jump;
     this.prevCrouch = crouch;
     this.prevGrab = grab;
@@ -2280,7 +2312,12 @@ export class World {
       mantle: s.mantle !== null,
       depth: waterDepth(s.x, s.z),
     };
+    const dashWas = s.dashT > 0;
     const { sentHome } = stepPlayer(this.sim, input, dt);
+    if (s.dashT > 0) {
+      if (!dashWas) this.onSwing?.('x'); // the whoosh
+      this.puffs.emit(s.x, s.y + 0.5, s.z, 2, 0xcfeeff, 0.5, 0.4);
+    }
     this.emitMoveSounds(was, dt);
     this.pos.x = this.sim.x;
     this.pos.z = this.sim.z;
@@ -2555,15 +2592,18 @@ export class World {
       const camYaw = this.yaw + Math.PI * f;
       const camPitch = this.pitch * (1 - 2 * f);
       const cp = Math.cos(camPitch);
-      const back = SHOULDER_DISTANCE * t * (1 - 0.5 * this.aimBlend);
-      const shoulder = SHOULDER_OFFSET * t * (1 - f) * (1 + 0.45 * this.aimBlend);
+      // an animal sits in the middle of the screen: no shoulder offset, aimed at its body and not at a human's eyes
+      const an = !!this.selfAnimal;
+      const rigH = this.selfRig?.height ?? 1.5;
+      const back = SHOULDER_DISTANCE * (an ? Math.max(0.85, Math.min(1.7, rigH / 1.5)) : 1) * t * (1 - 0.5 * this.aimBlend);
+      const shoulder = (an ? 0 : SHOULDER_OFFSET) * t * (1 - f) * (1 + 0.45 * this.aimBlend);
       const rx = Math.cos(camYaw);
       const rz = -Math.sin(camYaw);
       const hx = this.pos.x;
-      const hy = this.pos.y;
+      const hy = an ? this.feetY + rigH * 0.5 + 0.2 : this.pos.y;
       const hz = this.pos.z;
       let cx = hx + Math.sin(camYaw) * cp * back + rx * shoulder;
-      let cy = hy - Math.sin(camPitch) * back + SHOULDER_LIFT * t;
+      let cy = hy - Math.sin(camPitch) * back + (an ? 0.15 : SHOULDER_LIFT) * t;
       let cz = hz + Math.cos(camYaw) * cp * back + rz * shoulder;
 
       // keep the camera out of walls: pull it in along the line from the head, smoothly

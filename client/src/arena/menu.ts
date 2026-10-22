@@ -15,12 +15,13 @@ const CSS = `
 @keyframes brfade { from { opacity: 0; } }
 #br-menu .panel { width: min(1120px, 100%); max-height: 96vh; overflow: auto; padding: 16px 22px 18px; display: flex; flex-direction: column; gap: 10px; animation: brpanel .35s ease-out; }
 @keyframes brpanel { from { opacity: 0; transform: translateY(26px) scale(.98); } }
+#br-menu h2, #br-menu .show .name b { font-family: 'Fraunces', Georgia, 'Times New Roman', serif; }
 #br-menu h2 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); text-shadow: 0 4px 0 var(--ink); }
 #br-menu .sub { font-size: 19px; color: #ecdcb2; line-height: 1.2; }
 #br-menu .stage { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 #br-menu .show { position: relative; height: 300px; border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
-  background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#26381d, #131d0d);
-  box-shadow: inset 0 0 0 3px #8a6338, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
+  background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#243a5e, #101c36);
+  box-shadow: inset 0 0 0 3px #6d86b8, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
 #br-menu .show::before { content: ''; position: absolute; left: 50%; top: -10%; width: 70%; height: 120%; transform: translateX(-50%); background: conic-gradient(from 160deg at 50% 0, transparent 0 20%, rgba(255,238,180,.22) 25% 35%, transparent 40% 100%); pointer-events: none; mix-blend-mode: screen; }
 #br-menu .show canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 #br-menu .show .name { position: absolute; left: 18px; bottom: 12px; pointer-events: none; text-shadow: 0 4px 0 rgba(0,0,0,.5); }
@@ -46,26 +47,26 @@ const CSS = `
 #br-menu .perks .p { color: #a8e26a; } #br-menu .perks .d { color: #ff9a82; }
 #br-menu .perks h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: #d9c99a; }
 #br-menu .chips { display: flex; gap: 8px; flex-wrap: wrap; }
-#br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#7a5a3a, #52381f); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
+#br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#4a6aa0, #344f82); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
 #br-menu .chip.on { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
 #br-menu .paint { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 14px; align-items: center; padding: 4px 2px; }
 #br-menu .paint .lab { font-size: 18px; font-weight: 700; color: #f3b43c; }
 #br-menu .paint .sws { display: flex; flex-wrap: wrap; gap: 6px; }
-#br-menu .paint .sw { width: 30px; height: 30px; border: 3px solid #120c07; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
+#br-menu .paint .sw { width: 30px; height: 30px; border: 3px solid #14213d; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
 #br-menu .paint .sw:hover { transform: translateY(-3px) scale(1.12); }
 #br-menu .paint .sw.on { box-shadow: 0 0 0 3px #f3b43c, 0 3px 0 rgba(0,0,0,.45); transform: translateY(-3px) scale(1.15); }
-#br-menu .paint .sw.nat { background: linear-gradient(135deg, #f7edd3 0 50%, #7a5a3a 50% 100%); }
-#br-menu .paint input[type=color] { width: 44px; height: 34px; padding: 0; border: 3px solid #120c07; border-radius: 10px; background: #f7edd3; cursor: pointer; }
+#br-menu .paint .sw.nat { background: linear-gradient(135deg, #f7edd3 0 50%, #4a6aa0 50% 100%); }
+#br-menu .paint input[type=color] { width: 44px; height: 34px; padding: 0; border: 3px solid #14213d; border-radius: 10px; background: #f7edd3; cursor: pointer; }
 #br-menu .paintnote { font-size: 14px; color: #ecdcb2; padding: 0 2px 4px; opacity: .85; }
 #br-menu .drop { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 4px 2px; }
-#br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #120c07; border-radius: 14px; cursor: pointer; font-family: inherit; color: #2a1b0c;
+#br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #14213d; border-radius: 14px; cursor: pointer; font-family: inherit; color: #1f2a4a;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s; }
 #br-menu .drop button:hover { transform: translateY(-3px); }
 #br-menu .drop button.on { background: linear-gradient(#cdf08e, #8fc653); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px #f3b43c, 0 4px 0 rgba(0,0,0,.45); transform: translateY(-4px); }
 #br-menu .drop .ic { font-size: 30px; line-height: 1.1; }
 #br-menu .drop b { font-size: 18px; }
 #br-menu .drop small { font-size: 13px; line-height: 1.1; text-align: center; opacity: .8; }
-#br-menu .drop .star { position: absolute; top: -10px; right: -6px; padding: 0 8px; border: 2px solid #120c07; border-radius: 999px; font-size: 12px; font-weight: 700; color: #2a1b0c; background: linear-gradient(#ffd77a, #e09a1f); }
+#br-menu .drop .star { position: absolute; top: -10px; right: -6px; padding: 0 8px; border: 2px solid #14213d; border-radius: 999px; font-size: 12px; font-weight: 700; color: #1f2a4a; background: linear-gradient(#ffd77a, #e09a1f); }
 #br-menu .dropinfo { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; padding: 6px 4px 2px; font-size: 16px; line-height: 1.25; }
 #br-menu .dropinfo h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; color: #f3b43c; }
 #br-menu .dropinfo .g { color: #b7e46f; }
@@ -73,20 +74,20 @@ const CSS = `
 #br-menu .dropinfo .fit { color: #ffd77a; }
 @media (max-width: 960px) { #br-menu .drop { grid-template-columns: repeat(3, 1fr); } #br-menu .dropinfo { grid-template-columns: 1fr; } }
 #br-menu .roster { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; padding: 8px 2px 4px; }
-#br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #2a1b0c;
+#br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #1f2a4a;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s, box-shadow .12s, filter .12s; animation: brtile .45s ease-out both; }
 #br-menu .tile:hover { transform: translateY(-6px) scale(1.06); filter: brightness(1.06); }
 #br-menu .tile .em { font-size: 38px; line-height: 1.1; filter: drop-shadow(0 3px 0 rgba(0,0,0,.25)); }
 #br-menu .tile b { display: block; font-size: 15px; line-height: 1; color: #6a3410; }
-#br-menu .tile small { font-size: 13px; color: #5b4a2c; }
+#br-menu .tile small { font-size: 13px; color: #4a5f8a; }
 #br-menu .tile.sel { background: linear-gradient(#cdf08e, #8fc653); transform: translateY(-9px) scale(1.1); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--amber), 0 0 22px rgba(255,200,80,.8), 0 5px 0 rgba(0,0,0,.45); z-index: 2; }
 #br-menu .tile.focus:not(.sel) { transform: translateY(-6px) scale(1.06); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 3px #fff6c8, 0 4px 0 rgba(0,0,0,.45); }
 @keyframes brtile { from { opacity: 0; transform: translateY(40px) scale(.8); } }
 #br-menu .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-#br-menu input[type=text] { width: 240px; height: 44px; padding: 0 16px; font-family: var(--font); font-size: 20px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #2a1b0c; outline: none; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); user-select: text; }
+#br-menu input[type=text] { width: 240px; height: 44px; padding: 0 16px; font-family: var(--font); font-size: 20px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #1f2a4a; outline: none; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); user-select: text; }
 #br-menu input[type=text]:focus { box-shadow: inset 0 3px 0 rgba(0,0,0,.15), 0 0 0 3px var(--leaf); }
 #br-menu .status { font-size: 22px; font-weight: 600; color: var(--leaf); min-height: 28px; }
-#br-open { pointer-events: auto; cursor: pointer; font-family: 'Fredoka', 'Trebuchet MS', sans-serif; font-weight: 700; }
+#br-open { pointer-events: auto; cursor: pointer; font-family: 'Nunito', 'Trebuchet MS', sans-serif; font-weight: 700; }
 @media (max-width: 960px) { #br-menu .stage { grid-template-columns: 1fr; } #br-menu .roster { grid-template-columns: repeat(4, 1fr); } }
 
 #br-menu .show { --acc: #e8a23a; }
@@ -108,7 +109,7 @@ const CSS = `
 #br-menu .kb { font-size: 14px; color: rgba(236,220,178,.7); }
 `;
 
-const ACCENT: Record<string, string> = { hunter: '#e8a23a', titan: '#6b9cff', ambusher: '#6fcf5a', brawler: '#ff6a5a', skirmisher: '#c78bff', guardian: '#4fd0d0' };
+export const ACCENT: Record<string, string> = { hunter: '#e8a23a', titan: '#6b9cff', ambusher: '#6fcf5a', brawler: '#ff6a5a', skirmisher: '#c78bff', guardian: '#4fd0d0' };
 const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
 
 export class BrMenu {
@@ -160,7 +161,7 @@ export class BrMenu {
     this.root.hidden = true;
     const panel = document.createElement('div');
     panel.className = 'panel wood';
-    panel.innerHTML = '<h2>Animal Battle Royale</h2><div class="sub">20 animals, one island, a lava ring that never stops closing. Level up on the hordes, then hunt each other. Dead players fight in the Gulag and come back leading a swarm.</div>';
+    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Dead players fight in the Gulag and come back leading a swarm.</div>';
 
     // the stage: a spotlit model on the left, its details on the right
     const stage = document.createElement('div');
@@ -540,11 +541,11 @@ export class BrMenu {
   /** The one-line status for the lobby button. */
   summary(): string {
     const q = this.q;
-    if (!q) return '🐾 Battle Royale [B]';
+    if (!q) return '🎓 Tournament [B]';
     if (q.you) return q.startsIn !== null ? `🐾 Queued · starts in ${Math.max(0, q.startsIn - Math.floor((performance.now() - this.qAt) / 1000))}s` : '🐾 Queued';
     if (q.inMatch) return '🐾 Match running [B]';
     if (q.queued > 0) return `🐾 ${q.queued} queued [B]`;
-    return '🐾 Battle Royale [B]';
+    return '🎓 Tournament [B]';
   }
 
   private render() {

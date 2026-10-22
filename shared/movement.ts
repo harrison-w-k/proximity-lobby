@@ -50,6 +50,17 @@ const PULL_UP_HOLD = 0.45; // hold forward this long to pull up without pressing
 const MANTLE_TIME = 0.5;
 const VAULT_TIME = 0.3;
 
+/** The movement of an animal, as in the real game: its own speeds, the match's jump, and a dash. No sliding or ledge-hanging. */
+export interface MoveProfile {
+  walk: number;
+  sprint: number;
+  jump: number;
+  gravity: number;
+  dashSpeed: number;
+  dashTime: number;
+  dashCd: number;
+}
+
 export interface Mantle {
   t: number;
   dur: number;
@@ -85,6 +96,10 @@ export interface Sim {
   hangToX: number;
   hangToZ: number;
   grabCooldown: number;
+  dashT: number; // seconds of dash left
+  dashX: number;
+  dashZ: number;
+  dashCd: number; // seconds until the next dash
   mantle: Mantle | null;
   onGround: boolean;
   coyote: number; // seconds of "still counts as grounded" left
@@ -106,6 +121,8 @@ export interface Input {
   sprint: boolean; // held
   grab: boolean; // held: the intentional "catch the ledge" button
   grabPressed: boolean; // went down this frame
+  profile?: MoveProfile; // an animal's movement (leave out for the old human controller)
+  dashPressed?: boolean; // went down this frame
 }
 
 export const noInput = (yaw = 0): Input => ({
@@ -146,6 +163,10 @@ export function newSim(x = 0, z = 0): Sim {
     hangToX: 0,
     hangToZ: 0,
     grabCooldown: 0,
+    dashT: 0,
+    dashX: 0,
+    dashZ: 0,
+    dashCd: 0,
     mantle: null,
     onGround: true,
     coyote: 0,
@@ -382,7 +403,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   p.jumpBuffer = inp.jumpPressed ? JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
 
   // ---- crouch / slide state ----
-  if (grounded && !p.sliding && inp.crouchPressed && inp.sprint && inp.f > 0.3 && horizSpeed(p) >= SLIDE_MIN_SPEED) {
+  if (!inp.profile && grounded && !p.sliding && inp.crouchPressed && inp.sprint && inp.f > 0.3 && horizSpeed(p) >= SLIDE_MIN_SPEED) {
     p.sliding = true;
     p.slideTime = 0;
     const sp = Math.max(horizSpeed(p), SLIDE_SPEED);
@@ -430,12 +451,26 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
     p.vz *= decay;
   } else if (!p.sliding) {
     const sprinting = inp.sprint && inp.f > 0.3 && !p.crouching; // sprint is forward only
-    const base = p.crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : WALK_SPEED;
+    const base = inp.profile ? (p.crouching ? inp.profile.walk * 0.6 : sprinting ? inp.profile.sprint : inp.profile.walk) : p.crouching ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : WALK_SPEED;
     const speed = base * (1 - 0.45 * depth);
     const rate = grounded ? (wantsMove ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
     const a = 1 - Math.exp(-rate * dt);
     p.vx += (wx * speed - p.vx) * a;
     p.vz += (wz * speed - p.vz) * a;
+  }
+  // an animal's dash: a short burst of speed that cannot be steered, then a cooldown
+  p.dashCd = Math.max(0, p.dashCd - dt);
+  if (inp.profile && !p.ragdoll) {
+    if (p.dashT > 0) {
+      p.dashT -= dt;
+      p.vx = p.dashX * inp.profile.dashSpeed;
+      p.vz = p.dashZ * inp.profile.dashSpeed;
+    } else if (inp.dashPressed && p.dashCd <= 0) {
+      p.dashT = inp.profile.dashTime;
+      p.dashCd = inp.profile.dashCd;
+      p.dashX = aimX;
+      p.dashZ = aimZ;
+    }
   }
 
   // ---- vault / climb from the ground (jump or grab, next to a wall that is not jumpable) ----
@@ -470,7 +505,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   // ---- jump: buffered, with coyote time, variable height ----
   const wantJump = p.jumpBuffer > 0 || (grounded && inp.jump); // holding jump keeps hopping
   if (wantJump && (grounded || p.coyote > 0)) {
-    p.vy = JUMP_SPEED * (1 - 0.35 * depth);
+    p.vy = (inp.profile?.jump ?? JUMP_SPEED) * (1 - 0.35 * depth);
     p.coyote = 0;
     p.jumpBuffer = 0;
     p.jumpCut = false;
@@ -498,7 +533,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   const depth2 = waterDepth(p.x, p.z);
   const ground2 = Math.max(-WADE_DEPTH * depth2, supp2);
   const vyBefore = p.vy;
-  p.vy -= GRAVITY * dt;
+  p.vy -= (inp.profile?.gravity ?? GRAVITY) * dt;
   p.y += p.vy * dt;
   // hit your head on the underside of something
   if (p.vy > 0) {
@@ -521,7 +556,7 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
   }
 
   // ---- ledge grab: airborne, grab button held, a wall in front whose top is within reach ----
-  if (!p.onGround && inp.grab && p.grabCooldown <= 0) {
+  if (!inp.profile && !p.onGround && inp.grab && p.grabCooldown <= 0) {
     const w = wallAhead(blocks, p.x, p.z, aimX, aimZ, p.y, STAND_H);
     if (w) {
       const rise = blockTop(w.block) - p.y;

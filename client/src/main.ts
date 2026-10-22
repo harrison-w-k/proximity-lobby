@@ -9,6 +9,9 @@ import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
 import { ANIMAL_EMOJI } from './arena/emoji';
 import { loadPaint } from './arena/paintStore';
+import { Showcase } from './arena/showcase';
+import { ACCENT } from './arena/menu';
+import { CLASS_BY_ID } from '../../shared/arena/animals';
 import { slotLabel, type Slot } from './arena/sparring';
 import type { Paint } from '../../shared/arena/paint';
 import { ANIMALS, ANIMAL_BY_ID } from '../../shared/arena/animals';
@@ -46,7 +49,49 @@ try {
 } catch {
   /* storage unavailable */
 }
+// the big spotlit animal on the front screen: it follows the picker
+const joinShow = new Showcase();
+joinShow.zoom = 0.62;
+document.getElementById('join-stage')?.prepend(joinShow.canvas);
+let stageAnimal = '';
+function refreshStage() {
+  const a = ANIMAL_BY_ID.get(myAnimal);
+  if (!a) return;
+  const stage = document.getElementById('join-stage');
+  if (!stage) return;
+  const cls = CLASS_BY_ID.get(a.cls);
+  stage.style.setProperty('--acc', ACCENT[a.cls] ?? '#e8a23a');
+  joinShow.setAccent(parseInt((ACCENT[a.cls] ?? '#e8a23a').slice(1), 16));
+  if (stageAnimal === a.id) {
+    joinShow.setPaint(loadPaint(a.id));
+    return;
+  }
+  stageAnimal = a.id;
+  joinShow.setAnimal(a.id, loadPaint(a.id));
+  const nm = stage.querySelector<HTMLElement>('.nm')!;
+  (document.getElementById('js-name') as HTMLElement).textContent = a.name;
+  (document.getElementById('js-cls') as HTMLElement).textContent = `${cls?.icon ?? ''} ${cls?.name ?? ''}`;
+  (document.getElementById('js-role') as HTMLElement).textContent = `${a.role} · ${a.blurb}`;
+  nm.classList.remove('in');
+  void nm.offsetWidth;
+  nm.classList.add('in');
+}
+let stageOn = false;
+setInterval(() => {
+  const vis = !!document.getElementById('join') && !document.getElementById('join')!.hidden;
+  if (vis && !stageOn) {
+    stageOn = true;
+    joinShow.resize();
+    joinShow.start();
+  } else if (!vis && stageOn) {
+    stageOn = false;
+    joinShow.stop();
+  }
+}, 400);
+window.addEventListener('resize', () => stageOn && joinShow.resize());
+
 function refreshAnimalUi() {
+  refreshStage();
   const a = ANIMAL_BY_ID.get(myAnimal);
   const chip = document.getElementById('animal-chip');
   if (chip && a) chip.textContent = `${ANIMAL_EMOJI[a.id] ?? '🐾'} ${a.name} · change`;
@@ -192,7 +237,7 @@ world.onSpar = (slot, combo) => net.send({ t: 'lfx', s: slot, c: combo });
 world.onSparHit = (to, n, kx, kz) => net.send({ t: 'lhit', to, n, kx, kz });
 const sparBar = document.createElement('div');
 sparBar.id = 'spar';
-sparBar.innerHTML = ['a|LMB', 'q|Q', 'x|X'].map((s) => `<div class="mv" data-s="${s.split('|')[0]}"><i></i><kbd>${s.split('|')[1]}</kbd><b></b></div>`).join('') + '<div class="cap">✦ Everyone here is invincible <span id="spar-total"></span></div>';
+sparBar.innerHTML = ['d|Shift', 'a|LMB', 'q|Q', 'x|X'].map((s) => `<div class="mv" data-s="${s.split('|')[0]}"><i></i><kbd>${s.split('|')[1]}</kbd><b></b></div>`).join('') + '<div class="cap">✦ Everyone here is invincible <span id="spar-total"></span></div>';
 document.body.append(sparBar);
 world.onDamage = (total) => {
   const t = document.getElementById('spar-total');
@@ -204,10 +249,10 @@ function refreshSparBar() {
   if (!show) return;
   sparBar.querySelectorAll<HTMLElement>('.mv').forEach((el) => {
     const s = el.dataset.s as Slot;
-    const cd = world.cooldown(s);
+    const cd = (el.dataset.s as string) === 'd' ? world.dashFrac : world.cooldown(s);
     (el.querySelector('i') as HTMLElement).style.height = `${Math.round(cd * 100)}%`;
     el.classList.toggle('cool', cd > 0);
-    const label = slotLabel(myAnimal, s);
+    const label = (el.dataset.s as string) === 'd' ? 'Dash' : slotLabel(myAnimal, s);
     const b = el.querySelector('b')!;
     if (b.textContent !== label) b.textContent = label;
   });

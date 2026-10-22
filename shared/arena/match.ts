@@ -15,7 +15,7 @@ import {
   type ServerMatchMsg, type YouState,
 } from './proto';
 import { classSkill } from './animals';
-import { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
+import { COMBO, COMBO_RESET, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { SPAWN_BY_ID, type SpawnId } from './spawn';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
@@ -23,14 +23,12 @@ import { botThink } from './bots';
 
 export const TICK_HZ = 30;
 export const DT = 1 / TICK_HZ;
-export const PHASE_NAMES = ['Scatter', 'Farm', 'Clash', 'Cull', 'Final'];
+export const PHASE_NAMES = ['Recess', 'Study Hall', 'Pop Quiz', 'Final Exam', 'Graduation'];
 export const PHASE_AT = [0, 90, 240, 420, 600];
 export const MATCH_LEN = 720;
 export const PVP_DAMAGE = 0.6; // blows between players land at 60%: fights last longer
 export const DASH_COST = 22; // stamina
-export const DASH_COOLDOWN = 2.4; // s
-export const DASH_TIME = 0.26; // s
-export const DASH_SPEED = 3.4; // x walking speed
+export { DASH_COOLDOWN, DASH_TIME, DASH_SPEED };
 export { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW };
 /** Seconds of wind-up before each kind of skill lands: the telegraph others can react to. */
 const SKILL_WIND: Record<string, number> = { cone: 0.22, dash: 0.18, aoe: 0.3, proj: 0.16, grab: 0.2 };
@@ -1257,7 +1255,7 @@ export class Match {
       for (const o of this.fighters) if (o.team === f.team) o.place = place;
     }
     this.rosterDirty = true;
-    this.emit({ k: 'toast', to: f.id, text: 'You were eliminated. Survive the Gulag to return as a Horde Leader.' });
+    this.emit({ k: 'toast', to: f.id, text: 'You were eliminated. Survive Detention to return as a Horde Leader.' });
   }
 
   /** Kills in quick succession build a streak that the whole match gets to see. */
@@ -1799,8 +1797,8 @@ export class Match {
       duel.warden = w;
       this.mobs.push(w);
     }
-    this.emit({ k: 'toast', to: a.id, text: b ? `Gulag duel vs ${b.name}!` : 'Gulag duel vs the Warden!' });
-    if (b) this.emit({ k: 'toast', to: b.id, text: `Gulag duel vs ${a.name}!` });
+    this.emit({ k: 'toast', to: a.id, text: b ? `Detention duel vs ${b.name}!` : 'Detention duel vs the Headmaster!' });
+    if (b) this.emit({ k: 'toast', to: b.id, text: `Detention duel vs ${a.name}!` });
   }
 
   // --- mobs -----------------------------------------------------------------------------------

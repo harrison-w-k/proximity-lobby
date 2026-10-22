@@ -419,4 +419,33 @@ assert.ok(blockTop(at(-26, -9.5, 'goal')) >= 10, 'the goal is 10 m or more above
   assert.ok(p.x <= 4 + 1e-6, 'stops at the end of the ledge');
 }
 
+// an animal moves as it does in the match: its own speed, a dash on a cooldown, no sliding or hanging
+{
+  const profile = { walk: 6, sprint: 8.7, jump: 8.8, gravity: 24, dashSpeed: 20, dashTime: 0.26, dashCd: 2.4 };
+  const run = (secs: number, inp: Partial<Input>, sim = newSim(0, 20)) => {
+    for (let i = 0; i < secs * 60; i++) stepPlayer(sim, { ...noInput(0), profile, ...inp }, DT, []);
+    return sim;
+  };
+  const walked = run(2, { f: 1 });
+  assert.ok(Math.abs(Math.hypot(walked.vx, walked.vz) - 6) < 0.3, 'walks at the animal speed');
+  const sim = newSim(0, 20);
+  stepPlayer(sim, { ...noInput(0), profile, f: 1, dashPressed: true }, DT, []);
+  assert.ok(sim.dashT > 0 && sim.dashCd > 2, 'a dash starts and its cooldown runs');
+  for (let i = 0; i < 6; i++) stepPlayer(sim, { ...noInput(0), profile, f: 1 }, DT, []);
+  assert.ok(Math.hypot(sim.vx, sim.vz) > 19, 'dashing is much faster than walking');
+  for (let i = 0; i < 60; i++) stepPlayer(sim, { ...noInput(0), profile, f: 1 }, DT, []);
+  assert.ok(sim.dashT <= 0 && Math.hypot(sim.vx, sim.vz) < 8, 'the dash ends');
+  const sl = run(1.5, { f: 1, sprint: true });
+  stepPlayer(sl, { ...noInput(0), profile, f: 1, sprint: true, crouch: true, crouchPressed: true }, DT, []);
+  assert.equal(sl.sliding, false, 'animals do not slide');
+  const jumper = newSim(0, 20);
+  let peak = 0;
+  stepPlayer(jumper, { ...noInput(0), profile, jump: true, jumpPressed: true }, DT, []);
+  for (let i = 0; i < 90; i++) {
+    stepPlayer(jumper, { ...noInput(0), profile, jump: true }, DT, []);
+    peak = Math.max(peak, jumper.y);
+  }
+  assert.ok(peak > 1.3 && peak < 1.8, `jumps as high as in the match (${peak.toFixed(2)} m)`);
+}
+
 console.log('movement tests passed');

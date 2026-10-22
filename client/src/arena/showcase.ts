@@ -120,6 +120,8 @@ export class Showcase {
     this.stepAt = 0; // the next frame starts the next step
   }
 
+  /** 1 frames the whole animal; smaller moves the camera in closer. */
+  zoom = 1;
   private paint?: [number, number];
 
   /** Recolour the animal on the stage without making it rise again. */
@@ -147,7 +149,7 @@ export class Showcase {
     const sph = box.getBoundingSphere(new THREE.Sphere());
     this.radius = sph.radius;
     this.center.copy(sph.center);
-    const dist = (sph.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.08;
+    const dist = (sph.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.08 * this.zoom;
     this.camera.position.set(0, sph.center.y + dist * 0.16, dist);
     this.camera.lookAt(0, sph.center.y, 0);
     this.floor.scale.setScalar(sph.radius * 1.7);

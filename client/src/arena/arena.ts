@@ -63,8 +63,8 @@ export class Arena {
   private pos = { x: 0, z: 0, jy: 0, jv: 0 }; // jy / jv: the jump, predicted like the walk
   private haveSnap = false;
   private camYaw = 0;
-  private camPitch = 0.62;
-  private zoom = 9.5;
+  private camPitch = 0.5;
+  private zoom = 7.2;
   private keys = new Set<string>();
   private mouseDown = false;
   private panelOpen = false;
@@ -100,6 +100,7 @@ export class Arena {
   private pings: { x: number; z: number; until: number }[] = [];
   private lastRole = 0;
   private lastLvl = 1;
+  private camFrac = 1;
   private lastZone = '';
   private shownZone = '';
   private zoneSince = 0;
@@ -250,7 +251,7 @@ export class Arena {
     this.roster = new Map(m.roster.map((r) => [r.id, r]));
     // the map takes a moment to build: say so first
     this.loading = document.createElement('div');
-    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#2f5a24,#10200c 70%);color:#f7edd3;font-family:Fredoka,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #120c07';
+    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#3a6ea5,#0e1a38 70%);color:#f7edd3;font-family:Nunito,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #14213d';
     this.loading.innerHTML = `<div style="font-size:72px;animation:brbob 1s ease-in-out infinite alternate">${ANIMAL_EMOJI[this.def.id] ?? '🐾'}</div><div>Generating the wilds…</div><div style="font-size:17px;font-weight:500;color:#f3b43c">${this.def.name} · ${this.def.role}</div><style>@keyframes brbob{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-14px) rotate(6deg)}}</style>`;
     document.body.append(this.loading);
     setTimeout(() => {
@@ -372,7 +373,7 @@ export class Arena {
   private onRoleChange(from: number, to: number) {
     this.panelOpen = false;
     if (to === 1) {
-      this.hud.announce('ELIMINATED', 'You are in the Gulag. Win the duel to lead a bigger swarm.', 4500);
+      this.hud.announce('ELIMINATED', 'You are in Detention. Win the duel to lead a bigger swarm.', 4500);
       this.d.sfx.death();
     } else if (to === 2) {
       const sw = this.roster.get(this.myId)?.swarm;
@@ -976,13 +977,20 @@ export class Arena {
     const sp = Math.sin(this.camPitch);
     const sy = Math.sin(this.camYaw);
     const cy = Math.cos(this.camYaw);
-    // over the shoulder: shift toward the right
-    const shoulder = 0.9 * sizeK;
+    // the animal stays in the middle of the screen: no shoulder offset, and nothing may come between it and the camera
+    const shoulder = 0;
     const rx = -cy;
     const rz = sy;
     let px = tx - sy * cp * dist + rx * shoulder;
     let pz = tz - cy * cp * dist + rz * shoulder;
     let py = ty + sp * dist + 0.4;
+    const fullD = Math.hypot(px - tx, py - ty, pz - tz);
+    const clear = sc.cameraClear(tx, ty, tz, px, py, pz);
+    const want = Math.max(clear, Math.min(1, 1.5 / Math.max(1.5, fullD)));
+    this.camFrac += (want - this.camFrac) * (1 - Math.exp(-(want < this.camFrac ? 30 : 4) * dt));
+    px = tx + (px - tx) * this.camFrac;
+    py = ty + (py - ty) * this.camFrac;
+    pz = tz + (pz - tz) * this.camFrac;
     // never go through the ground
     const floor = sc.groundY(px, pz) + 0.55;
     if (py < floor) py = floor;
@@ -997,7 +1005,8 @@ export class Arena {
       cam.position.y += (Math.random() - 0.5) * a;
       cam.position.z += (Math.random() - 0.5) * a;
     }
-    this.lookAt.set(tx + rx * shoulder * 0.9 + sy * 6, ty + 0.1 - sp * 0.5, tz + rz * shoulder * 0.9 + cy * 6);
+    // look a little past the animal so you can see ahead, but it stays near the middle (slightly below it)
+    this.lookAt.set(tx + sy * 0.8, ty - 0.05 - sp * 0.1, tz + cy * 0.8);
     cam.lookAt(this.lookAt);
     px = 0;
     pz = 0;
