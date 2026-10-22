@@ -69,6 +69,7 @@ export interface YouState {
   dashMax: number;
   jy: number; // height above the ground
   jv: number;
+  parryWin: number; // seconds of the parry window
   guard: boolean;
   wind: boolean; // winding up an attack
   guardAge: number; // seconds since the guard went up (a parry needs it under ~0.24)

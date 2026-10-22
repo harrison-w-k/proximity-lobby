@@ -48,6 +48,7 @@ export interface FighterView {
   jy: number;
   vy: number;
   lastJy?: number;
+  lastState?: RigState;
   shield: THREE.Mesh;
 }
 
@@ -108,6 +109,9 @@ export class ArenaScene {
   private hidden = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 }[]>();
   private fxList: { update(dt: number): boolean }[] = [];
   private trailAt = new Map<string, number>();
+  private dustAt = new Map<string, number>();
+  private prevJy = new Map<string, number>();
+  private prevYaw = new Map<string, number>();
   private decals: { g: THREE.Group; mats: THREE.MeshBasicMaterial[]; t: number; wind: number; hostile: boolean; heavy: boolean }[] = [];
   private floaters: { s: THREE.Sprite; vy: number; life: number; max: number }[] = [];
   private projs = new Map<number, { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number }>();
@@ -772,32 +776,83 @@ varying vec3 vWP;`)
     return e < c.wind ? e / c.wind : -1;
   }
 
+  /** A flat patch of ground (a ring, an arc or a disc) that follows the terrain, so it shows on slopes and curves. */
+  private drape(x: number, z: number, yaw: number, r0: number, r1: number, a0: number, a1: number, segs: number, rings: number): THREE.BufferGeometry {
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const sy = Math.sin(yaw);
+    const cy = Math.cos(yaw);
+    for (let j = 0; j <= rings; j++) {
+      const r = r0 + ((r1 - r0) * j) / rings;
+      for (let i = 0; i <= segs; i++) {
+        const a = a0 + ((a1 - a0) * i) / segs;
+        const f = r * Math.cos(a); // forward
+        const side = r * Math.sin(a);
+        const wx = x + sy * f - cy * side;
+        const wz = z + cy * f + sy * side;
+        pos.push(wx, this.groundY(wx, wz) + 0.2, wz);
+      }
+    }
+    for (let j = 0; j < rings; j++) {
+      for (let i = 0; i < segs; i++) {
+        const p = j * (segs + 1) + i;
+        idx.push(p, p + segs + 1, p + 1, p + 1, p + segs + 1, p + segs + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    return g;
+  }
+
+  private drapeRect(x: number, z: number, yaw: number, len: number, wid: number): THREE.BufferGeometry {
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const n = Math.max(4, Math.ceil(len / 1.5));
+    const sy = Math.sin(yaw);
+    const cy = Math.cos(yaw);
+    for (let i = 0; i <= n; i++) {
+      for (const sd of [-wid / 2, 0, wid / 2]) {
+        const f = (len * i) / n;
+        const wx = x + sy * f - cy * sd;
+        const wz = z + cy * f + sy * sd;
+        pos.push(wx, this.groundY(wx, wz) + 0.2, wz);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      for (let k = 0; k < 2; k++) {
+        const p = i * 3 + k;
+        idx.push(p, p + 3, p + 1, p + 1, p + 3, p + 4);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    return g;
+  }
+
   /** Mark on the ground where a move is about to land, fading in as the wind-up runs out. */
   telegraph(x: number, z: number, yaw: number, tg: Telegraph, wind: number, hostile: boolean, heavy: boolean) {
     const g = new THREE.Group();
     const mats: THREE.MeshBasicMaterial[] = [];
     const mk = (geo: THREE.BufferGeometry, op: number) => {
-      const mat = new THREE.MeshBasicMaterial({ color: hostile ? (heavy ? 0xff3a1a : 0xff6a3a) : 0xffe9a8, transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+      const mat = new THREE.MeshBasicMaterial({ color: hostile ? (heavy ? 0xff3a1a : 0xff6a3a) : 0xffe9a8, transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
       mats.push(mat);
       const m = new THREE.Mesh(geo, mat);
-      m.rotation.x = -Math.PI / 2;
       m.renderOrder = 3;
+      m.frustumCulled = false;
       return m;
     };
     if (tg.shape === 'arc') {
       const a = (tg.arc * Math.PI) / 180;
-      g.add(mk(new THREE.RingGeometry(0.1, tg.r, 28, 1, -a / 2, a), 0.34));
-      g.add(mk(new THREE.RingGeometry(tg.r - 0.18, tg.r, 28, 1, -a / 2, a), 0.7));
+      g.add(mk(this.drape(x, z, yaw, 0.15, tg.r, -a / 2, a / 2, 26, 5), 0.34));
+      g.add(mk(this.drape(x, z, yaw, tg.r - 0.2, tg.r, -a / 2, a / 2, 26, 1), 0.7));
     } else if (tg.shape === 'circle') {
-      g.add(mk(new THREE.CircleGeometry(tg.r, 32), 0.28));
-      g.add(mk(new THREE.RingGeometry(tg.r - 0.22, tg.r, 40), 0.7));
+      g.add(mk(this.drape(x, z, yaw, 0.01, tg.r, -Math.PI, Math.PI, 40, Math.max(3, Math.ceil(tg.r / 2))), 0.28));
+      g.add(mk(this.drape(x, z, yaw, tg.r - 0.25, tg.r, -Math.PI, Math.PI, 48, 1), 0.7));
     } else {
-      const bar = mk(new THREE.PlaneGeometry(tg.r, tg.width), 0.32);
-      bar.position.x = tg.r / 2;
-      g.add(bar);
+      g.add(mk(this.drapeRect(x, z, yaw, tg.r, tg.width), 0.32));
     }
-    g.position.set(x, this.groundY(x, z) + 0.12, z);
-    g.rotation.y = yaw - Math.PI / 2;
     this.scene.add(g);
     this.decals.push({ g, mats, t: 0, wind, hostile, heavy });
   }
@@ -1191,7 +1246,32 @@ varying vec3 vWP;`)
         mat.opacity = parry ? 0.6 : 0.3 + Math.sin(now * 10) * 0.04;
         sh.scale.setScalar(v.rig.radius > 0.9 ? 1.5 : v.rig.radius < 0.5 ? 0.8 : 1);
       }
-      const st: RigState = { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: v.jy, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
+      // how fast it is turning, for leaning into corners
+      let turn = 0;
+      {
+        const py = this.prevYaw.get(v.id) ?? v.yaw;
+        let dy = v.yaw - py;
+        while (dy > Math.PI) dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        turn = dy / Math.max(dt, 1e-3);
+        this.prevYaw.set(v.id, v.yaw);
+      }
+      // dust kicked up by a sprint, and a bigger puff on landing (only near the camera)
+      const nearCam = Math.hypot(v.x - this.camera.position.x, v.z - this.camera.position.z) < 45;
+      if (nearCam && v.x < 1000) {
+        const was = this.prevJy.get(v.id) ?? 0;
+        const ground2 = this.groundY(v.x, v.z);
+        const wet = this.terrain.depthAt(v.x, v.z) > 0.1;
+        const col = wet ? 0xcfeeff : this.terrain.biomeAt(v.x, v.z) === 0 ? 0x8a7a55 : 0xd2c299;
+        if (was > 0.15 && v.jy < 0.05) this.burst(v.x, ground2 + 0.15, v.z, col, 9, 2.6, 0.45);
+        else if (v.speedS > 7 && v.jy < 0.05 && this.clock - (this.dustAt.get(v.id) ?? -1) > 0.17) {
+          this.dustAt.set(v.id, this.clock);
+          this.burst(v.x - Math.sin(v.yaw) * 0.5, ground2 + 0.12, v.z - Math.cos(v.yaw) * 0.5, col, 4, 1.4, 0.38);
+        }
+      }
+      this.prevJy.set(v.id, v.jy);
+      const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: v.jy, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
+      v.lastState = st;
       v.rig.update(dt, st);
       v.rig.setTint((v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : null);
       // hide models in bushes/underwater from far away is the server's job; here just the plate

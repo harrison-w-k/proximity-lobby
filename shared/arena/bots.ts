@@ -23,6 +23,9 @@ interface Mem {
   nextOrder: number;
   guardUntil: number;
   react: number; // how late in the wind-up this bot reacts
+  dazeUntil: number; // attention lapses: it just stands there
+  nextDaze: number;
+  wobble: number;
 }
 
 const mem = new WeakMap<Fighter, Mem>();
@@ -45,7 +48,7 @@ function memOf(m: Match, f: Fighter): Mem {
   if (!s) {
     s = {
       style: m.rnd(), focus: null, retarget: 0, wanderX: f.x, wanderZ: f.z, wanderUntil: 0, lastX: f.x, lastZ: f.z, stuckAt: 0, detourUntil: 0, detourSign: 1,
-      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.06 + m.rnd() * 0.14,
+      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.02 + m.rnd() * 0.08, dazeUntil: 0, nextDaze: m.time + 3 + m.rnd() * 6, wobble: m.rnd() * 6,
     };
     mem.set(f, s);
   }
@@ -85,6 +88,14 @@ function goTo(m: Match, f: Fighter, s: Mem, x: number, z: number, sprint = false
   const i = f.input;
   i.dx = d < 0.4 ? 0 : ux;
   i.dz = d < 0.4 ? 0 : uz;
+  // they do not walk straight: a lazy weave in the heading
+  const wob = Math.sin(m.time * 1.4 + s.wobble) * 0.4;
+  const wx = ux * Math.cos(wob) - uz * Math.sin(wob);
+  const wz = ux * Math.sin(wob) + uz * Math.cos(wob);
+  if (d > 3) {
+    i.dx = d < 0.4 ? 0 : wx;
+    i.dz = d < 0.4 ? 0 : wz;
+  }
   i.yaw = Math.atan2(ux, uz);
   i.sprint = sprint && f.sta > 20;
   i.crouch = false;
@@ -104,7 +115,7 @@ function safeRadius(m: Match): number {
   const now = ringAt(m.time);
   let r = now.r;
   for (const s of RINGS) {
-    if (m.time >= s.warn - 5 && m.time < s.start + s.dur + 10) r = Math.min(r, 350 * s.frac);
+    if (m.time >= s.start - 8 && m.time < s.start + s.dur + 10) r = Math.min(r, 350 * s.frac); // they only start moving once it is nearly on them
   }
   return r;
 }
@@ -114,6 +125,16 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   const s = memOf(m, f);
   const i = f.input;
   if (f.role === 'out') return;
+  // every so often a bot simply stops paying attention
+  if (m.time > s.nextDaze && f.role !== 'gulag') {
+    s.dazeUntil = m.time + 0.5 + m.rnd() * 1.2;
+    s.nextDaze = s.dazeUntil + 4 + m.rnd() * 8;
+  }
+  if (m.time < s.dazeUntil && f.hp > 0) {
+    stop(f);
+    i.s++;
+    return;
+  }
   if (f.role === 'gulag') return gulagBot(m, f, s);
   if (f.role === 'leader') return leaderBot(m, f, s);
   if (f.hp <= 0) return;
@@ -139,7 +160,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   const closest = enemies[0] ?? null;
 
   // 1. get out of the lava, and stay ahead of the next ring
-  if (rr > safe - 10) {
+  if (rr > safe - 3) {
     const inward = Math.max(20, safe * 0.55);
     const gx = (f.x / Math.max(1, rr)) * inward;
     const gz = (f.z / Math.max(1, rr)) * inward;
@@ -191,7 +212,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
     const dz = f.z - cz;
     const d = Math.hypot(dx, dz) || 1;
     goTo(m, f, s, f.x + (dx / d) * 30, f.z + (dz / d) * 30, true);
-    if (f.sta > 40 && m.time >= f.dashAt && m.rnd() < 0.06) m.dash(f, dx, dz);
+    if (f.sta > 40 && m.time >= f.dashAt && m.rnd() < 0.015) m.dash(f, dx, dz);
     i.at = false;
     s.focus = null;
     s.retarget = m.time + 3;
@@ -199,7 +220,8 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   }
 
   // 3. fight a player?
-  const wantsFight = (m.time > 240 || f.level >= 9) && s.style < 0.85;
+  const endgame = m.time > 480; // when the ring is small everyone has to fight
+  const wantsFight = endgame || ((m.time > 240 || f.level >= 9) && s.style < 0.85);
   if (closest && wantsFight) {
     const ratio = (f.level + 1) / (closest.level + 1);
     const hpOk = f.hp > f.maxHp * 0.35;
@@ -208,7 +230,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
       s.focus = closest;
       return fight(m, f, s, closest, false);
     }
-    if (!hpOk || ratio < 0.5) {
+    if (!endgame && (!hpOk || ratio < 0.5)) {
       // run away
       const dx = f.x - closest.x;
       const dz = f.z - closest.z;
@@ -316,7 +338,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
   const d = dist(f, t);
   const reach = f.dv.reach + t.r;
   const sprint = d > reach + 4;
-  if (!retreating && d > reach + 5 && d < reach + 14 && f.sta > 45 && m.time >= f.dashAt && m.rnd() < 0.04) m.dash(f, t.x - f.x, t.z - f.z);
+  if (!retreating && d > reach + 5 && d < reach + 14 && f.sta > 45 && m.time >= f.dashAt && m.rnd() < 0.01) m.dash(f, t.x - f.x, t.z - f.z);
   if (!retreating) {
     if (d > reach * 0.8) goTo(m, f, s, t.x, t.z, sprint);
     else {
@@ -326,8 +348,8 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
     }
   }
   const yaw = Math.atan2(t.x - f.x, t.z - f.z);
-  i.yaw = yaw;
-  i.at = d < reach + 0.5;
+  i.yaw = yaw + (m.rnd() - 0.5) * 0.9; // poor aim
+  i.at = d < reach + 0.5 && m.rnd() < 0.85;
   // skills
   if (m.time < s.nextAct - 1.3) return;
   const sk = m.slotSkills(f);
@@ -364,7 +386,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
         use = false;
         break;
     }
-    if (use && m.rnd() < 0.4) m.castSkill(f, slot, yaw);
+    if (use && m.rnd() < 0.1) m.castSkill(f, slot, yaw);
   }
 }
 
@@ -467,7 +489,7 @@ function botGuard(m: Match, f: Fighter, s: Mem) {
     }
   }
   // sharper players parry more often; cautious ones guard more
-  if (threat && m.rnd() < 0.5 + (1 - s.style) * 0.25) {
+  if (threat && m.rnd() < 0.12 + (1 - s.style) * 0.1) {
     m.setGuard(f, true);
     s.guardUntil = m.time + 0.5;
   }

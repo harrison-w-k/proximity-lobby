@@ -14,6 +14,7 @@ import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
 } from './proto';
+import { classSkill } from './animals';
 import { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
@@ -253,6 +254,8 @@ export interface Mob extends Body {
   warden?: boolean;
   strikeAt: number; // a boss attack lands at this time (0 = not winding up)
   fleeAt: number;
+  jit: number; // a fleeing animal's wobble off a straight line
+  pauseUntil: number; // and its habit of freezing
 }
 
 interface Drop {
@@ -467,6 +470,7 @@ export class Match {
   recompute(f: Fighter, fill = false) {
     const picks = f.role === 'gulag' ? NO_PICKS : f.picks;
     const skills: Skill[] = [f.def.innate];
+    if (f.role !== 'gulag') skills.push(classSkill(f.def.cls)); // gulag duels are on equal terms
     if (picks[1] >= 0) skills.push(f.def.unlock[1][picks[1]]);
     if (picks[3] >= 0) skills.push(f.def.unlock[3][picks[3]]);
     f.mods = sumMods(skills);
@@ -877,7 +881,7 @@ export class Match {
     f.swing = null; // a dash cancels a wind-up
     f.guarding = false;
     f.invUntil = Math.max(f.invUntil, this.time + 0.16); // slip through an attack that is landing
-    f.dashAt = this.time + DASH_COOLDOWN;
+    f.dashAt = this.time + DASH_COOLDOWN * (1 + f.mods.dashCd);
     f.yaw = Math.atan2(ux, uz);
     const base = f.walkSpeed || f.dv.speed;
     f.dash = { dx: ux, dz: uz, speed: base * DASH_SPEED, until: this.time + DASH_TIME, dmg: 0, hit: new Set(), knock: 0, aoe: 0 };
@@ -908,7 +912,7 @@ export class Match {
     f.atkAt = this.time + (c.wind + c.rec) / rof;
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
     this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: combo === 2, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
-    this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1));
+    this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
   }
 
   /** The wind-up is over: the swing (or skill) lands now. */
@@ -1015,7 +1019,7 @@ export class Match {
     if (o.blockable && src && f.guarding && !o.lava && !o.dot) {
       const front = Math.abs(angDiff(yawOf(src.x - f.x, src.z - f.z), f.yaw)) < 1.3;
       if (front) {
-        if (this.time - f.guardAt <= PARRY_WINDOW) {
+        if (this.time - f.guardAt <= PARRY_WINDOW + f.mods.parryWin) {
           // PARRY: no damage, the attacker is staggered and we get the opening
           this.lastResult = 'parry';
           const heavy = !!o.heavy;
@@ -1043,7 +1047,7 @@ export class Match {
           this.breakGuard(f, f.x, f.z);
           amount *= 0.55;
         } else {
-          const cost = raw * 0.45;
+          const cost = raw * 0.45 * (1 + f.mods.guardCost);
           if (f.sta >= cost) {
             f.sta -= cost;
             amount *= 0.15;
@@ -1114,7 +1118,7 @@ export class Match {
     // everything else just runs
     if (m.state !== 'flee') m.fleeAt = this.time;
     m.state = 'flee';
-    m.until = this.time + 7;
+    m.until = this.time + 3.2;
     m.target = by;
   }
 
@@ -1126,6 +1130,7 @@ export class Match {
     if (by && by.role === 'alive') {
       let xp = hordeXp(m.def.tier, by.level);
       if (m.owner) xp = hordeXp(1, by.level) * 0.35;
+      else xp *= 1 + by.mods.preyXp;
       this.gainXp(by, xp);
       by.lastCombat = this.time;
     }
@@ -1766,11 +1771,17 @@ export class Match {
 
   // --- mobs -----------------------------------------------------------------------------------
 
+  /** Wild prey has half the health (it is food); bosses, the Warden and swarm animals keep theirs. */
+  private mobHp(def: MobDef): number {
+    const keep = def.behavior === 'alpha' || def.id === 'warden' || def.id.startsWith('swarm_');
+    return keep ? def.hp : Math.max(3, Math.round(def.hp * 0.5));
+  }
+
   private makeMob(def: MobDef, x: number, z: number, pack: number): Mob {
     return {
-      kind: 'm', id: this.nextMob++, def, x, z, y: 0, yaw: this.rnd() * 6.28, hp: def.hp, maxHp: def.hp, r: def.r, state: 'idle', until: 0, tx: x, tz: z,
+      kind: 'm', id: this.nextMob++, def, x, z, y: 0, yaw: this.rnd() * 6.28, hp: this.mobHp(def), maxHp: this.mobHp(def), r: def.r, state: 'idle', until: 0, tx: x, tz: z,
       homeX: x, homeZ: z, target: null, pack, atkAt: 0, owner: '', awake: false, atkFlash: 0, slowUntil: 0, stunUntil: 0, bleedUntil: 0, bleedDps: 0,
-      scareUntil: 0, wander: this.rnd() * 5, hurtFlash: 0, strikeAt: 0, fleeAt: 0,
+      scareUntil: 0, wander: this.rnd() * 5, hurtFlash: 0, strikeAt: 0, fleeAt: 0, jit: 0, pauseUntil: 0,
     };
   }
 
@@ -1783,7 +1794,7 @@ export class Match {
   spawnWild(tier: number, radius: number, avoidPlayers: number): boolean {
     for (let attempt = 0; attempt < 14; attempt++) {
       const wet = tier <= 3 && this.rnd() < 0.2 ? this.terrain.randomWater(this.rnd, radius) : null;
-      const pos = wet ?? this.terrain.randomLand(this.rnd, radius, tier >= 3 ? 20 : 0);
+      const pos = wet ?? this.terrain.randomLand(this.rnd, radius, tier >= 3 ? Math.min(20, radius * 0.3) : 0);
       if (avoidPlayers > 0 && this.fighters.some((f) => f.role === 'alive' && dist(f, pos) < avoidPlayers)) continue;
       if (this.spawnWildAt(tier, pos.x, pos.z)) return true;
     }
@@ -1873,19 +1884,24 @@ export class Match {
     if (this.time - this.lastPop < 4) return;
     this.lastPop = this.time;
     const ring = ringAt(this.time).r;
-    const wild = this.mobs.filter((m) => m.hp > 0 && !m.owner && !m.warden);
+    // only animals still inside the lava count, and the herds shrink with the ring (a small ring cannot hold hundreds)
+    const wild = this.mobs.filter((m) => m.hp > 0 && !m.owner && !m.warden && Math.hypot(m.x, m.z) < ring);
     const count = (t: number) => wild.filter((m) => m.def.tier === t).length;
+    const area = Math.pow(Math.min(1, ring / (MAP_RADIUS - 6)), 2);
+    const inner = ring - 6; // never spawn on the lava's edge
     const targets: [number, number, number][] = [
-      [1, this.time < 240 ? 330 : 260, Math.min(ring - 15, MAP_RADIUS - 25)],
-      [2, this.time > 90 ? 150 : 0, Math.min(ring - 15, MAP_RADIUS * 0.7)],
-      [3, this.time > 90 ? 34 : 0, Math.min(ring - 15, MAP_RADIUS * 0.5)],
+      [1, Math.max(16, Math.round((this.time < 240 ? 330 : 260) * area)), Math.min(inner, MAP_RADIUS - 25)],
+      [2, this.time > 90 ? Math.max(8, Math.round(150 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.7)],
+      [3, this.time > 90 ? Math.max(4, Math.round(34 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.5)],
     ];
+    // late in the match there must still be food to heal on: keep spawning, closer to the players when the ring is small
+    const avoid = Math.min(70, Math.max(10, inner * 0.3));
     for (const [tier, want, radius] of targets) {
-      if (want === 0 || radius < 40) continue;
+      if (want === 0 || radius < 14) continue;
       let have = count(tier);
       let guard = 0;
-      while (have < want * (tier === 1 ? 1 : 0.9) && guard++ < 3) {
-        if (!this.spawnWild(tier, radius, 70)) break;
+      while (have < want * (tier === 1 ? 1 : 0.9) && guard++ < (ring < 120 ? 5 : 3)) {
+        if (!this.spawnWild(tier, radius, avoid)) break;
         have += tier === 3 ? 1 : 3;
       }
     }
@@ -1917,7 +1933,7 @@ export class Match {
       const slow = m.slowUntil > this.time ? 0.55 : 1;
       let speed = m.def.speed * slow;
       const behavior = m.def.behavior;
-      const threatR = m.def.behavior === 'alpha' ? 24 : behavior === 'elite' ? 10 : behavior === 'pack' ? 12 : behavior === 'skittish' ? 6 : 13;
+      const threatR = m.def.behavior === 'alpha' ? 24 : behavior === 'elite' ? 5 : behavior === 'pack' ? 6 : behavior === 'skittish' ? 3 : 6;
 
       // lava drives wildlife inward
       const rr = Math.hypot(m.x, m.z);
@@ -1963,15 +1979,28 @@ export class Match {
         }
       }
       const stealth = nearest ? (nearest.input.crouch ? 0.5 : 1) * (this.terrain.inBush(nearest.x, nearest.z) ? 0.4 : 1) * (nearest.muskUntil > this.time ? 0.7 : 1) : 1;
-      const detect = threatR * stealth;
+      const detect = threatR * stealth * (nearest ? Math.max(0.3, 1 - nearest.mods.stealth) : 1);
 
       switch (m.state) {
         case 'flee': {
           const t = m.target ?? nearest;
-          // fleeing tires an animal: it is fastest at the start, then slows so a good chase can catch it
-          const tired = 1 - Math.min(0.42, Math.max(0, this.time - m.fleeAt - 2.5) * 0.12);
-          if (t && dist(t, m) < 28 && m.until > this.time) this.moveMob(m, m.x - t.x, m.z - t.z, speed * 1.15 * tired, dt);
-          else if (m.scareUntil > this.time) this.moveMob(m, m.x - (nearest?.x ?? 0), m.z - (nearest?.z ?? 0), speed * 1.2, dt);
+          // not very bright: it zig-zags, sometimes freezes, tires fast and soon forgets what scared it
+          m.wander -= dt;
+          if (m.wander <= 0) {
+            m.wander = 0.45 + this.rnd() * 0.9;
+            m.jit = (this.rnd() - 0.5) * 2.2;
+            if (this.rnd() < 0.3) m.pauseUntil = this.time + 0.4 + this.rnd() * 0.5;
+          }
+          const tired = 1 - Math.min(0.55, Math.max(0, this.time - m.fleeAt - 1.2) * 0.2);
+          if (this.time < m.pauseUntil) {
+            // frozen in place
+          } else if (t && dist(t, m) < 18 && m.until > this.time) {
+            const ax = m.x - t.x;
+            const az = m.z - t.z;
+            const c = Math.cos(m.jit);
+            const sn = Math.sin(m.jit);
+            this.moveMob(m, ax * c - az * sn, ax * sn + az * c, speed * 0.92 * tired, dt);
+          } else if (m.scareUntil > this.time) this.moveMob(m, m.x - (nearest?.x ?? 0), m.z - (nearest?.z ?? 0), speed * 1.0, dt);
           else m.state = 'idle';
           if (m.until <= this.time) m.state = 'idle';
           break;
@@ -2047,9 +2076,9 @@ export class Match {
     if (m.state !== 'flee') m.fleeAt = this.time;
     m.state = 'flee';
     m.target = f;
-    m.until = this.time + 5;
-    // the whole herd bolts together
-    if (m.pack) for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && o.state !== 'flee' && dist(o, m) < 16) this.aggro(o, f);
+    m.until = this.time + 2.6;
+    // the herd is slow to catch on: only the animals right beside it join in
+    if (m.pack) for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && o.state !== 'flee' && dist(o, m) < 5) this.aggro(o, f);
   }
 
   /** Alphas and the Warden: a slow, readable attack. The wind-up can be parried to stagger the beast. */
@@ -2262,7 +2291,7 @@ export class Match {
     }
     if (f.swing && t >= f.swing.at) this.resolveSwing(f);
     if (f.guarding) {
-      if (f.role !== 'leader') f.sta -= GUARD_DRAIN * dt;
+      if (f.role !== 'leader') f.sta -= GUARD_DRAIN * (1 + f.mods.guardCost) * dt;
       if (f.sta <= 0) {
         f.sta = 0;
         this.breakGuard(f, f.x, f.z);
@@ -2652,8 +2681,8 @@ export class Match {
     const you: YouState = {
       x: r1(f.x), z: r1(f.z), hp: Math.max(0, Math.round(f.hp)), maxHp: f.maxHp, sta: Math.round(f.sta), maxSta: f.dv.maxSta,
       lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, picks: f.picks,
-      cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN, inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
-      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
+      cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN * (1 + f.mods.dashCd), inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
+      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
       noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };

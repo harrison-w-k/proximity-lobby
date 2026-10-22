@@ -2,6 +2,7 @@
 // horde creatures are merged into a single mesh so hundreds of them stay cheap to draw.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
 
 export interface RigState {
@@ -12,6 +13,7 @@ export interface RigState {
   flee: boolean;
   swim: boolean;
   t: number; // clock
+  turn?: number; // how fast the animal is turning (rad/s): it leans into the corner
   pose?: Pose | null; // an attack or skill animation in progress
   guard?: boolean;
   air?: number; // height above the ground while jumping
@@ -199,6 +201,9 @@ class QuadRig implements Rig {
   private flash = 0;
   private baseY: number;
   private headZ: number;
+  private wasAir = 0;
+  private squash = 0;
+  private seed = Math.random() * 100;
   constructor(private b: Built, radius: number) {
     this.root = new THREE.Group();
     this.root.add(b.root);
@@ -235,16 +240,27 @@ class QuadRig implements Rig {
     b.legs[2].rotation.x = -sw * amp + tuckF + (p?.fr ?? 0);
     b.legs[3].rotation.x = -sw * amp + tuckB + (p?.br ?? 0);
     if (b.spec.crawl) for (const [i, l] of b.legs.entries()) l.rotation.z = (i === 0 || i === 3 ? 1 : -1) * (0.25 + g * 0.25);
+    // landing squash and takeoff stretch
+    if (this.wasAir && !air) this.squash = 1;
+    this.wasAir = air;
+    this.squash = Math.max(0, this.squash - dt * 5);
+    const stretch = air ? 0.08 : -0.2 * this.squash;
+    b.torso.scale.set(1 - stretch * 0.5, 1 + stretch, 1 - stretch * 0.5);
+    // breathing and an occasional look around when standing still
+    const idle = (1 - moving) * (1 - air);
+    const breathe = Math.sin(s.t * 2.2 + this.seed) * 0.018 * idle;
+    b.torso.scale.y += breathe;
     const hop = Math.abs(Math.sin(this.phase)) * 0.06 * moving;
     const recoil = Math.min(1, s.hurt);
     b.torso.position.y = this.baseY + hop - (s.swim ? 0.25 : 0) - g * 0.1 + (p?.y ?? 0);
     b.torso.position.z = (p?.z ?? 0) - recoil * 0.18;
     b.torso.rotation.x = (p?.rx ?? 0) + g * 0.1 - recoil * 0.3 + air * -Math.max(-0.5, Math.min(0.5, (s.vy ?? 0) * 0.06));
     b.torso.rotation.y = p?.ry ?? 0;
-    b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0) + (p?.rz ?? 0);
+    b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0) + (p?.rz ?? 0) + Math.max(-0.22, Math.min(0.22, -(s.turn ?? 0) * 0.06)) * moving;
     b.head.position.z = this.headZ + s.attack * 0.2 * (b.spec.scale ?? 1);
     b.head.rotation.x = (p?.hx ?? 0) + s.attack * 0.25 - (s.stun ? 0.4 : 0) + g * 0.4;
-    b.head.rotation.y = p?.hy ?? 0;
+    const glance = Math.sin(s.t * 0.55 + this.seed) > 0.55 ? Math.sin(s.t * 1.3 + this.seed) * 0.5 : 0;
+    b.head.rotation.y = (p?.hy ?? 0) + glance * idle;
     if (b.tail) {
       b.tail.rotation.y = Math.sin(s.t * 6 + this.phase) * 0.35 * (0.4 + moving);
       b.tail.rotation.x = (p?.tail ?? 0) + air * 0.4;
@@ -341,6 +357,64 @@ const SPECS: Record<string, QuadSpec> = {
   fox: { len: 0.8, w: 0.26, h: 0.3, legLen: 0.32, legT: 0.08, fur: 0xd2762c, belly: 0xf2e6d6, paw: 0x3a2517, head: { s: 0.23, snout: 0.2, snoutC: 0xe8a468 }, ears: 'point', earS: 0.6, tail: { len: 0.6, t: 0.16, c: 0xdc8a3d, up: -0.1 }, extras: (_t, h) => h.add(box(0.1, 0.1, 0.1, 0xffffff, 0, -0.18, 0.2)) },
   goat: { len: 0.95, w: 0.36, h: 0.46, legLen: 0.5, legT: 0.1, fur: 0xe2dccf, belly: 0xf0ece3, paw: 0x3b332b, head: { s: 0.26, snout: 0.18 }, ears: 'long', earS: 0.8, tail: { len: 0.15, t: 0.06 }, extras: (_t, h) => { for (const sx of [-1, 1]) { const horn = cone(0.04, 0.36, 0x6b5a45, sx * 0.1, 0.28, -0.05); horn.rotation.x = -0.5; horn.rotation.z = -sx * 0.3; h.add(horn); } h.add(cone(0.04, 0.16, 0xe2dccf, 0, -0.25, 0.1)); } },
   wildpig: { len: 1.0, w: 0.5, h: 0.52, legLen: 0.32, legT: 0.13, fur: 0x5b4636, belly: 0x483526, paw: 0x241a12, head: { s: 0.38, snout: 0.26, snoutC: 0x7e6552 }, ears: 'point', earS: 0.5, tail: { len: 0.14, t: 0.05 }, extras: (_t, h) => { for (const sx of [-1, 1]) { const t = cone(0.04, 0.22, 0xf2eee0, sx * 0.13, -0.1, 0.45); t.rotation.x = -0.9; h.add(t); } } },
+};
+
+// --- the newer animals ---
+SPECS.lion = {
+  len: 1.5, w: 0.6, h: 0.66, legLen: 0.66, legT: 0.17, fur: 0xd9a95a, belly: 0xf0d9a0, paw: 0x9d7a3a,
+  head: { s: 0.5, snout: 0.2, snoutC: 0xe8c47e }, ears: 'round', earS: 0.35, tail: { len: 0.95, t: 0.1, c: 0xd9a95a, up: -0.15 },
+  extras: (torso, head) => {
+    head.add(ball(0.52, 0.5, 0.4, 0x6b3f1c, 0, 0, -0.14)); // the mane
+    torso.add(ball(0.12, 0.12, 0.14, 0x4a2a10, 0, 0.12, -1.7)); // tail tuft
+  },
+};
+SPECS.hippo = {
+  len: 2.0, w: 1.15, h: 0.95, legLen: 0.32, legT: 0.38, fur: 0x8d7b86, belly: 0xc9a6a0, paw: 0x5a4a55,
+  head: { s: 0.85, snout: 0.5, snoutH: 0.55, snoutC: 0xa68f96, drop: 0.2 }, ears: 'round', earS: 0.25, tail: { len: 0.25, t: 0.1 },
+  extras: (_t, head) => {
+    for (const sx of [-1, 1]) {
+      head.add(cone(0.07, 0.25, 0xf2eee0, sx * 0.24, -0.4, 0.8));
+      head.add(box(0.1, 0.1, 0.1, 0x2a2025, sx * 0.15, 0.08, 1.0));
+    }
+  },
+};
+SPECS.redfox = { ...SPECS.fox, fur: 0xcf6a22, scale: 1.25, tail: { len: 0.85, t: 0.2, c: 0xe08a3a, up: -0.1 } };
+SPECS.leopard = {
+  len: 1.3, w: 0.38, h: 0.42, legLen: 0.52, legT: 0.12, fur: 0xd8b36a, belly: 0xf1e1b9, paw: 0x8a6a30,
+  head: { s: 0.3, snout: 0.17, snoutC: 0xe5c47e }, ears: 'round', earS: 0.4, tail: { len: 1.1, t: 0.1, up: 0.1 }, eye: 0x1c1208,
+  extras: (torso, _h, r) => {
+    for (let i = 0; i < 34; i++) torso.add(box(0.09, 0.05, 0.09, 0x2a1d0e, (r() - 0.5) * 0.38, 0.2 + (r() - 0.5) * 0.1 + (r() < 0.4 ? -0.18 : 0), (r() - 0.5) * 1.2));
+  },
+};
+SPECS.gorilla = {
+  len: 1.1, w: 1.0, h: 1.0, legLen: 0.75, legT: 0.3, fur: 0x2c2c33, belly: 0x3a3a42, paw: 0x1a1a1f,
+  head: { s: 0.5, snout: 0.2, snoutC: 0x3a3a42, drop: 0.05 }, ears: 'round', earS: 0.2, tail: { len: 0.05, t: 0.05 }, eye: 0x331a10,
+  extras: (torso, head) => {
+    torso.add(lump(0.9, 0.5, 0.6, 0x7a7a84, 0, 0.35, 0)); // the silver back
+    head.add(box(0.5, 0.12, 0.2, 0x1a1a1f, 0, 0.2, 0.3)); // heavy brow
+  },
+};
+SPECS.turtle = {
+  len: 0.95, w: 0.8, h: 0.3, legLen: 0.2, legT: 0.2, fur: 0x6a8f4a, belly: 0xd9d3a0, paw: 0x4a6a30,
+  head: { s: 0.26, snout: 0.14, snoutC: 0x6a8f4a, fwd: 0.2 }, ears: 'none', tail: { len: 0.3, t: 0.1 }, crawl: true,
+  extras: (torso) => {
+    torso.add(ball(0.56, 0.4, 0.64, 0x5a4a2a, 0, 0.25, 0)); // the shell
+    for (let i = 0; i < 6; i++) torso.add(box(0.22, 0.1, 0.22, 0x7a6a3a, Math.cos(i * 1.05) * 0.3, 0.58, Math.sin(i * 1.05) * 0.34));
+  },
+};
+SPECS.kangaroo = {
+  len: 0.9, w: 0.45, h: 0.7, legLen: 0.8, legT: 0.18, fur: 0xc9884a, belly: 0xeed2a8, paw: 0x7a4a20,
+  head: { s: 0.32, snout: 0.26, snoutC: 0xd9a468, drop: -0.05 }, ears: 'long', earS: 1.2, tail: { len: 1.1, t: 0.3, up: -0.05 },
+  extras: (torso) => torso.add(lump(0.3, 0.25, 0.3, 0xeed2a8, 0, -0.15, 0.2)), // the pouch
+};
+SPECS.skunk = {
+  len: 0.7, w: 0.34, h: 0.32, legLen: 0.2, legT: 0.09, fur: 0x1c1c1f, belly: 0x2c2c30, paw: 0x0e0e10,
+  head: { s: 0.24, snout: 0.12, snoutC: 0x2c2c30 }, ears: 'round', earS: 0.3, tail: { len: 0.8, t: 0.3, c: 0x1c1c1f, up: 0.25 },
+  extras: (torso, head) => {
+    torso.add(box(0.12, 0.06, 1.0, 0xf2f0ea, 0, 0.19, 0)); // the stripe
+    head.add(box(0.07, 0.05, 0.35, 0xf2f0ea, 0, 0.2, 0.1));
+    torso.add(ball(0.12, 0.2, 0.12, 0xf2f0ea, 0, 0.5, -1.1)); // white tail tip
+  },
 };
 
 interface BirdSpec {
@@ -503,6 +577,7 @@ class MergedRig implements Rig {
       m.rotation.z = s.stun ? Math.sin(s.t * 20) * 0.2 : 0;
     }
     m.position.z = s.attack * 0.25 * this.scale;
+    if (!this.fish && !this.bird) m.rotation.y = Math.sin(s.t * 0.9 + this.phase) * 0.3 * (1 - moving); // sniffing about
     this.flash = Math.max(this.flash, s.hurt);
     this.flash = Math.max(0, this.flash - dt * 3);
     const mat = m.material as Mat;
@@ -630,7 +705,8 @@ function crown(): THREE.Group {
 export function makePlayerRig(animal: string): Rig {
   const spec = SPECS[animal] ?? SPECS.wolf;
   const b = buildQuad(spec, hashStr(animal));
-  const radius = animal === 'croc' || animal === 'bear' ? 0.95 : animal === 'wolf' || animal === 'cheetah' || animal === 'boar' ? 0.55 : 0.4;
+  const def = ANIMAL_BY_ID.get(animal);
+  const radius = def ? SIZE[def.size].radius : 0.5;
   return new QuadRig(b, radius);
 }
 

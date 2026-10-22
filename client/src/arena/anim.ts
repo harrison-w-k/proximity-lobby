@@ -21,7 +21,7 @@ export interface Pose {
 export const zeroPose = (): Pose => ({ y: 0, z: 0, rx: 0, ry: 0, rz: 0, hx: 0, hy: 0, fl: 0, fr: 0, bl: 0, br: 0, tail: 0, sc: 1 });
 
 export type Style = 'bite' | 'swipe' | 'snap' | 'gore' | 'quill' | 'slap';
-export const STYLE: Record<string, Style> = { wolf: 'bite', cheetah: 'swipe', bear: 'swipe', badger: 'swipe', croc: 'snap', boar: 'gore', otter: 'slap', porcupine: 'quill' };
+export const STYLE: Record<string, Style> = { wolf: 'bite', cheetah: 'swipe', bear: 'swipe', badger: 'swipe', croc: 'snap', boar: 'gore', otter: 'slap', porcupine: 'quill', lion: 'swipe', hippo: 'snap', redfox: 'bite', leopard: 'swipe', gorilla: 'swipe', turtle: 'snap', kangaroo: 'slap', skunk: 'quill' };
 
 export interface Cue {
   kind: 'swing' | 'skill' | 'parry' | 'flex';
@@ -94,7 +94,7 @@ export function poseFor(c: Cue, now: number): Pose | null {
   }
   if (c.kind === 'skill') return skillPose(c, ph, p);
   const style = STYLE[c.animal] ?? 'bite';
-  const big = c.animal === 'bear' ? 1.25 : c.animal === 'croc' ? 1.1 : 1;
+  const big = c.animal === 'bear' || c.animal === 'gorilla' ? 1.25 : c.animal === 'croc' || c.animal === 'hippo' ? 1.1 : 1;
   switch (style) {
     case 'bite':
       if (c.combo < 2) {

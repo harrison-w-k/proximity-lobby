@@ -1,5 +1,5 @@
 // The match HUD: bars, skills, inventory, minimap, banners, the upgrade panel and the end screen.
-import { ANIMAL_BY_ID, STAT_KEYS, STAT_NAMES, UNLOCK_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
+import { ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, UNLOCK_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
 import { SWARMS } from '../../../shared/arena/mobs';
 import type { Global, InvItem, RosterEntry, YouState } from '../../../shared/arena/proto';
 import { MAP_RADIUS, Biome, type Terrain } from '../../../shared/arena/terrain';
@@ -148,6 +148,52 @@ const CSS = `
 .br-streak span { display: block; margin-top: 4px; font-size: 26px; font-weight: 600; color: var(--cream); text-shadow: 0 3px 0 var(--ink); letter-spacing: .2em; }
 .br-streak.hot b { color: #ff5a3a; font-size: 78px; }
 @keyframes brstreak { 0% { opacity: 0; transform: translateX(-50%) scale(.4) rotate(-4deg); } 10% { opacity: 1; transform: translateX(-50%) scale(1.3) rotate(2deg); } 22% { transform: translateX(-50%) scale(1) rotate(0); } 78% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(1); } }
+
+/* --- polish --- */
+.br-bar.hp { overflow: hidden; }
+.br-bar.hp > i { position: relative; z-index: 1; }
+.br-bar.hp > u { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(#fff4d0, #e9c98a); opacity: .85; z-index: 0; border-radius: 999px; transition: width .08s; }
+.br-bar span { z-index: 2; }
+.br-bar.xp.gain > i { animation: brgain .5s ease-out; }
+@keyframes brgain { 0% { filter: brightness(2.2); box-shadow: 0 0 14px #78d6e8; } 100% { filter: none; } }
+.br-slot.flash { animation: brready .45s ease-out; }
+@keyframes brready { 0% { filter: brightness(2.4); transform: scale(1.14); } 100% { filter: none; transform: scale(1); } }
+.br-slot.pop { animation: brpop .4s ease-out; }
+@keyframes brpop { 0% { transform: scale(1.3) rotate(-6deg); filter: brightness(1.8); } 60% { transform: scale(.95); } 100% { transform: none; filter: none; } }
+.br-slot.press { transform: translateY(3px) scale(.96); }
+.br-lvl.up { animation: brlvl 1s ease-out; }
+@keyframes brlvl { 0% { transform: scale(1.7); filter: brightness(2.5); } 40% { transform: scale(.92); } 100% { transform: none; filter: none; } }
+.br-levelring { position: absolute; left: 50%; top: 58%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 6px solid #ffe27a; opacity: 0; pointer-events: none; }
+.br-levelring.go { animation: brring .9s ease-out; }
+@keyframes brring { 0% { opacity: 1; transform: scale(.4); } 100% { opacity: 0; transform: scale(14); } }
+.br-reticle.hit .dot { background: #fff; transform: scale(2.2); box-shadow: 0 0 10px #fff; }
+.br-reticle .x { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; opacity: 0; pointer-events: none; }
+.br-reticle .x::before, .br-reticle .x::after { content: ''; position: absolute; left: 12px; top: -2px; width: 4px; height: 32px; background: #fff; border: 1px solid var(--ink); border-radius: 2px; }
+.br-reticle .x::before { transform: rotate(45deg); } .br-reticle .x::after { transform: rotate(-45deg); }
+.br-reticle .x.go { animation: brhit .22s ease-out; }
+.br-reticle .x.big::before, .br-reticle .x.big::after { background: #ff6b5a; }
+@keyframes brhit { 0% { opacity: 1; transform: scale(.6); } 100% { opacity: 0; transform: scale(1.5); } }
+.br-top { animation: brdrop .6s ease-out both; }
+.br-bottom { animation: brrise .6s ease-out both; }
+@keyframes brdrop { from { opacity: 0; transform: translate(-50%, -30px); } }
+@keyframes brrise { from { opacity: 0; transform: translate(-50%, 40px); } }
+.br-feed div { animation: brslide .3s ease-out; }
+@keyframes brslide { from { opacity: 0; transform: translateX(-24px); } }
+.br-phase b { text-shadow: 0 0 12px rgba(243,180,60,.5); }
+
+.br-feed { top: 212px !important; }
+.br-doll { position: absolute; left: 14px; top: 14px; width: 168px; height: 198px; border: 5px solid #4a311c; border-radius: 16px; box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #8a6338, inset 0 0 40px rgba(0,0,0,.35), 0 6px 0 rgba(0,0,0,.4); background: radial-gradient(circle at 50% 35%, rgba(120,170,90,.35), rgba(20,30,15,.55)); }
+.br-doll .tag { position: absolute; left: 10px; right: 10px; bottom: -22px; text-align: center; font-weight: 700; font-size: 17px; letter-spacing: .06em; text-shadow: 0 2px 0 var(--ink); }
+.br-info { position: absolute; left: 14px; bottom: 14px; width: 286px; padding: 10px 12px; font-size: 16px; line-height: 1.12; }
+.br-info .hd { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.br-info .em { font-size: 40px; filter: drop-shadow(0 3px 0 rgba(0,0,0,.4)); }
+.br-info .hd b { display: block; font-size: 24px; color: var(--amber); letter-spacing: .03em; text-shadow: 0 2px 0 var(--ink); }
+.br-info .hd small { font-size: 15px; color: #e8d7ad; }
+.br-info .st { display: grid; grid-template-columns: 64px 1fr 30px; gap: 1px 6px; align-items: center; margin: 4px 0 6px; font-size: 14px; font-weight: 600; }
+.br-info .st i { display: block; height: 7px; border-radius: 999px; background: linear-gradient(#f0a640, #c3680f); border: 1px solid var(--ink); }
+.br-info .st em { font-style: normal; text-align: right; color: var(--cream); }
+.br-info .pk { border-top: 2px dashed rgba(255,255,255,.18); padding-top: 5px; font-size: 14px; }
+.br-info .pk .p { color: #a8e26a; } .br-info .pk .d { color: #ff9a82; }
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = ''): T => {
@@ -163,6 +209,7 @@ const SKILL_ICON: Record<string, string> = {
   quill_shot: '🪶', quill_burst: '🌵', quill_storm: '🌵', earthshaker: '🌋', splash: '💦', tail_whip: '🌀', death_roll: '🐊', submerge: '🌊', rampage: '😡',
 };
 const skillIcon = (s: { id: string; fx?: { k: string } } | null) => (s ? (SKILL_ICON[s.id] ?? (s.fx ? (FX_ICON[s.fx.k] ?? '✨') : '⭐')) : '🔒');
+const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const ITEM_NAMES: Record<string, string> = {
   meat: 'Meat', berry: 'Berries', herb: 'Herb', water: 'Water', mud: 'Mud', honey: 'Honeycomb', feather: 'Feather', tusk: 'Tusk', musk: 'Musk', reed: 'Reed',
@@ -209,7 +256,7 @@ export class Hud {
   private panel = el('div', 'br-panel wood');
   private gulag = el('div', 'br-gulag');
   private leader = el('div', 'br-leader wood');
-  private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
+  private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="x"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
   private callouts = el('div', 'br-callout');
   private streakEl = el('div', 'br-streak', '<b></b><span></span>');
   private lowhp = el('div', 'br-lowhp');
@@ -226,6 +273,16 @@ export class Hud {
   private bannerBusy = false;
   private vigTimer = 0;
   private lastPanelKey = '';
+  private ghostHp = 100;
+  private ghostAt = 0;
+  private lastHpPct = 100;
+  private prevCd = [0, 0, 0, 0];
+  private prevInv: string[] = [];
+  private prevXp = 0;
+  private levelRing = el('div', 'br-levelring');
+  private dollFrame = el('div', 'br-doll', '<div class="tag"></div>');
+  private info = el('div', 'br-info wood');
+  private infoKey = '';
   private lastGulagKey = '';
   private lastLeaderKey = '';
   onStat: (k: StatKey) => void = () => {};
@@ -284,7 +341,7 @@ export class Hud {
     bars.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:3px';
     const hpRow = el('div', '');
     hpRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-    this.hp.innerHTML = '<i></i><span></span>';
+    this.hp.innerHTML = '<i></i><u></u><span></span>';
     this.sta.innerHTML = '<i></i><span></span>';
     this.xp.innerHTML = '<i></i><span></span>';
     this.hp.style.flex = '1';
@@ -305,7 +362,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.streakEl, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.streakEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -507,6 +564,20 @@ export class Hud {
     const hpPct = Math.max(0, Math.min(100, (you.hp / you.maxHp) * 100));
     (this.hp.firstElementChild as HTMLElement).style.width = `${hpPct}%`;
     (this.hp.lastElementChild as HTMLElement).textContent = `${Math.ceil(you.hp)} / ${you.maxHp}`;
+    // the pale chip behind the health bar shows what you just lost, then drains away
+    const nowMs = performance.now();
+    if (hpPct < this.lastHpPct - 0.3) this.ghostAt = nowMs + 450;
+    if (hpPct >= this.ghostHp) this.ghostHp = hpPct;
+    else if (nowMs > this.ghostAt) this.ghostHp = Math.max(hpPct, this.ghostHp - 0.9);
+    this.lastHpPct = hpPct;
+    (this.hp.querySelector('u') as HTMLElement).style.width = `${this.ghostHp}%`;
+    // the XP bar glows when it fills
+    if (you.xp > this.prevXp && role === 0) {
+      this.xp.classList.remove('gain');
+      void this.xp.offsetWidth;
+      this.xp.classList.add('gain');
+    }
+    this.prevXp = you.xp;
     (this.sta.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(100, (you.sta / you.maxSta) * 100))}%`;
     (this.sta.lastElementChild as HTMLElement).textContent = 'Stamina';
     (this.xp.firstElementChild as HTMLElement).style.width = role === 0 ? `${Math.min(100, (you.xp / you.need) * 100)}%` : '0%';
@@ -543,6 +614,8 @@ export class Hud {
       e.root.classList.toggle('ready', ready);
       e.cd.style.setProperty('--p', locked ? '0%' : `${Math.min(100, (cd / max) * 100)}%`);
       e.cdt.textContent = !locked && cd > 0.05 ? (cd >= 10 ? String(Math.ceil(cd)) : cd.toFixed(1)) : '';
+      if (!locked && this.prevCd[i] > 0.05 && cd <= 0.05) this.flash(e.root, 'flash');
+      this.prevCd[i] = cd;
     }
     // dash
     const dd = you.dash ?? 0;
@@ -556,6 +629,7 @@ export class Hud {
       const it: InvItem | null = you.inv[i];
       const e = this.invEls[i];
       if (!it) {
+        this.prevInv[i] = '';
         e.n.textContent = '';
         e.ic.textContent = '';
         e.q.textContent = '';
@@ -564,6 +638,9 @@ export class Hud {
         continue;
       }
       e.root.style.opacity = it.k === 'water' && it.n === 0 ? '.55' : '1';
+      const key = `${it.k}${it.n}`;
+      if (this.prevInv[i] !== undefined && this.prevInv[i] !== key && !(this.prevInv[i] || '').startsWith(it.k + 'x')) this.flash(e.root, 'pop');
+      this.prevInv[i] = key;
       e.ic.textContent = ITEM_ICON[it.k] ?? '';
       e.n.textContent = ITEM_NAMES[it.k];
       e.q.textContent = it.k === 'water' ? `${it.n}/2` : it.n > 1 ? String(it.n) : '';
@@ -583,6 +660,7 @@ export class Hud {
     const hh = hl ? `<div class="t">HUNTED</div>${hl}` : '';
     if (this.hunted.innerHTML !== hh) this.hunted.innerHTML = hh;
 
+    this.renderInfo(you, def, role);
     this.renderPanel(c);
     this.renderGulag(c);
     this.renderLeader(c);
@@ -757,6 +835,54 @@ export class Hud {
     e.classList.remove('pop');
     void e.offsetWidth;
     e.classList.add('pop');
+  }
+
+  private flash(e: HTMLElement, cls: string) {
+    e.classList.remove(cls);
+    void e.offsetWidth;
+    e.classList.add(cls);
+  }
+
+  /** Your blow connected: a quick X on the crosshair (red for a heavy one). */
+  hitMarker(heavy = false) {
+    const x = this.reticle.querySelector('.x') as HTMLElement;
+    x.classList.toggle('big', heavy);
+    this.flash(x, 'go');
+  }
+
+  /** Level up: the level badge pops and a ring sweeps out from the animal. */
+  levelUp() {
+    this.flash(this.lvl, 'up');
+    this.flash(this.levelRing, 'go');
+  }
+
+  /** Where the paper doll is drawn (CSS pixels from the top-left of the window). */
+  dollRect() {
+    const r = this.dollFrame.getBoundingClientRect();
+    return { x: r.left + 5, y: r.top + 5, w: r.width - 10, h: r.height - 10 };
+  }
+  get visible() {
+    return !this.root.hidden;
+  }
+
+  /** The animal card in the bottom-left corner: who you are, your class and what it costs and gives. */
+  private renderInfo(you: YouState, def: AnimalDef, role: number) {
+    const cls = CLASS_BY_ID.get(def.cls)!;
+    this.dollFrame.style.display = role === 3 ? 'none' : '';
+    this.info.style.display = role === 3 ? 'none' : '';
+    const form = role === 2 ? 'Horde Leader' : role === 1 ? 'In the Gulag' : '';
+    (this.dollFrame.querySelector('.tag') as HTMLElement).textContent = '';
+    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.picks, role, you.swarm?.tier]);
+    if (key === this.infoKey) return;
+    this.infoKey = key;
+    const rows = STAT_KEYS.map((k) => {
+      const v = def.stats[k] + you.alloc[k];
+      return `<span>${STAT_NAMES[k]}</span><i style="width:${Math.min(100, (v / 50) * 100)}%"></i><em>${v}</em>`;
+    }).join('');
+    this.info.innerHTML =
+      `<div class="hd"><span class="em">${EMOJI[def.id] ?? '🐾'}</span><div><b>${def.name}</b><small>${cls.icon} ${cls.name} · ${role === 2 ? `Tier ${you.swarm?.tier ?? 1}` : `Lv ${you.lvl}`}${form ? ` · ${form}` : ''}</small></div></div>` +
+      `<div class="st">${rows}</div>` +
+      `<div class="pk">${cls.perks.map((p) => `<div class="p">+ ${p}</div>`).join('')}${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^[-−]\s?/, '')}</div>`).join('')}</div>`;
   }
 
   setLowHp(on: boolean) {

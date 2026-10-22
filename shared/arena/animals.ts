@@ -66,6 +66,14 @@ export interface Mods {
   bleedImmune?: number;
   ambush?: number; // extra damage from a bush or from underwater
   attackerBleed?: number;
+  // class numbers
+  preyXp?: number; // extra XP from hunting wild animals
+  dashCd?: number; // +slower / -faster dash recharge (fraction)
+  parryWin?: number; // extra seconds in the parry window
+  guardCost?: number; // +more / -less stamina spent guarding (fraction)
+  reach?: number; // fraction of attack reach
+  noise?: number; // extra noise (fraction)
+  stealth?: number; // wild animals notice you this much less
 }
 
 export interface Skill {
@@ -93,11 +101,12 @@ export interface AnimalDef {
   innate: Skill;
   sig: [Skill, Skill]; // bound to Q and E from level 1
   unlock: [[Skill, Skill], [Skill, Skill], [Skill, Skill], [Skill, Skill]]; // levels 3, 7, 12, 18
+  cls: ClassId;
 }
 
 const st = (hp: number, atk: number, spd: number, sta: number, sen: number): Stats => ({ hp, atk, spd, sta, sen });
 
-export const ANIMALS: AnimalDef[] = [
+const BASE: Omit<AnimalDef, 'cls'>[] = [
   {
     id: 'wolf', name: 'Wolf', size: 'medium', role: 'Tracker', stats: st(18, 20, 24, 18, 20), swim: 'land',
     weakness: 'Weak defense when alone', blurb: 'Marks prey with a howl and runs it down.',
@@ -268,6 +277,240 @@ export const ANIMALS: AnimalDef[] = [
   },
 ];
 
+
+// --- more animals --------------------------------------------------------------------------------
+
+const MORE: Omit<AnimalDef, 'cls'>[] = [
+  {
+    id: 'lion', name: 'Lion', size: 'medium', role: 'Pack leader', stats: st(22, 26, 20, 14, 18), swim: 'land',
+    weakness: 'Tires in long chases', blurb: 'Rules with a pounce and a roar that rallies the hunt.',
+    innate: pas('pride', 'Pride Instinct', '+8% damage, +10% more against marked prey.', { dmg: 0.08, markDmg: 0.1 }),
+    sig: [
+      act('pounce_strike', 'Pounce Strike', 'Leap 8 m onto prey and knock it back.', 8, { k: 'dash', dist: 8, dmg: 1.7, knock: 3 }, 14),
+      act('kings_roar', "King's Roar", 'A mighty roar: hordes flee and enemies within 18 m are marked.', 22, { k: 'aoe', r: 18, dmg: 0, scare: 5, st: [{ s: 'mark', dur: 4 }] }),
+    ],
+    unlock: [
+      [
+        act('claw_flurry', 'Claw Flurry', 'A wide flurry of claws that bleeds.', 7, { k: 'cone', range: 2.6, arc: 120, dmg: 1.3, st: [{ s: 'bleed', dur: 3, dps: 0.25 }] }),
+        act('hunt_rush', 'Hunt Rush', '+30% speed and +10% damage for 4 s.', 20, { k: 'buff', dur: 4, speed: 0.3, dmg: 0.1 }),
+      ],
+      [pas('muscle_memory', 'Muscle Memory', '+10% damage.', { dmg: 0.1 }), pas('mane', 'Thick Mane', '10% damage reduction.', { dr: 0.1 })],
+      [
+        act('tackle', 'Tackle', 'Bring prey down and hold it for 2 s.', 15, { k: 'grab', dur: 2, dps: 0.9, range: 2.6 }),
+        act('rallying_roar', 'Rallying Roar', '+25% damage and +15% speed for 7 s.', 30, { k: 'buff', dur: 7, dmg: 0.25, speed: 0.15 }),
+      ],
+      [pas('apex_king', 'Apex King', '+18% damage and 8% lifesteal.', { dmg: 0.18, lifesteal: 0.08 }), pas('sunbaked', 'Sun-baked Hide', '+18% health, 6% damage reduction.', { hp: 0.18, dr: 0.06 })],
+    ],
+  },
+  {
+    id: 'hippo', name: 'Hippo', size: 'large', role: 'River titan', stats: st(34, 26, 8, 14, 18), swim: 'water',
+    weakness: 'Very slow on land', blurb: 'The most dangerous animal in the river, and nearly as bad on shore.',
+    innate: pas('river_titan', 'River Titan', '+30% speed in water, 8% damage reduction.', { waterSpeed: 0.3, dr: 0.08 }),
+    sig: [
+      act('jaw_crush', 'Jaw Crush', 'Open wide and crush: huge damage in a narrow cone.', 9, { k: 'cone', range: 3.0, arc: 90, dmg: 2.2 }),
+      act('mud_bath', 'Mud Bath', 'Plaster yourself with mud: 40% damage reduction for 4 s.', 22, { k: 'buff', dur: 4, dr: 0.4 }),
+    ],
+    unlock: [
+      [
+        act('tusk_swipe', 'Tusk Swipe', 'A very wide sweep of the tusks.', 6, { k: 'cone', range: 3.2, arc: 150, dmg: 1.2 }),
+        act('water_spout', 'Water Spout', 'Spit a jet of water that slows.', 8, { k: 'proj', dmg: 0.8, range: 20, st: [{ s: 'slow', dur: 2, f: 0.55 }] }),
+      ],
+      [pas('blubber', 'Thick Blubber', '12% damage reduction.', { dr: 0.12 }), pas('big_lungs', 'Big Lungs', '+40% stamina recovery.', { stamRegen: 0.4 })],
+      [
+        act('yawn', 'Yawn of Doom', 'A terrifying gape: damage and a stun in 6 m.', 20, { k: 'aoe', r: 6, dmg: 1.0, st: [{ s: 'stun', dur: 1.0 }] }),
+        act('hippo_charge', 'River Charge', 'Rush 9 m, bowling over everything.', 14, { k: 'dash', dist: 9, dmg: 1.5, knock: 5, aoe: 3 }, 16),
+      ],
+      [pas('colossus_h', 'Colossus', '+22% health.', { hp: 0.22 }), pas('crusher', 'Bone Crusher', '+20% damage, +10% against wounded targets.', { dmg: 0.2, executeDmg: 0.1 })],
+    ],
+  },
+  {
+    id: 'redfox', name: 'Red Fox', size: 'small', role: 'Trickster', stats: st(12, 18, 30, 18, 22), swim: 'land',
+    weakness: 'Fragile', blurb: 'Quick, clever and never where you swung.',
+    innate: pas('keen_ears', 'Keen Ears', '+25% senses range.', { senses: 0.25 }),
+    sig: [
+      act('mouse_pounce', 'Mouse Pounce', 'A high pounce 6 m onto your target.', 6, { k: 'dash', dist: 6, dmg: 1.2 }, 10),
+      act('fox_trot', 'Fox Trot', '+40% speed for 3 s that costs no stamina.', 12, { k: 'buff', dur: 3, speed: 0.4, free: true }),
+    ],
+    unlock: [
+      [
+        act('decoy_tail', 'Decoy Tail', 'Flash your tail: nearby animals are scared and slowed.', 14, { k: 'aoe', r: 4.5, dmg: 0, scare: 3, st: [{ s: 'slow', dur: 2, f: 0.5 }] }),
+        act('nip', 'Nip', 'A quick bite that bleeds.', 4, { k: 'cone', range: 1.9, arc: 70, dmg: 1.0, st: [{ s: 'bleed', dur: 3, dps: 0.25 }] }),
+      ],
+      [pas('light_paws', 'Light Paws', '+8% speed.', { speed: 0.08 }), pas('sharp_senses', 'Sharp Senses', '+25% senses range.', { senses: 0.25 })],
+      [
+        act('trickster_dash', 'Trickster Dash', 'Slide 7 m, untouchable for 0.5 s.', 8, { k: 'dash', dist: 7, dmg: 0, iframes: 0.5 }, 10),
+        act('snap', 'Snap', 'A single sharp bite.', 10, { k: 'cone', range: 2.0, arc: 50, dmg: 1.8 }),
+      ],
+      [pas('cunning', 'Cunning', '+15% damage, 6% lifesteal.', { dmg: 0.15, lifesteal: 0.06 }), pas('nimble', 'Nimble', '+10% speed, faster stamina recovery.', { speed: 0.1, stamRegen: 0.3 })],
+    ],
+  },
+  {
+    id: 'leopard', name: 'Leopard', size: 'medium', role: 'Lone stalker', stats: st(16, 28, 24, 12, 20), swim: 'land',
+    weakness: 'Weak in open ground', blurb: 'Waits in the leaves, then ends the fight in one leap.',
+    innate: pas('spotted_cloak', 'Spotted Cloak', '+40% damage from a bush.', { ambush: 0.4 }),
+    sig: [
+      act('ambush_leap', 'Ambush Leap', 'Spring 8 m out of cover.', 8, { k: 'dash', dist: 8, dmg: 1.6 }, 14),
+      act('stalk', 'Stalk', '+20% speed and +30% damage for 5 s.', 18, { k: 'buff', dur: 5, speed: 0.2, dmg: 0.3 }),
+    ],
+    unlock: [
+      [
+        act('throat_rake', 'Throat Rake', 'A deep rake that bleeds for 4 s.', 7, { k: 'cone', range: 2.0, arc: 60, dmg: 1.6, st: [{ s: 'bleed', dur: 4, dps: 0.3 }] }),
+        act('slip_away', 'Slip Away', 'Vanish 6 m, untouchable for 0.4 s.', 9, { k: 'dash', dist: 6, dmg: 0, iframes: 0.4 }, 10),
+      ],
+      [pas('padded_paws', 'Padded Paws', 'Hordes notice you 20% less.', { stealth: 0.2 }), pas('night_eyes', 'Night Eyes', '+25% senses range.', { senses: 0.25 })],
+      [
+        act('death_bite', 'Death Bite', 'The killing bite.', 14, { k: 'cone', range: 2.0, arc: 50, dmg: 2.8 }),
+        act('drag_prey', 'Drag Prey', 'Seize prey and drag it down for 2 s.', 16, { k: 'grab', dur: 2, dps: 1.1, range: 2.2 }),
+      ],
+      [pas('perfect_ambush', 'Perfect Ambush', '+60% damage from a bush.', { ambush: 0.6 }), pas('nine_lives', 'Nine Lives', 'Survive a killing blow once at 20% health.', { cheatDeath: 0.2 })],
+    ],
+  },
+  {
+    id: 'gorilla', name: 'Gorilla', size: 'large', role: 'Silverback', stats: st(30, 30, 10, 14, 16), swim: 'land',
+    weakness: 'Slow and noisy', blurb: 'Pounds its chest, then pounds you.',
+    innate: pas('silverback', 'Silverback Strength', '+10% damage.', { dmg: 0.1 }),
+    sig: [
+      act('chest_pound', 'Chest Pound', 'A thunderous drumming: hordes flee and enemies slow.', 18, { k: 'aoe', r: 9, dmg: 0, scare: 5, st: [{ s: 'slow', dur: 2, f: 0.6 }] }),
+      act('ground_smash', 'Ground Smash', 'Smash the ground: damage and a stun in 5 m.', 12, { k: 'aoe', r: 5, dmg: 1.5, st: [{ s: 'stun', dur: 1 }] }),
+    ],
+    unlock: [
+      [
+        act('haymaker', 'Haymaker', 'One enormous blow.', 9, { k: 'cone', range: 2.8, arc: 70, dmg: 2.2 }),
+        act('vine_swing', 'Vine Swing', 'Swing 9 m away, untouchable for 0.3 s.', 10, { k: 'dash', dist: 9, dmg: 0, iframes: 0.3 }, 12),
+      ],
+      [pas('iron_fists', 'Iron Fists', '+12% damage.', { dmg: 0.12 }), pas('thick_hide_g', 'Tough Hide', '12% damage reduction.', { dr: 0.12 })],
+      [
+        act('berserk', 'Berserk', '+45% damage and +10% speed for 6 s.', 30, { k: 'buff', dur: 6, dmg: 0.45, speed: 0.1 }),
+        act('banana_break', 'Banana Break', 'Heal 20% of your health.', 35, { k: 'heal', pct: 0.2 }),
+      ],
+      [pas('kong', 'Kong', '+20% health, +10% damage.', { hp: 0.2, dmg: 0.1 }), pas('rage_g', 'Rage', '+30% damage while under 40% health.', { lowHpDmg: 0.3 })],
+    ],
+  },
+  {
+    id: 'turtle', name: 'Snapping Turtle', size: 'medium', role: 'Armoured wall', stats: st(40, 10, 6, 24, 20), swim: 'water',
+    weakness: 'Hits softly, moves slowly', blurb: 'You will not get through it. You will not get past it either.',
+    innate: pas('shell', 'Shell', '15% damage reduction.', { dr: 0.15 }),
+    sig: [
+      act('shell_guard', 'Shell Guard', 'Withdraw into the shell: 70% less damage for 3 s, but you crawl.', 14, { k: 'buff', dur: 3, dr: 0.7, speed: -0.5 }),
+      act('turtle_snap', 'Snap', 'A beak snap with real force.', 8, { k: 'cone', range: 2.2, arc: 60, dmg: 2.0 }),
+    ],
+    unlock: [
+      [
+        act('shell_spin', 'Shell Spin', 'Spin on the spot, shoving everything away.', 12, { k: 'aoe', r: 4.5, dmg: 1.1, st: [{ s: 'slow', dur: 2, f: 0.6 }] }),
+        act('retreat', 'Retreat', 'Pull back and heal 18%.', 30, { k: 'heal', pct: 0.18 }),
+      ],
+      [pas('hard_shell', 'Hard Shell', '12% damage reduction.', { dr: 0.12 }), pas('slow_steady', 'Slow and Steady', '+50% stamina recovery.', { stamRegen: 0.5 })],
+      [
+        act('shell_bash', 'Shell Bash', 'Ram forward 5 m.', 12, { k: 'dash', dist: 5, dmg: 1.5, knock: 4 }, 12),
+        act('wise_elder', 'Wise Elder', 'Heal 25% of your health.', 40, { k: 'heal', pct: 0.25 }),
+      ],
+      [pas('ancient', 'Ancient', '+25% health.', { hp: 0.25 }), pas('reflecting_shell', 'Reflecting Shell', 'Reflect 30% of damage taken.', { reflect: 0.3 })],
+    ],
+  },
+  {
+    id: 'kangaroo', name: 'Kangaroo', size: 'medium', role: 'Boxer', stats: st(20, 24, 26, 16, 14), swim: 'land',
+    weakness: 'Poor senses', blurb: 'Hops in, kicks twice, hops out.',
+    innate: pas('springy', 'Springy Legs', '+6% speed.', { speed: 0.06 }),
+    sig: [
+      act('roo_kick', 'Roo Kick', 'A flying kick with serious force.', 7, { k: 'cone', range: 2.4, arc: 60, dmg: 2.0 }),
+      act('boxing', 'Boxing', 'Attack twice as fast for 5 s.', 20, { k: 'buff', dur: 5, rof: 2 }),
+    ],
+    unlock: [
+      [
+        act('hop_strike', 'Hop Strike', 'Bound 8 m and strike.', 7, { k: 'dash', dist: 8, dmg: 1.3 }, 12),
+        act('tail_prop', 'Tail Prop', 'Lean on the tail: 35% less damage for 3 s.', 14, { k: 'buff', dur: 3, dr: 0.35 }),
+      ],
+      [pas('power_legs', 'Powerful Legs', '+10% damage.', { dmg: 0.1 }), pas('pouch', 'Pouch Snacks', 'Food heals 50% more.', { eatBoost: 0.5 })],
+      [
+        act('double_kick', 'Double Kick', 'Two kicks in one.', 12, { k: 'cone', range: 2.6, arc: 90, dmg: 2.4 }),
+        act('outback_sprint', 'Outback Sprint', '+40% speed for 3 s, no stamina cost.', 20, { k: 'buff', dur: 3, speed: 0.4, free: true }),
+      ],
+      [pas('champion', 'Champion', '+20% damage, 6% lifesteal.', { dmg: 0.2, lifesteal: 0.06 }), pas('marathon', 'Marathon', '+10% health, much faster stamina recovery.', { hp: 0.1, stamRegen: 0.5 })],
+    ],
+  },
+  {
+    id: 'skunk', name: 'Skunk', size: 'small', role: 'Deterrent', stats: st(22, 14, 16, 20, 28), swim: 'land',
+    weakness: 'Low damage', blurb: 'Everyone gives it room. That is the point.',
+    innate: pas('foul', 'Foul Reputation', '5% damage reduction, +15% senses.', { dr: 0.05, senses: 0.15 }),
+    sig: [
+      act('stink_spray', 'Stink Spray', 'A nauseating cloud: nearby animals flee and slow.', 12, { k: 'aoe', r: 6, dmg: 0, scare: 5, st: [{ s: 'slow', dur: 3, f: 0.5 }] }),
+      act('handstand', 'Handstand', 'The warning display: reflect 40% and take 25% less for 3 s.', 16, { k: 'buff', dur: 3, reflect: 0.4, dr: 0.25 }),
+    ],
+    unlock: [
+      [
+        act('tail_flick', 'Tail Flick', 'Flick a stinging spray 12 m.', 6, { k: 'proj', dmg: 0.8, range: 12, st: [{ s: 'slow', dur: 2, f: 0.6 }] }),
+        act('noxious_cloud', 'Noxious Cloud', 'A wide cloud that hurts and slows.', 16, { k: 'aoe', r: 8, dmg: 0.4, st: [{ s: 'slow', dur: 2.5, f: 0.55 }] }),
+      ],
+      [pas('thick_fur_s', 'Thick Fur', '10% damage reduction.', { dr: 0.1 }), pas('strong_scent', 'Strong Scent', '+30% senses range.', { senses: 0.3 })],
+      [
+        act('gas_bomb', 'Gas Bomb', 'A choking blast: damage and a stun in 10 m.', 24, { k: 'aoe', r: 10, dmg: 1.2, st: [{ s: 'stun', dur: 0.8 }] }),
+        act('burrow_rest', 'Burrow Rest', 'Heal 20% of your health.', 36, { k: 'heal', pct: 0.2 }),
+      ],
+      [pas('rank', 'Rank', 'Reflect 15% and attackers bleed for 4 s.', { reflect: 0.15, attackerBleed: 4 }), pas('skunked', 'Skunked', '+15% damage, +10% health.', { dmg: 0.15, hp: 0.1 })],
+    ],
+  },
+];
+
+export type ClassId = 'hunter' | 'titan' | 'ambusher' | 'brawler' | 'skirmisher' | 'guardian';
+
+/** A class: a shared playstyle with real perks and real drawbacks, applied on top of each animal. */
+export interface ClassDef {
+  id: ClassId;
+  name: string;
+  icon: string;
+  blurb: string;
+  perks: string[];
+  drawbacks: string[];
+  mods: Mods;
+}
+
+export const CLASSES: ClassDef[] = [
+  {
+    id: 'hunter', name: 'Hunter', icon: '🏹', blurb: 'Runs prey down and finishes fights fast.',
+    perks: ['+6% speed', '+25% XP from hunting prey', '+8% damage'], drawbacks: ['-12% health', 'Guarding costs 30% more stamina'],
+    mods: { speed: 0.06, preyXp: 0.25, dmg: 0.08, hp: -0.12, guardCost: 0.3 },
+  },
+  {
+    id: 'titan', name: 'Titan', icon: '🛡️', blurb: 'A wall of muscle that wins by outlasting.',
+    perks: ['+18% health', '10% damage reduction'], drawbacks: ['-8% speed', 'Very loud: hordes hear you from 60% further', 'Dash recharges 25% slower'],
+    mods: { hp: 0.18, dr: 0.1, speed: -0.08, noise: 0.6, dashCd: 0.25 },
+  },
+  {
+    id: 'ambusher', name: 'Ambusher', icon: '🌿', blurb: 'Strikes from hiding, struggles in the open.',
+    perks: ['+30% damage from a bush or underwater', 'Hordes notice you 30% less'], drawbacks: ['-10% health', '-4% speed', 'Dash recharges 20% slower'],
+    mods: { ambush: 0.3, stealth: 0.3, hp: -0.1, speed: -0.04, dashCd: 0.2 },
+  },
+  {
+    id: 'brawler', name: 'Brawler', icon: '🥊', blurb: 'Stays in your face and gets angrier when hurt.',
+    perks: ['+12% damage under 40% health', '5% lifesteal'], drawbacks: ['-10% reach', '-10% senses range'],
+    mods: { lowHpDmg: 0.12, lifesteal: 0.05, reach: -0.1, senses: -0.1 },
+  },
+  {
+    id: 'skirmisher', name: 'Skirmisher', icon: '💨', blurb: 'Hits, dashes away and does it again.',
+    perks: ['+10% speed', 'Dash recharges 30% faster', '+20% senses range'], drawbacks: ['-15% health', '-10% damage'],
+    mods: { speed: 0.1, dashCd: -0.3, senses: 0.2, hp: -0.15, dmg: -0.1 },
+  },
+  {
+    id: 'guardian', name: 'Guardian', icon: '⚔️', blurb: 'Master of the parry; a patient, punishing fighter.',
+    perks: ['Parry window +0.09 s', 'Guarding costs 35% less stamina', '6% damage reduction'], drawbacks: ['-10% damage', '-6% speed'],
+    mods: { parryWin: 0.09, guardCost: -0.35, dr: 0.06, dmg: -0.1, speed: -0.06 },
+  },
+];
+export const CLASS_BY_ID = new Map(CLASSES.map((c) => [c.id, c]));
+
+const CLASS_OF: Record<string, ClassId> = {
+  wolf: 'hunter', cheetah: 'hunter', lion: 'hunter',
+  bear: 'titan', hippo: 'titan', gorilla: 'titan',
+  croc: 'ambusher', leopard: 'ambusher',
+  badger: 'brawler', boar: 'brawler', kangaroo: 'brawler',
+  otter: 'skirmisher', redfox: 'skirmisher',
+  porcupine: 'guardian', turtle: 'guardian', skunk: 'guardian',
+};
+
+/** A class as a pseudo-skill so its numbers are summed with the animal's own. */
+export const classSkill = (cls: ClassId): Skill => ({ id: `class_${cls}`, name: CLASS_BY_ID.get(cls)!.name, desc: '', mods: CLASS_BY_ID.get(cls)!.mods });
+
+export const ANIMALS: AnimalDef[] = [...BASE, ...MORE].map((a) => ({ ...a, cls: CLASS_OF[a.id] }));
 export const ANIMAL_BY_ID = new Map(ANIMALS.map((a) => [a.id, a]));
 export const SKILL_BY_ID = new Map<string, Skill>();
 for (const a of ANIMALS) {
@@ -292,6 +535,7 @@ export function sumMods(skills: Skill[]): Required<Mods> {
   const m: Required<Mods> = {
     hp: 0, dmg: 0, speed: 0, dr: 0, reflect: 0, lifesteal: 0, waterSpeed: 0, stamRegen: 0, senses: 0, markDmg: 0,
     lowHpDmg: 0, executeDmg: 0, eatBoost: 0, bleedOnHit: 0, cheatDeath: 0, regenOOC: 0, bleedImmune: 0, ambush: 0, attackerBleed: 0,
+    preyXp: 0, dashCd: 0, parryWin: 0, guardCost: 0, reach: 0, noise: 0, stealth: 0,
   };
   for (const s of skills) {
     if (!s.mods) continue;
@@ -310,7 +554,7 @@ export function derive(def: AnimalDef, alloc: Stats, mods: Required<Mods>): Deri
     maxSta: 40 + 3 * p('sta'),
     sense: (25 + 1.8 * p('sen')) * (1 + mods.senses),
     radius: size.radius,
-    reach: size.reach,
+    reach: size.reach * (1 + mods.reach),
   };
 }
 

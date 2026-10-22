@@ -1,5 +1,5 @@
 // The lobby's door to the match: pick an animal, optionally enter a squad code, and queue.
-import { ANIMALS, SIZE, STAT_KEYS, STAT_NAMES, type AnimalDef } from '../../../shared/arena/animals';
+import { ANIMALS, CLASSES, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, type AnimalDef } from '../../../shared/arena/animals';
 import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
 
@@ -26,9 +26,17 @@ const CSS = `
 #br-menu .status { font-size: 24px; font-weight: 600; color: var(--leaf); min-height: 30px; }
 #br-open { pointer-events: auto; cursor: pointer; font-family: 'Fredoka', 'Trebuchet MS', sans-serif; font-weight: 700; }
 @media (max-width: 900px) { #br-menu .grid { grid-template-columns: repeat(2, 1fr); } }
+
+#br-menu .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+#br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 18px; padding: 3px 14px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#7a5a3a, #52381f); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
+#br-menu .chip.on { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+#br-menu .card .cls { margin-top: 5px; padding-top: 4px; border-top: 2px dashed rgba(90,52,16,.35); font-size: 14px; line-height: 1.05; }
+#br-menu .card .cls b { color: #6a3410; font-size: 16px; }
+#br-menu .card .cls .p { color: #2a6a14; }
+#br-menu .card .cls .d { color: #a8341e; }
 `;
 
-const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔' };
+const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
 
 export class BrMenu {
   private root = document.createElement('div');
@@ -59,6 +67,20 @@ export class BrMenu {
     const panel = document.createElement('div');
     panel.className = 'panel wood';
     panel.innerHTML = '<h2>Animal Battle Royale</h2><div class="sub">20 animals, one island, and a lava ring that never stops closing. Level up on the hordes, then hunt each other. Dead players fight in the Gulag and come back leading a swarm.</div>';
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    const mkChip = (label: string, cls: string | null) => {
+      const c = document.createElement('button');
+      c.className = `chip${cls === null ? ' on' : ''}`;
+      c.textContent = label;
+      c.addEventListener('click', () => {
+        chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c));
+        for (const [id, card] of this.cards) card.hidden = cls !== null && ANIMALS.find((x) => x.id === id)?.cls !== cls;
+      });
+      return c;
+    };
+    chips.append(mkChip('All animals', null), ...CLASSES.map((c) => mkChip(`${c.icon} ${c.name}`, c.id)));
+    panel.append(chips);
     const grid = document.createElement('div');
     grid.className = 'grid';
     for (const a of ANIMALS) {
@@ -125,7 +147,11 @@ export class BrMenu {
     const bars = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k]}</span><span><i style="width:${(a.stats[k] / max) * 100}%"></i></span>`).join('');
     c.innerHTML =
       `<div class="em">${EMOJI[a.id] ?? '🐾'}</div><h3>${a.name}</h3><div class="tag">${a.role} · ${a.size}</div>` +
-      `<div class="bars">${bars}</div><ul><li>${a.sig[0].name}</li><li>${a.sig[1].name}</li><li><i>${a.innate.name}</i></li></ul><div class="tag">Weak: ${a.weakness}</div>`;
+      `<div class="bars">${bars}</div><ul><li>${a.sig[0].name}</li><li>${a.sig[1].name}</li><li><i>${a.innate.name}</i></li></ul><div class="tag">Weak: ${a.weakness}</div>` +
+      (() => {
+        const k = CLASS_BY_ID.get(a.cls)!;
+        return `<div class="cls"><b>${k.icon} ${k.name}</b><br>${k.perks.map((p) => `<span class="p">+ ${p}</span>`).join('<br>')}<br>${k.drawbacks.map((p) => `<span class="d">- ${p.replace(/^-\s?/, '')}</span>`).join('<br>')}</div>`;
+      })();
     c.addEventListener('click', () => {
       this.sel = a.id;
       this.refreshSel();

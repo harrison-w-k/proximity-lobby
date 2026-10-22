@@ -44,10 +44,15 @@ const arena = new Arena({
   isBlocked: () => typing || menuOpen || brMenu.isOpen,
   openSettings: () => openMenu(),
   onStart: () => {
+    // make room for the paper doll and the animal card
+    $('hud').style.left = '196px';
+    $('chat').style.left = '312px';
     brMenu.close();
     updatePaused();
   },
   onExit: () => {
+    $('hud').style.left = '';
+    $('chat').style.left = '';
     $('hud').hidden = false;
     world.lock();
     updatePaused();

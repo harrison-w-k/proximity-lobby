@@ -11,6 +11,7 @@ import type { Net } from '../net';
 import type { Sfx } from '../sfx';
 import type { Voice } from '../voice';
 import type { World } from '../world';
+import { Doll } from './doll';
 import { Hud, itemLabel } from './hud';
 import { ArenaScene } from './scene';
 
@@ -49,6 +50,7 @@ export class Arena {
   active = false;
   onQueue: (q: QueueInfo) => void = () => {};
   private hud = new Hud();
+  private doll = new Doll();
   private scene: ArenaScene | null = null;
   private myId = '';
   private myTeam = -1;
@@ -345,6 +347,7 @@ export class Arena {
       this.lastRole = you.role;
     }
     if (you.lvl > this.lastLvl && you.role === 0) {
+      this.hud.levelUp();
       this.hud.announce(`LEVEL ${you.lvl}`, you.pts > 0 ? 'Press Tab to spend your stat point' : '', 1800);
       this.d.sfx.levelUp();
       this.scene.burst(this.pos.x, this.scene.groundY(this.pos.x, this.pos.z) + 1, this.pos.z, 0xffe27a, 18, 5, 0.9);
@@ -395,12 +398,14 @@ export class Arena {
           if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 3.5 && this.clock - this.localSwingAt < 0.45) {
             this.hitstop = Math.max(this.hitstop, e.n > 20 ? 0.07 : 0.035);
             this.addShake(0.18);
+            this.hud.hitMarker(e.n > 20);
           }
         }
         break;
       }
       case 'mobhit':
         sc.floater(e.x, sc.groundY(e.x, e.z) + 1.4, e.z, String(e.n), '#ffe27a', 0.8);
+        if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 4 && this.clock - this.localSwingAt < 0.5) this.hud.hitMarker(e.n > 20);
         sc.burst(e.x, sc.groundY(e.x, e.z) + 0.6, e.z, 0xcc3322, 4, 2, 0.3);
         this.nearSfx(e.x, e.z, () => this.d.sfx.bite());
         break;
@@ -849,6 +854,13 @@ export class Arena {
 
     this.updateCamera(dt, you);
     sc.update(dtWorld, this.myTeam, g?.time ?? 0);
+    // the paper doll copies our animal's animation
+    if (you && you.role !== 3) {
+      const rs = this.roster.get(this.myId);
+      const sv = sc.fighter(this.myId);
+      this.doll.set(this.def.id, you.role, rs?.swarm, rs?.tier ?? 1);
+      this.doll.update(dtWorld, sv?.lastState, this.visYaw, this.camYaw);
+    }
 
     if (you && g) {
       if (this.clock - this.hintAt > 0.15) {
@@ -965,7 +977,9 @@ export class Arena {
   }
 
   private render(r: THREE.WebGLRenderer) {
-    if (this.scene) r.render(this.scene.scene, this.scene.camera);
+    if (!this.scene) return;
+    r.render(this.scene.scene, this.scene.camera);
+    if (this.you && this.you.role !== 3 && this.hud.visible) this.doll.render(r, this.hud.dollRect());
   }
 
   // --- hints, map, voice -----------------------------------------------------------------------------
