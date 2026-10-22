@@ -17,6 +17,7 @@ import {
 import { classSkill } from './animals';
 import { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
+import { SPAWN_BY_ID, type SpawnId } from './spawn';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
 import { botThink } from './bots';
 
@@ -297,6 +298,7 @@ export interface Entrant {
   animal: string;
   team: number;
   bot: boolean;
+  spawn?: string; // the environment this team asked to drop into
 }
 
 export interface Host {
@@ -413,9 +415,35 @@ export class Match {
       const j = Math.floor(this.rnd() * (i + 1));
       [teams[i], teams[j]] = [teams[j], teams[i]];
     }
-    const spawns = this.terrain.spawns;
-    teams.forEach((team, i) => {
-      const sp = spawns[i % spawns.length];
+    // teams that asked for an environment are placed first; the rest take what is left
+    const free = [...this.terrain.spawns];
+    const used: { x: number; z: number }[] = [];
+    const wanted = new Map<number, Biome>();
+    for (const e of entrants) {
+      const c = SPAWN_BY_ID.get(e.spawn as SpawnId);
+      if (c?.biome != null && !wanted.has(e.team)) wanted.set(e.team, c.biome);
+    }
+    const placed = new Map<number, { x: number; z: number }>();
+    for (const team of teams) {
+      const biome = wanted.get(team);
+      if (biome === undefined) continue;
+      let i = free.findIndex((p) => this.terrain.biomeAt(p.x, p.z) === biome);
+      let sp: { x: number; z: number } | null = null;
+      if (i >= 0) sp = free.splice(i, 1)[0];
+      else sp = this.terrain.spawnIn(biome, used, this.rnd);
+      if (sp) {
+        placed.set(team, sp);
+        used.push(sp);
+      }
+    }
+    for (const team of teams) {
+      if (placed.has(team)) continue;
+      const sp = free.shift() ?? this.terrain.spawns[placed.size % this.terrain.spawns.length];
+      placed.set(team, sp);
+      used.push(sp);
+    }
+    teams.forEach((team) => {
+      const sp = placed.get(team)!;
       let k = 0;
       for (const f of this.fighters) {
         if (f.team !== team) continue;

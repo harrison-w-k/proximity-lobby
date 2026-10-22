@@ -7,6 +7,7 @@ import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
 import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
+import { ANIMAL_EMOJI } from './arena/emoji';
 import { ANIMALS, ANIMAL_BY_ID } from '../../shared/arena/animals';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
@@ -35,7 +36,6 @@ if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = wo
 if (import.meta.env.DEV) setTimeout(() => ((window as unknown as { __arena?: unknown }).__arena = arena), 0);
 let voice: Voice | null = null;
 let joined = false;
-const ANIMAL_EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
 let myAnimal = 'wolf';
 try {
   const saved = localStorage.getItem('br-animal');

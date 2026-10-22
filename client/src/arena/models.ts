@@ -30,6 +30,9 @@ export interface Rig {
   setTint(color: number | null): void;
 }
 
+const SHADOW_GEO = new THREE.CircleGeometry(1, 20);
+const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+
 /** Geometries merge only if they are all indexed or all not. */
 const flat = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
 
@@ -110,6 +113,8 @@ interface Built {
   head: THREE.Group;
   tail: THREE.Group | null;
   torso: THREE.Group;
+  eyes: THREE.Object3D[];
+  ears: { o: THREE.Object3D; side: number }[];
   hip: number;
   spec: QuadSpec;
 }
@@ -139,12 +144,28 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   head.add(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02));
   head.add(box(hs * 0.2, hs * 0.14, hs * 0.14, 0x16120f, 0, -hs * 0.04, hs * 0.5 + sn)); // nose
   const eyeC = spec.eye ?? 0x111111;
-  head.add(box(hs * 0.12, hs * 0.14, hs * 0.1, eyeC, hs * 0.32, hs * 0.12, hs * 0.46), box(hs * 0.12, hs * 0.14, hs * 0.1, eyeC, -hs * 0.32, hs * 0.12, hs * 0.46));
+  // eyes: a white ball, a dark pupil looking forward and a glint, so they read as alive
+  const eyes: THREE.Object3D[] = [];
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Group();
+    eye.position.set(sx * hs * 0.32, hs * 0.14, hs * 0.44);
+    eye.add(ball(hs * 0.1, hs * 0.115, hs * 0.07, 0xf4f1e6), box(hs * 0.1, hs * 0.13, hs * 0.05, eyeC, sx * -hs * 0.01, 0, hs * 0.05), box(hs * 0.035, hs * 0.035, hs * 0.03, 0xffffff, sx * hs * 0.015, hs * 0.04, hs * 0.075));
+    head.add(eye);
+    eyes.push(eye);
+  }
   const es = (spec.earS ?? 0.5) * hs;
   const ec = spec.earC ?? spec.fur;
-  if (spec.ears === 'point') for (const sx of [-1, 1]) head.add(cone(es * 0.5, es, ec, sx * hs * 0.32, hs * 0.62, -hs * 0.05));
-  else if (spec.ears === 'round') for (const sx of [-1, 1]) head.add(ball(es * 0.5, es * 0.5, es * 0.3, ec, sx * hs * 0.38, hs * 0.5, -hs * 0.1));
-  else if (spec.ears === 'long') for (const sx of [-1, 1]) head.add(part(CONE3, ec, es * 0.3, es * 2.4, es * 0.14, sx * hs * 0.22, hs * 0.95, -hs * 0.1));
+  const ears: { o: THREE.Object3D; side: number }[] = [];
+  for (const sx of [-1, 1]) {
+    let e: THREE.Object3D | null = null;
+    if (spec.ears === 'point') e = cone(es * 0.5, es, ec, sx * hs * 0.32, hs * 0.62, -hs * 0.05);
+    else if (spec.ears === 'round') e = ball(es * 0.5, es * 0.5, es * 0.3, ec, sx * hs * 0.38, hs * 0.5, -hs * 0.1);
+    else if (spec.ears === 'long') e = part(CONE3, ec, es * 0.3, es * 2.4, es * 0.14, sx * hs * 0.22, hs * 0.95, -hs * 0.1);
+    if (e) {
+      head.add(e);
+      ears.push({ o: e, side: sx });
+    }
+  }
   torso.add(head);
 
   // legs pivot at the hip so they can swing
@@ -188,7 +209,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   }
   spec.extras?.(torso, head, r);
   if (spec.scale) root.scale.setScalar(spec.scale);
-  return { root, legs, head, tail, torso, hip, spec };
+  return { root, legs, head, tail, torso, eyes, ears, hip, spec };
 }
 
 class QuadRig implements Rig {
@@ -204,6 +225,8 @@ class QuadRig implements Rig {
   private wasAir = 0;
   private squash = 0;
   private seed = Math.random() * 100;
+  private shadow: THREE.Mesh;
+  private shadowR: number;
   constructor(private b: Built, radius: number) {
     this.root = new THREE.Group();
     this.root.add(b.root);
@@ -212,6 +235,13 @@ class QuadRig implements Rig {
     this.radius = radius;
     this.baseY = b.torso.position.y;
     this.headZ = b.head.position.z;
+    // a soft shadow blob keeps the animal planted on the ground
+    this.shadow = new THREE.Mesh(SHADOW_GEO, SHADOW_MAT);
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.position.y = 0.05;
+    this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
+    this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
+    this.root.add(this.shadow);
     b.root.traverse((o) => {
       if (o instanceof THREE.Mesh) {
         // each rig needs its own materials so a hit can flash one animal
@@ -267,6 +297,18 @@ class QuadRig implements Rig {
     }
     const sc = (b.spec.scale ?? 1) * (p?.sc ?? 1);
     b.root.scale.setScalar(sc);
+    // blinking (squints when hurt, dizzy slits when stunned) and ear flicks
+    const bk = (s.t + this.seed) % 3.4;
+    const closed = Math.max(bk < 0.14 ? Math.sin((bk / 0.14) * Math.PI) : 0, s.hurt > 0.2 ? 0.8 : 0, s.stun ? 0.6 : 0);
+    for (const e of b.eyes) e.scale.y = 1 - 0.9 * closed;
+    const flick = Math.max(0, Math.sin(s.t * 0.9 + this.seed * 3) - 0.9) * 8;
+    for (const e of b.ears) {
+      e.o.rotation.z = e.side * (flick * 0.45 + (s.stun ? 0.5 : 0) + g * 0.15);
+      e.o.rotation.x = -moving * 0.3 - g * 0.3 - s.attack * 0.3;
+    }
+    const lift = Math.min(1, (s.air ?? 0) * 1.5);
+    const sk = this.shadowR * (1 - lift * 0.35) * sc;
+    this.shadow.scale.set(sk, sk * 1.15, 1);
     // a glow while winding up (so the blow can be read), a flash when hit
     this.flash = Math.max(this.flash, s.hurt);
     this.flash = Math.max(0, this.flash - dt * 3);
@@ -476,7 +518,7 @@ function buildBird(spec: BirdSpec): Built {
   }
   (root as unknown as { wings: THREE.Group[] }).wings = wings;
   const fake: QuadSpec = { len: spec.body * 2.4, w: spec.body, h: spec.body, legLen: spec.legs, legT: 0.03, fur: spec.c, head: { s: spec.body, snout: 0.05 } };
-  return { root, legs: [legs[0], legs[1], legs[1], legs[0]], head, tail, torso, hip: spec.legs, spec: { ...fake, scale: spec.scale } };
+  return { root, legs: [legs[0], legs[1], legs[1], legs[0]], head, tail, torso, eyes: [], ears: [], hip: spec.legs, spec: { ...fake, scale: spec.scale } };
 }
 
 interface FishSpec {

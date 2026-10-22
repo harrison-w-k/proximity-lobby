@@ -15,7 +15,7 @@ export interface InvItem {
 // --- client -> server ------------------------------------------------------------------------
 
 export type ClientMatchMsg =
-  | { t: 'mq'; animal: string; team?: string } // join the queue for the next match
+  | { t: 'mq'; animal: string; team?: string; spawn?: string } // join the queue for the next match (and where to drop)
   | { t: 'mqx' } // leave the queue
   | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
   | { t: 'mskill'; i: number; yaw: number } // use the skill in slot 0..3 (Q E R F)

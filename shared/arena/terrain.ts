@@ -357,6 +357,22 @@ export class Terrain {
     this.spawns = spawns;
   }
 
+  /** A dry spot of the wanted biome, spaced away from the spawn points already used. */
+  spawnIn(biome: Biome, taken: SpawnPoint[], rnd: () => number): SpawnPoint | null {
+    const dry = (x: number, z: number) => this.heightAt(x, z) > WATER_Y + 0.4 && !this.collide(x, z, 1.5).hit;
+    for (const gap of [110, 80, 55, 30, 0]) {
+      for (let i = 0; i < 500; i++) {
+        const a = rnd() * Math.PI * 2;
+        const r = 120 + rnd() * (MAP_RADIUS - 150);
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        if (this.biomeAt(x, z) !== biome || !dry(x, z)) continue;
+        if (taken.every((p) => Math.hypot(p.x - x, p.z - z) >= gap)) return { x, z };
+      }
+    }
+    return null;
+  }
+
   /** A random point on dry land inside `radius`. */
   randomLand(rnd: () => number, radius: number, minRadius = 0): { x: number; z: number } {
     for (let i = 0; i < 80; i++) {

@@ -1,5 +1,6 @@
 // The lobby's door to the match: pick an animal on a spotlit stage, optionally enter a squad
 // code, and queue. Hovering an animal brings it up into focus; clicking chooses it.
+import { SPAWN_BY_ID, SPAWN_CHOICES, bestSpawn, isSpawnId, type SpawnId } from '../../../shared/arena/spawn';
 import { ANIMALS, ANIMAL_BY_ID, CLASSES, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, type AnimalDef } from '../../../shared/arena/animals';
 import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
@@ -45,6 +46,21 @@ const CSS = `
 #br-menu .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 #br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#7a5a3a, #52381f); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
 #br-menu .chip.on { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+#br-menu .drop { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 4px 2px; }
+#br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #120c07; border-radius: 14px; cursor: pointer; font-family: inherit; color: #2a1b0c;
+  background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s; }
+#br-menu .drop button:hover { transform: translateY(-3px); }
+#br-menu .drop button.on { background: linear-gradient(#cdf08e, #8fc653); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px #f3b43c, 0 4px 0 rgba(0,0,0,.45); transform: translateY(-4px); }
+#br-menu .drop .ic { font-size: 30px; line-height: 1.1; }
+#br-menu .drop b { font-size: 18px; }
+#br-menu .drop small { font-size: 13px; line-height: 1.1; text-align: center; opacity: .8; }
+#br-menu .drop .star { position: absolute; top: -10px; right: -6px; padding: 0 8px; border: 2px solid #120c07; border-radius: 999px; font-size: 12px; font-weight: 700; color: #2a1b0c; background: linear-gradient(#ffd77a, #e09a1f); }
+#br-menu .dropinfo { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; padding: 6px 4px 2px; font-size: 16px; line-height: 1.25; }
+#br-menu .dropinfo h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; color: #f3b43c; }
+#br-menu .dropinfo .g { color: #b7e46f; }
+#br-menu .dropinfo .x { color: #ff9a82; }
+#br-menu .dropinfo .fit { color: #ffd77a; }
+@media (max-width: 960px) { #br-menu .drop { grid-template-columns: repeat(3, 1fr); } #br-menu .dropinfo { grid-template-columns: 1fr; } }
 #br-menu .roster { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; padding: 8px 2px 4px; }
 #br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #2a1b0c;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s, box-shadow .12s, filter .12s; animation: brtile .45s ease-out both; }
@@ -91,6 +107,9 @@ export class BrMenu {
   private leaveBtn!: HTMLButtonElement;
   private team!: HTMLInputElement;
   private sel = 'wolf';
+  private spawn: SpawnId = 'any';
+  private dropBox = document.createElement('div');
+  private dropInfo = document.createElement('div');
   private focus = 'wolf';
   private q: QueueInfo | null = null;
   private tiles = new Map<string, HTMLElement>();
@@ -169,6 +188,21 @@ export class BrMenu {
     });
     panel.append(roster);
 
+    // where to drop onto the map
+    try {
+      const saved = localStorage.getItem('br-spawn');
+      if (isSpawnId(saved)) this.spawn = saved;
+    } catch {
+      /* storage unavailable */
+    }
+    const dropTitle = document.createElement('div');
+    dropTitle.className = 'sub';
+    dropTitle.innerHTML = '<b>Where do you drop?</b> Pick the ground that suits your build.';
+    this.dropBox.className = 'drop';
+    this.dropInfo.className = 'dropinfo';
+    panel.append(dropTitle, this.dropBox, this.dropInfo);
+    this.refreshSpawn();
+
     const row = document.createElement('div');
     row.className = 'row';
     this.team = document.createElement('input');
@@ -213,10 +247,11 @@ export class BrMenu {
       try {
         localStorage.setItem('br-animal', this.sel);
         localStorage.setItem('br-team', this.team.value);
+        localStorage.setItem('br-spawn', this.spawn);
       } catch {
         /* storage unavailable */
       }
-      this.net.send({ t: 'mq', animal: this.sel, team: this.team.value });
+      this.net.send({ t: 'mq', animal: this.sel, team: this.team.value, spawn: this.spawn });
     });
     this.leaveBtn.addEventListener('click', () => this.net.send({ t: 'mqx' }));
     close.addEventListener('click', () => this.close());
@@ -293,6 +328,33 @@ export class BrMenu {
       t.classList.toggle('sel', id === this.sel);
       t.classList.toggle('focus', id === this.focus);
     }
+    this.refreshSpawn();
+  }
+
+  /** The drop-zone cards, with a star on the one that suits the animal in the spotlight. */
+  private refreshSpawn() {
+    const a = ANIMAL_BY_ID.get(this.sel);
+    const best = a ? bestSpawn(a) : null;
+    this.dropBox.replaceChildren(
+      ...SPAWN_CHOICES.map((c) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = c.id === this.spawn ? 'on' : '';
+        b.innerHTML = `<span class="ic">${c.icon}</span><b>${c.name}</b><small>${c.blurb}</small>${best && best.id === c.id ? '<span class="star">★ Best fit</span>' : ''}`;
+        b.addEventListener('click', () => {
+          if (this.spawn !== c.id) this.sfx?.choose();
+          this.spawn = c.id;
+          this.refreshSpawn();
+        });
+        return b;
+      }),
+    );
+    const c = SPAWN_BY_ID.get(this.spawn)!;
+    const fit = best && a ? (best.id === this.spawn ? `<div class="fit">★ A great pick for ${a.name}: ${best.why}</div>` : `<div class="fit">★ ${a.name} does best in the ${SPAWN_BY_ID.get(best.id)!.name}: ${best.why}</div>`) : '';
+    this.dropInfo.innerHTML =
+      `<div><h4>${c.icon} ${c.name}</h4>${c.blurb}${fit}</div>` +
+      `<div><h4>Good</h4>${c.good.map((x) => `<div class="g">+ ${x}</div>`).join('')}</div>` +
+      `<div><h4>Bad</h4>${c.bad.map((x) => `<div class="x">− ${x}</div>`).join('')}</div>`;
   }
 
   /** Put an animal in the spotlight: it rises onto the stage and its details slide in. */
@@ -335,6 +397,17 @@ export class BrMenu {
     if (this.isOpen) return;
     this.isOpen = true;
     this.root.hidden = false;
+    // the lobby may have changed your animal since this menu last opened
+    try {
+      const saved = localStorage.getItem('br-animal');
+      if (saved && saved !== this.sel && ANIMAL_BY_ID.has(saved)) {
+        this.sel = saved;
+        this.bringUp(saved);
+        this.refreshSel();
+      }
+    } catch {
+      /* storage unavailable */
+    }
     document.exitPointerLock();
     this.onOpen();
     this.net.send({ t: 'mqx' }); // asks for fresh numbers without queueing (a no-op if not queued)

@@ -10,6 +10,7 @@ import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
 import * as T from './textures';
 import { makePlayerRig, type Rig } from './arena/models';
+import { ANIMAL_EMOJI } from './arena/emoji';
 
 export const EYE_HEIGHT = EYE_STAND;
 
@@ -120,23 +121,52 @@ const tex = () => {
   return texCache;
 };
 
+function paintName(sprite: THREE.Sprite, name: string, emoji?: string) {
+  const c = sprite.userData.canvas as HTMLCanvasElement;
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, c.width, c.height);
+  // a little carved plank with a leaf-green rim
+  const grad = g.createLinearGradient(0, 8, 0, 56);
+  grad.addColorStop(0, '#5a3d24');
+  grad.addColorStop(1, '#2e1d11');
+  g.beginPath();
+  g.roundRect(4, 8, 248, 48, 24);
+  g.fillStyle = grad;
+  g.fill();
+  g.lineWidth = 4;
+  g.strokeStyle = '#120c07';
+  g.stroke();
+  g.beginPath();
+  g.roundRect(8, 12, 240, 40, 20);
+  g.lineWidth = 2;
+  g.strokeStyle = emoji ? '#9bd15a' : '#6e4c2d';
+  g.stroke();
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#f7edd3';
+  if (emoji) {
+    g.font = '28px system-ui, sans-serif';
+    g.fillText(emoji, 36, 34);
+    g.font = '700 28px Fredoka, system-ui, sans-serif';
+    g.fillText(name, 146, 33, 180);
+  } else {
+    g.font = '700 28px Fredoka, system-ui, sans-serif';
+    g.fillText(name, 128, 33, 232);
+  }
+  (sprite.material.map as THREE.CanvasTexture).needsUpdate = true;
+}
+
 function makeNameSprite(name: string): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = 256;
   c.height = 64;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgba(8,16,40,0.7)';
-  g.fillRect(4, 8, 248, 48);
-  g.fillStyle = '#fff';
-  g.font = '700 30px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(name, 128, 33, 232);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sprite.userData.canvas = c;
   sprite.scale.set(1.5, 0.375, 1);
   sprite.position.y = 2.15;
+  paintName(sprite, name);
   return sprite;
 }
 
@@ -1096,6 +1126,12 @@ const ragdollAmount = (left: number, dur: number) => {
 const CROUCH_SCALE = 0.7;
 const NAME_HEIGHT = 2.5;
 
+/** Spring-in: grows from nothing, overshoots, settles at 1 as left goes 1 to 0. */
+function popScale(left: number): number {
+  const c = 1.9;
+  return 1 - (c + 1) * left * left * left + c * left * left;
+}
+
 class Avatar {
   readonly group = new THREE.Group();
   readonly hit: THREE.Mesh; // what the crosshair ray tests against (invisible)
@@ -1105,6 +1141,8 @@ class Avatar {
   private character: Character;
   private rig: Rig | null = null;
   private nameHeight = NAME_HEIGHT;
+  private name: string;
+  private pop = 0; // 1 -> 0 while a new animal pops into being
   private tx: number;
   private tz: number;
   private ty: number;
@@ -1136,6 +1174,7 @@ class Avatar {
     hit.userData.id = p.id;
     this.hit = hit;
     this.shell.add(ch.group, hit);
+    this.name = p.name;
     this.label = makeNameSprite(p.name);
     this.group.add(this.shell, this.label);
     this.group.position.set(p.x, p.y ?? 0, p.z);
@@ -1172,6 +1211,8 @@ class Avatar {
     this.rig = null;
     this.character.group.visible = !id;
     this.nameHeight = this.character.height + 0.3;
+    paintName(this.label, this.name, id ? ANIMAL_EMOJI[id] : undefined);
+    this.pop = 1;
     if (id) {
       this.rig = makePlayerRig(id);
       this.rig.root.rotation.y = Math.PI; // the lobby's characters face -Z
@@ -1242,6 +1283,8 @@ class Avatar {
       t,
     );
     if (this.rig) {
+      this.pop = Math.max(0, this.pop - dt * 2.5);
+      this.rig.root.scale.setScalar(popScale(this.pop));
       const rd = ragdollAmount(this.ragdollLeft, this.ragdollDur);
       this.rig.root.rotation.z = rd * this.ragFall * 1.5;
       this.rig.update(dt, { speed: this.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t, air: airborne ? 0.5 : 0, vy: this.vy });
@@ -1308,6 +1351,7 @@ export class World {
   private selfChars: Character[] = [];
   private selfRig: Rig | null = null;
   private selfAnimal = '';
+  private selfPop = 0;
   private selfAvatar: string | null = null;
   private ray = new THREE.Raycaster();
   private centre = new THREE.Vector2(0, 0);
@@ -1631,6 +1675,7 @@ export class World {
 
   /** Show our own animal in place of the clay figure. */
   setSelfAnimal(id: string) {
+    if (id !== this.selfAnimal) this.poof(this.pos.x, this.feetY, this.pos.z);
     this.selfAnimal = id;
     this.applySelfAnimal();
   }
@@ -1640,13 +1685,23 @@ export class World {
     this.selfRig = null;
     for (const c of this.selfChars) c.group.visible = !this.selfAnimal;
     if (!this.selfAnimal) return;
+    this.selfPop = 1;
     this.selfRig = makePlayerRig(this.selfAnimal);
     this.selfRig.root.rotation.y = Math.PI;
     this.selfThird.add(this.selfRig.root);
   }
 
   setPlayerAnimal(id: string, animal: string | undefined) {
-    this.avatars.get(id)?.setAnimal(animal);
+    const a = this.avatars.get(id);
+    if (!a) return;
+    a.setAnimal(animal);
+    this.poof(a.group.position.x, a.group.position.y, a.group.position.z);
+  }
+
+  /** A ring of leaves and dust where someone turns into a new animal. */
+  private poof(x: number, y: number, z: number) {
+    this.puffs.emit(x, y + 0.4, z, 16, 0x9bd15a, 3, 2.4);
+    this.puffs.emit(x, y + 0.4, z, 12, 0xf7edd3, 2, 3);
   }
 
   setSelfLook(look: Look | null) {
@@ -2249,6 +2304,8 @@ export class World {
     if (this.ragdollT <= 0 && sim.ragdoll) sim.ragdoll = false;
     for (const c of this.selfChars) c.animate(state, dt, this.clock);
     if (this.selfRig) {
+      this.selfPop = Math.max(0, this.selfPop - dt * 2.5);
+      this.selfRig.root.scale.setScalar(popScale(this.selfPop));
       const rd = state.ragdoll ?? 0;
       this.selfRig.root.rotation.z = rd * (state.ragFall ?? 1) * 1.5;
       this.selfRig.update(dt, { speed: state.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t: this.clock, air: state.grounded ? 0 : 0.5, vy: state.vy, guard: false });
