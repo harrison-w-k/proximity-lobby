@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { ANIMALS } from './animals';
+import { STARTERS } from './animals';
 import { DT, Match, MATCH_LEN, PHASE_NAMES, type Entrant } from './match';
 import type { ServerMatchMsg } from './proto';
 
 function entrants(n: number): Entrant[] {
-  return Array.from({ length: n }, (_, i) => ({ id: `b${i}`, name: `Bot${i}`, animal: ANIMALS[i % ANIMALS.length].id, team: i, bot: true }));
+  return Array.from({ length: n }, (_, i) => ({ id: `b${i}`, name: `Bot${i}`, animal: STARTERS[i % STARTERS.length].id, team: i, bot: true }));
 }
 
 const seed = Number(process.argv[2] ?? 7);
@@ -65,4 +65,6 @@ console.log('results top 5', m.results.slice(0, 5).map((r) => `${r.place}.${r.na
 void DT;
 assert.ok(m.finished, 'the match finishes');
 assert.ok(m.winnerTeam >= 0, 'there is a winner');
+assert.ok(m.fighters.some((f) => f.def.stage > 1), 'someone evolved');
+console.log(`evolved: ${m.fighters.filter((f) => f.def.stage > 1).map((f) => f.def.id).join(', ')}`);
 console.log('match tests passed');

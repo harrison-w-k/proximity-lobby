@@ -751,6 +751,201 @@ function crown(): THREE.Group {
   return g;
 }
 
+
+// --- the 49 forms of the seven evolution trees ----------------------------------------------------
+// Most reuse a base body (cat, wolf, bear, otter, lizard...) with new colours, size and markings.
+type Extras = NonNullable<QuadSpec['extras']>;
+const spotted = (c: number, n: number, w: number, len: number, sz: number): Extras => (torso, _h, r) => {
+  for (let i = 0; i < n; i++) torso.add(box(sz, sz * 0.6, sz, c, (r() - 0.5) * w, 0.2 + (r() - 0.5) * 0.1 + (r() < 0.4 ? -0.18 : 0), (r() - 0.5) * len));
+};
+const striped = (c: number, n: number, w: number, len: number, hgt: number): Extras => (torso) => {
+  for (let i = 0; i < n; i++) torso.add(box(w, hgt, 0.05, c, 0, 0.17, len * (0.5 - i / (n - 1))));
+};
+const both = (...fs: Extras[]): Extras => (t, h, r) => fs.forEach((f) => f(t, h, r));
+const tufts = (c: number): Extras => (_t, head) => {
+  for (const sx of [-1, 1]) head.add(cone(0.03, 0.14, c, sx * 0.09, 0.2, -0.05));
+};
+const horn = (c: number, len: number, up: number): Extras => (_t, head) => {
+  const h = cone(0.07, len, c, 0, up, 0.3);
+  h.rotation.x = Math.PI / 2 - 0.5;
+  head.add(h);
+};
+const extraLegs = (c: number, n: number, span: number, lenL: number): Extras => (torso) => {
+  // static extra legs make six- and eight-legged bugs
+  for (let i = 0; i < n; i++) {
+    for (const sx of [-1, 1]) {
+      const l = part(LEG, c, 0.05, lenL, 0.05, sx * 0.22, -0.05, span * (i / Math.max(1, n - 1) - 0.5));
+      l.rotation.z = sx * 0.9;
+      torso.add(l);
+    }
+  }
+};
+const PS: Record<string, QuadSpec> = {};
+
+// cats: stealth and burst
+PS.house_cat = {
+  ...SPECS.leopard, fur: 0xd98a4c, belly: 0xf7e8d2, paw: 0xf7e8d2, scale: 0.55, ears: 'point', earS: 0.55,
+  tail: { len: 1.0, t: 0.1, up: 0.55 }, extras: striped(0x9a5524, 5, 0.34, 1.0, 0.07),
+};
+PS.bobcat = {
+  ...SPECS.leopard, fur: 0xb78a58, belly: 0xf1e4cf, paw: 0x8a6a40, scale: 0.8, ears: 'point', earS: 0.5,
+  tail: { len: 0.25, t: 0.13 }, extras: both(spotted(0x4a3320, 22, 0.36, 1.1, 0.08), tufts(0x1c1410)),
+};
+PS.lynx = {
+  ...SPECS.leopard, fur: 0xcdb892, belly: 0xf3ecdc, paw: 0x9a8868, scale: 0.9, ears: 'point', earS: 0.6,
+  tail: { len: 0.25, t: 0.13, c: 0x2a2018 }, extras: both(spotted(0x6a5a40, 16, 0.36, 1.1, 0.07), tufts(0x161210)),
+};
+PS.cheetah = { ...SPECS.cheetah, scale: 1.0 };
+PS.panther = {
+  ...SPECS.leopard, fur: 0x1c1c22, belly: 0x2a2a32, paw: 0x101014, scale: 1.1, eye: 0xffd23f, tail: { len: 1.2, t: 0.1, up: 0.15 }, extras: undefined,
+};
+PS.tiger = {
+  ...SPECS.leopard, fur: 0xe38a2c, belly: 0xf6ecd8, paw: 0xb86a1c, scale: 1.4, head: { s: 0.34, snout: 0.16, snoutC: 0xf3e2c0 },
+  tail: { len: 1.1, t: 0.12, up: 0.1 }, extras: striped(0x1c1410, 9, 0.5, 1.2, 0.12),
+};
+PS.lion = { ...SPECS.lion, scale: 1.15 };
+
+// canines and scavengers
+PS.fox = { ...SPECS.redfox, scale: 0.8 };
+PS.coyote = { ...SPECS.wolf, fur: 0xb89868, belly: 0xe7d8bc, paw: 0x6a5238, scale: 0.85, extras: undefined, head: { s: 0.34, snout: 0.3, snoutC: 0xcdb48a } };
+PS.jackal = { ...SPECS.wolf, fur: 0xc79a4e, belly: 0xefdcb0, paw: 0x7a5a2a, scale: 0.8, extras: undefined, ears: 'point', earS: 0.75, head: { s: 0.3, snout: 0.3, snoutC: 0xe0be82 } };
+PS.gray_wolf = { ...SPECS.wolf, scale: 1.1 };
+PS.dhole = { ...SPECS.wolf, fur: 0xc4562a, belly: 0xf0d0a8, paw: 0x7a3a1c, scale: 1.0, extras: undefined, tail: { len: 0.8, t: 0.16, c: 0x2a1810, up: -0.2 } };
+PS.hyena = {
+  ...SPECS.wolf, fur: 0xb09a68, belly: 0xd9c9a0, paw: 0x5a4a30, scale: 1.15, extras: spotted(0x4a3a24, 18, 0.4, 1.0, 0.09), ears: 'round', earS: 0.6,
+  head: { s: 0.4, snout: 0.22, snoutC: 0x3a3228 },
+};
+PS.wild_dog = {
+  ...SPECS.wolf, fur: 0xd0a040, belly: 0xefe0a8, paw: 0x2a2018, scale: 1.0, ears: 'round', earS: 0.8,
+  extras: spotted(0x1c1410, 14, 0.4, 1.0, 0.14), tail: { len: 0.7, t: 0.16, c: 0xf6f2ea, up: -0.2 },
+};
+
+// mustelids: brawlers and swimmers
+PS.weasel = { ...SPECS.otter, fur: 0xa8683a, belly: 0xf4e8d4, paw: 0x5a3a20, scale: 0.7, len: 1.1, h: 0.22, w: 0.2, tail: { len: 0.4, t: 0.09, c: 0x3a2418 }, extras: undefined };
+PS.river_otter = { ...SPECS.otter, scale: 1.0 };
+PS.badger = {
+  ...SPECS.badger, fur: 0x8a8580, belly: 0x6a6660, paw: 0x2a2826, scale: 1.0,
+  extras: (_t, head) => {
+    head.add(box(0.08, 0.05, 0.4, 0x14110f, 0.09, 0.2, 0.05), box(0.08, 0.05, 0.4, 0x14110f, -0.09, 0.2, 0.05), box(0.06, 0.05, 0.4, 0xf2efe8, 0, 0.22, 0.05));
+  },
+};
+PS.giant_otter = { ...SPECS.otter, fur: 0x5a3e2a, belly: 0xe8dac0, scale: 1.45, tail: { len: 0.9, t: 0.17, c: 0x5a3e2a } };
+PS.sea_otter = { ...SPECS.otter, fur: 0x4a3426, belly: 0xb09070, paw: 0x2a1c14, scale: 1.2, head: { s: 0.26, snout: 0.1, snoutC: 0xe8dcc0 } };
+PS.honey_badger = { ...SPECS.badger, scale: 1.2 };
+PS.wolverine = {
+  ...SPECS.badger, fur: 0x4a3828, belly: 0x3a2c20, paw: 0x1c140c, scale: 1.25, tail: { len: 0.4, t: 0.14 },
+  extras: (torso) => {
+    for (const sx of [-1, 1]) torso.add(box(0.05, 0.08, 0.9, 0xc9a86a, sx * 0.2, 0.08, -0.02));
+  },
+};
+
+// bears: bruisers and foragers
+PS.raccoon = {
+  ...SPECS.badger, fur: 0x77757a, belly: 0xb0aeb2, paw: 0x3a383c, scale: 0.9, tail: { len: 0.55, t: 0.14, c: 0x9a989c },
+  extras: (_t, head) => {
+    head.add(box(0.34, 0.1, 0.05, 0x1c1a1e, 0, 0.08, 0.28));
+    head.add(box(0.1, 0.1, 0.05, 0xf4f2f0, 0, -0.02, 0.38));
+  },
+};
+PS.black_bear = { ...SPECS.bear, fur: 0x23211f, belly: 0x1a1816, paw: 0x0e0d0c, scale: 0.8, head: { s: 0.52, snout: 0.3, snoutC: 0x9a7a56, drop: 0.12 }, extras: undefined };
+PS.sloth_bear = {
+  ...SPECS.bear, fur: 0x1a1816, belly: 0x14120f, paw: 0xe8dcc0, scale: 0.85, ears: 'round', earS: 0.4, head: { s: 0.5, snout: 0.4, snoutC: 0xd9c9a0, drop: 0.14 },
+  extras: (torso) => torso.add(box(0.45, 0.1, 0.12, 0xe8dcc0, 0, 0.1, 0.5)),
+};
+PS.grizzly = { ...SPECS.bear, scale: 1.1 };
+PS.polar_bear = { ...SPECS.bear, fur: 0xf0eee6, belly: 0xe0ddd2, paw: 0xc8c4b6, scale: 1.2, head: { s: 0.5, snout: 0.38, snoutC: 0xe8e4d8, drop: 0.12 }, extras: undefined };
+PS.kodiak = { ...SPECS.bear, fur: 0x6a4a2e, belly: 0x56391f, paw: 0x3a2412, scale: 1.3 };
+PS.panda = {
+  ...SPECS.bear, fur: 0xf2f0ea, belly: 0xe6e3da, paw: 0x1c1c1f, scale: 1.0, ears: 'round', earS: 0.4, earC: 0x1c1c1f, head: { s: 0.52, snout: 0.22, snoutC: 0xf2f0ea, drop: 0.1 },
+  extras: (torso, head) => {
+    torso.add(box(0.98, 0.3, 0.4, 0x1c1c1f, 0, 0.35, 0.5)); // black shoulder band
+    for (const sx of [-1, 1]) head.add(ball(0.1, 0.07, 0.05, 0x1c1c1f, sx * 0.17, 0.08, 0.5)); // eye patches
+  },
+};
+
+// reptiles: venom and armor
+PS.gecko = {
+  len: 0.9, w: 0.28, h: 0.16, legLen: 0.14, legT: 0.07, fur: 0x8aa84a, belly: 0xe2e8b0, paw: 0x6a8a30, crawl: true, scale: 0.6,
+  head: { s: 0.3, snout: 0.12, snoutC: 0x9ab85a }, ears: 'none', tail: { len: 0.9, t: 0.1, up: 0 }, eye: 0xffd23f,
+  extras: spotted(0xe8c040, 10, 0.26, 0.8, 0.05),
+};
+PS.monitor = { ...SPECS.croc, fur: 0x6a7048, belly: 0xc2c090, paw: 0x4a5030, scale: 0.55, head: { s: 0.34, snout: 0.45, snoutH: 0.2, snoutC: 0x7a8052, drop: 0.08 }, extras: undefined, tail: { len: 1.3, t: 0.2, up: 0 } };
+PS.snapping_turtle = { ...SPECS.turtle, fur: 0x5a6a3a, scale: 0.85 };
+PS.komodo = { ...SPECS.croc, fur: 0x6e5f4a, belly: 0xc8b890, paw: 0x4a3e2e, scale: 0.7, head: { s: 0.4, snout: 0.5, snoutH: 0.24, snoutC: 0x7e6e56, drop: 0.1 }, extras: undefined, tail: { len: 1.5, t: 0.26, up: 0 } };
+PS.cobra = {
+  len: 2.2, w: 0.2, h: 0.2, legLen: 0.04, legT: 0.02, fur: 0x6a5a2a, belly: 0xe2d8a0, paw: 0x6a5a2a, crawl: true, scale: 0.75,
+  head: { s: 0.24, snout: 0.08, snoutC: 0x6a5a2a, drop: -0.1 }, ears: 'none', tail: { len: 1.6, t: 0.12, up: 0 }, eye: 0xd23030,
+  extras: (torso, head) => {
+    head.add(ball(0.42, 0.3, 0.12, 0x6a5a2a, 0, -0.1, -0.1)); // the hood
+    torso.add(box(0.1, 0.1, 1.9, 0xe2d8a0, 0, -0.06, 0));
+  },
+};
+PS.croc = { ...SPECS.croc, scale: 1.0 };
+PS.tortoise = { ...SPECS.turtle, fur: 0x9a8a5a, belly: 0xd2c68e, paw: 0x7a6a40, scale: 1.7, legLen: 0.32 };
+
+// bugs and arachnids, scaled up to stay readable
+PS.ant = {
+  len: 0.9, w: 0.28, h: 0.22, legLen: 0.22, legT: 0.05, fur: 0x2a1a14, belly: 0x3a2a20, paw: 0x1c1210, crawl: true, scale: 0.8,
+  head: { s: 0.3, snout: 0.06, snoutC: 0x3a2a20 }, ears: 'none', eye: 0xdd2222, tail: undefined,
+  extras: (torso, head) => {
+    torso.add(ball(0.2, 0.2, 0.28, 0x3a2418, 0, 0.02, -0.55)); // the abdomen
+    for (const sx of [-1, 1]) {
+      head.add(cone(0.015, 0.4, 0x2a1a14, sx * 0.1, 0.22, 0.2));
+      head.add(cone(0.02, 0.14, 0x6a4a30, sx * 0.08, -0.1, 0.36));
+    }
+  },
+};
+PS.beetle = {
+  len: 0.95, w: 0.7, h: 0.4, legLen: 0.24, legT: 0.07, fur: 0x1a3a5a, belly: 0x2a2a30, paw: 0x14161c, crawl: true, scale: 1.0,
+  head: { s: 0.3, snout: 0.05, snoutC: 0x2a2a30, fwd: 0.1 }, ears: 'none', eye: 0xddaa22,
+  extras: (torso) => {
+    torso.add(ball(0.5, 0.34, 0.58, 0x26567a, 0, 0.2, -0.05)); // the shell
+    torso.add(box(0.03, 0.04, 1.0, 0x14161c, 0, 0.5, -0.05));
+  },
+};
+PS.spider = {
+  len: 0.7, w: 0.5, h: 0.32, legLen: 0.34, legT: 0.05, fur: 0x4a3a2c, belly: 0x2a2018, paw: 0x1c1410, crawl: true, scale: 1.0,
+  head: { s: 0.26, snout: 0.04, snoutC: 0x2a2018, fwd: 0.05 }, ears: 'none', eye: 0xdd2222,
+  extras: both((torso) => torso.add(ball(0.32, 0.28, 0.4, 0x5a4634, 0, 0.1, -0.5)), extraLegs(0x2a2018, 3, 0.7, 0.5)),
+};
+PS.hercules = {
+  len: 1.1, w: 0.8, h: 0.5, legLen: 0.3, legT: 0.1, fur: 0x3a2a1a, belly: 0x2a1c10, paw: 0x1c1208, crawl: true, scale: 1.3,
+  head: { s: 0.34, snout: 0.05, snoutC: 0x2a1c10, fwd: 0.1 }, ears: 'none', eye: 0xddaa22,
+  extras: both((torso) => torso.add(ball(0.58, 0.4, 0.7, 0x6a5a2a, 0, 0.26, -0.1)), horn(0x1c1208, 0.9, 0.2)),
+};
+PS.bombardier = {
+  len: 0.9, w: 0.5, h: 0.34, legLen: 0.28, legT: 0.06, fur: 0x2a3a5a, belly: 0x2a2a30, paw: 0x14161c, crawl: true, scale: 1.0,
+  head: { s: 0.26, snout: 0.05, snoutC: 0x2a2a30 }, ears: 'none', eye: 0xff8a2a,
+  extras: (torso) => {
+    torso.add(ball(0.44, 0.3, 0.55, 0xd2662a, 0, 0.2, -0.1)); // the orange shell
+    torso.add(ball(0.2, 0.2, 0.2, 0x2a3a5a, 0, 0.1, -0.7));
+  },
+};
+PS.tarantula = {
+  len: 0.8, w: 0.6, h: 0.4, legLen: 0.4, legT: 0.08, fur: 0x5a3e28, belly: 0x4a3220, paw: 0x2a1c12, crawl: true, scale: 1.2,
+  head: { s: 0.3, snout: 0.05, snoutC: 0x4a3220, fwd: 0.05 }, ears: 'none', eye: 0xdd2222,
+  extras: both((torso) => torso.add(ball(0.4, 0.34, 0.48, 0x6a4a30, 0, 0.12, -0.55)), extraLegs(0x3a2818, 3, 0.8, 0.6)),
+};
+PS.black_widow = {
+  len: 0.7, w: 0.46, h: 0.3, legLen: 0.36, legT: 0.045, fur: 0x16161a, belly: 0x0e0e12, paw: 0x0e0e12, crawl: true, scale: 1.1,
+  head: { s: 0.24, snout: 0.04, snoutC: 0x0e0e12, fwd: 0.05 }, ears: 'none', eye: 0xff2a2a,
+  extras: both((torso) => {
+    torso.add(ball(0.34, 0.32, 0.42, 0x1c1c22, 0, 0.1, -0.5));
+    torso.add(box(0.12, 0.04, 0.16, 0xe02a2a, 0, 0.34, -0.5)); // the red hourglass
+  }, extraLegs(0x0e0e12, 3, 0.7, 0.55)),
+};
+
+// fish: a body with a tail fin, a dorsal fin and eyes
+const FISH_FORMS: Record<string, { spec: FishSpec; scale: number }> = {
+  mudskipper: { spec: { len: 0.7, h: 0.14, c: 0x8a8a5a, belly: 0xe0dcb0, fin: 0x4a7a9a }, scale: 1 },
+  piranha: { spec: { len: 0.8, h: 0.22, c: 0x7a8a96, belly: 0xe05a3a, fin: 0xc23a2a }, scale: 1 },
+  pufferfish: { spec: { len: 0.7, h: 0.3, c: 0xc9b26a, belly: 0xf3ecc8, fin: 0x8a7a3a }, scale: 1 },
+  bull_shark: { spec: { len: 2.4, h: 0.38, c: 0x6a7a86, belly: 0xe6ecef, fin: 0x4a5864 }, scale: 1 },
+  barracuda: { spec: { len: 1.8, h: 0.17, c: 0x9aa8b2, belly: 0xe8eef2, fin: 0x6a7a86 }, scale: 1 },
+  eel: { spec: { len: 2.0, h: 0.1, c: 0x4a5a2a, belly: 0xe0c04a, fin: 0x3a4a22 }, scale: 1 },
+  angler: { spec: { len: 1.1, h: 0.36, c: 0x4a3a2c, belly: 0x7a6650, fin: 0x2a2018 }, scale: 1 },
+};
+
 /** Re-colour a freshly built animal: the fur takes the main colour, belly, ears, tail and paws the accent. */
 function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
   const spec = b.spec;
@@ -785,7 +980,9 @@ function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
 
 /** An articulated model for something a player controls. `key` (a player id) gives an unpainted animal its own shade. */
 export function makePlayerRig(animal: string, paint?: Paint | null, key?: string): Rig {
-  const spec = SPECS[animal] ?? SPECS.wolf;
+  const fish = FISH_FORMS[animal];
+  if (fish) return new FishRig(fish.spec, fish.scale);
+  const spec = PS[animal] ?? PS.house_cat;
   const b = buildQuad(spec, hashStr(animal));
   recolor(b, paint ?? undefined, key);
   const def = ANIMAL_BY_ID.get(animal);

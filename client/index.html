@@ -6,12 +6,12 @@
   <title>Utopia Academy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Limelight&family=Poiret+One&display=swap" />
   <link rel="icon" href="data:," />
   <style>
     /* Base layout rules; the Aero theme block at the end of this stylesheet restyles all of it. */
     :root {
-      --ink: #0b0b1a;
+      --ink: #08272a;
       --blue: #2459d8;
       --blue-dark: #14338a;
       --blue-light: #5f8cf0;
@@ -432,52 +432,52 @@
        Carved-wood panels and leaf-green buttons, the same look as the match HUD. Placed last so it
        overrides the XP theme above. */
     :root {
-      --ink: #14213d; --bark: #1b2a4a; --bark2: #28406b; --moss: #4f8a3a; --leaf: #9bd15a; --amber: #f3b43c; --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf;
-      --blue: #28406b; --blue-dark: #1b2a4a; --blue-light: #3b5a8f; --yellow: #f3b43c; --green: #6faa3a; --red: #d9503a;
-      --xp-body: #28406b; --xp-edge: #14213d;
-      --font-body: 'Nunito', 'Trebuchet MS', 'Segoe UI', sans-serif; --font-pixel: 'Nunito', 'Trebuchet MS', 'Segoe UI', sans-serif;
+      --ink: #0b3b3f; --bark: #0f4a4d; --bark2: #17666a; --moss: #2fa38f; --leaf: #7fe3c4; --amber: #f3b43c; --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf;
+      --blue: #17666a; --blue-dark: #0f4a4d; --blue-light: #2a8a8a; --yellow: #f3b43c; --green: #ff6f7d; --red: #d9503a;
+      --xp-body: #17666a; --xp-edge: #0b3b3f;
+      --font-body: 'Josefin Sans', 'Trebuchet MS', 'Segoe UI', sans-serif; --font-pixel: 'Josefin Sans', 'Trebuchet MS', 'Segoe UI', sans-serif;
     }
     html, body { font-family: var(--font-body); font-size: 17px; line-height: 1.25; }
-    .box, .panel { background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, rgba(0,0,0,0) 1px 26px), linear-gradient(#2c4573, #1d2f55);
+    .box, .panel { background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, rgba(0,0,0,0) 1px 26px), linear-gradient(#1c7074, #135558);
       color: var(--cream); border: 3px solid var(--ink); border-radius: 16px; outline: none;
-      box-shadow: inset 0 0 0 2px #c9a24a, inset 0 3px 0 rgba(255,255,255,.14), 0 6px 0 rgba(0,0,0,.45); }
+      box-shadow: inset 0 0 0 2px #e6b94a, inset 0 3px 0 rgba(255,255,255,.14), 0 6px 0 rgba(0,0,0,.45); }
     .card.box { padding-top: 20px; }
     .card.box::before, .card.box::after { content: none; }
     .card h2 { font-size: 26px; color: var(--amber); text-shadow: 0 3px 0 var(--ink); }
     .card p { color: #ecdcb2; font-size: 16px; }
-    .card #who { color: #17210c; font-size: 17px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(#b7e46f, #6faa3a); padding: 4px 14px; }
+    .card #who { color: #3a0f1a; font-size: 17px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(#ffb8a8, #ff6f7d); padding: 4px 14px; }
     #status { font-size: 16px; color: #ff9a82; text-shadow: 0 2px 0 var(--ink); }
     #status.ok { color: var(--leaf); }
-    .panel-head { background: linear-gradient(#3b5a8f, #2c4573); border-bottom: 3px solid var(--ink); border-radius: 12px 12px 0 0; }
+    .panel-head { background: linear-gradient(#2a8a8a, #1c7074); border-bottom: 3px solid var(--ink); border-radius: 12px 12px 0 0; }
     .panel-head h1 { color: var(--amber); font-size: 20px; text-shadow: 0 2px 0 var(--ink); letter-spacing: .04em; }
     .esc-hint { color: #e8d7ad; text-shadow: 0 2px 0 var(--ink); font-size: 15px; }
     .panel-foot { background: rgba(0,0,0,.25); border-top: 3px solid var(--ink); }
 
-    .btn { min-height: 38px; padding: 4px 20px; border: 3px solid var(--ink); border-radius: 999px; color: #1f2a4a; font-family: var(--font-body); font-size: 17px; font-weight: 700;
+    .btn { min-height: 38px; padding: 4px 20px; border: 3px solid var(--ink); border-radius: 999px; color: #0b3b3f; font-family: var(--font-body); font-size: 17px; font-weight: 700;
       background: linear-gradient(#fff3c8, #e0c37a); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.4); }
     .btn:hover:not(:disabled) { filter: brightness(1.08); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); background: linear-gradient(#fff3c8, #e0c37a); }
     .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 1px 0 var(--ink); background: linear-gradient(#e0c37a, #fff3c8); }
-    .btn.primary { color: #17210c; border-color: var(--ink); background: linear-gradient(#b7e46f, #6faa3a); text-shadow: 0 1px 0 rgba(255,255,255,.4); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); }
+    .btn.primary { color: #3a0f1a; border-color: var(--ink); background: linear-gradient(#ffb8a8, #ff6f7d); text-shadow: 0 1px 0 rgba(255,255,255,.4); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); }
     .btn.primary:hover:not(:disabled) { background: linear-gradient(#c6f283, #7fc046); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); }
-    .btn.primary:active:not(:disabled) { background: linear-gradient(#6faa3a, #b7e46f); }
-    .btn.glass { color: var(--cream); background: linear-gradient(#4a6aa0, #344f82); text-shadow: 0 1px 0 rgba(0,0,0,.5); }
-    .btn.glass.active { color: #1f2a4a; background: linear-gradient(#ffd77a, #e09a1f); border-color: var(--ink); }
+    .btn.primary:active:not(:disabled) { background: linear-gradient(#ff6f7d, #ffb8a8); }
+    .btn.glass { color: var(--cream); background: linear-gradient(#2f9a98, #217f7e); text-shadow: 0 1px 0 rgba(0,0,0,.5); }
+    .btn.glass.active { color: #0b3b3f; background: linear-gradient(#ffd77a, #e09a1f); border-color: var(--ink); }
     .btn.danger { color: #fff; border-color: var(--ink); background: linear-gradient(#ff9c86, #d4412a); text-shadow: 0 1px 0 rgba(0,0,0,.4); }
     .btn.small { min-height: 30px; padding: 2px 14px; font-size: 15px; }
     .btn.block { font-size: 17px; }
     .linkbtn { color: var(--amber); font-family: var(--font-body); font-size: 16px; }
     .linkbtn:hover { color: var(--cream); }
 
-    input[type=text], input[type=email], input[type=password], select { height: 40px; padding: 0 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #1f2a4a;
+    input[type=text], input[type=email], input[type=password], select { height: 40px; padding: 0 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #0b3b3f;
       font-family: var(--font-body); font-size: 18px; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); }
     select { padding-right: 34px; }
     input::placeholder { color: #9a8a68; }
     input[type=text]:focus, input[type=email]:focus, input[type=password]:focus, select:focus { border-color: var(--ink); box-shadow: inset 0 3px 0 rgba(0,0,0,.15), 0 0 0 3px var(--leaf); }
-    input[type=range] { height: 12px; margin: 12px 0 8px; border: 3px solid var(--ink); border-radius: 999px; background-color: #111c36; background-image: linear-gradient(#b7e46f, #6faa3a); box-shadow: inset 0 2px 0 rgba(0,0,0,.4); }
+    input[type=range] { height: 12px; margin: 12px 0 8px; border: 3px solid var(--ink); border-radius: 999px; background-color: #0a2f33; background-image: linear-gradient(#ffb8a8, #ff6f7d); box-shadow: inset 0 2px 0 rgba(0,0,0,.4); }
     input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--ink); background: linear-gradient(#fff3c8, #e0c37a); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
     input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--ink); background: #f7edd3; }
     input[type=range]:focus-visible { box-shadow: 0 0 0 3px var(--leaf); }
-    .key { min-width: 28px; height: 26px; padding: 0 9px; border: 2px solid var(--ink); border-radius: 999px; color: #17210c; font-family: var(--font-body); font-size: 14px; font-weight: 700; background: var(--leaf); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+    .key { min-width: 28px; height: 26px; padding: 0 9px; border: 2px solid var(--ink); border-radius: 999px; color: #3a0f1a; font-family: var(--font-body); font-size: 14px; font-weight: 700; background: var(--leaf); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
     .eyebrow { color: var(--amber); font-family: var(--font-body); }
 
     #join { background: radial-gradient(ellipse at 50% 100%, rgba(70,120,40,.5) 0, rgba(0,0,0,0) 60%), linear-gradient(180deg, rgba(10,24,8,.5), rgba(14,30,10,.25) 60%, rgba(10,24,8,.55)); }
@@ -486,27 +486,27 @@
     .hero h1 .l2 { color: var(--amber); }
     .tagline { font-size: 21px; color: var(--cream); text-shadow: 0 3px 0 var(--ink); }
     .features li { font-size: 20px; color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
-    .features .ico { border: 3px solid var(--ink); border-radius: 50%; background: linear-gradient(#b7e46f, #6faa3a); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+    .features .ico { border: 3px solid var(--ink); border-radius: 50%; background: linear-gradient(#ffb8a8, #ff6f7d); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
     .features li:nth-child(2) .ico { background: linear-gradient(#ffd77a, #e09a1f); }
     .features li:nth-child(3) .ico { background: linear-gradient(#9fe0ff, #3fa5cf); }
     .features b { color: var(--amber); }
     .version { color: #e8d7ad; font-family: var(--font-body); text-shadow: 0 2px 0 var(--ink); }
 
     .chip { padding: 2px 14px; border: 3px solid var(--ink); border-radius: 999px; font-size: 17px; font-weight: 600; color: var(--cream);
-      background: linear-gradient(#3b5a8f, #2c4573); backdrop-filter: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.18), 0 3px 0 rgba(0,0,0,.4); text-shadow: 0 2px 0 var(--ink); }
-    #mic.speaking { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; text-shadow: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 3px 0 rgba(0,0,0,.4); }
+      background: linear-gradient(#2a8a8a, #1c7074); backdrop-filter: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.18), 0 3px 0 rgba(0,0,0,.4); text-shadow: 0 2px 0 var(--ink); }
+    #mic.speaking { background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; text-shadow: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 3px 0 rgba(0,0,0,.4); }
     #mic.off { background: linear-gradient(#ff9c86, #d4412a); }
     #animal-chip { pointer-events: auto; cursor: pointer; font-family: var(--font-body); }
     #animal-chip:hover { filter: brightness(1.15); }
     #crosshair { width: 9px; height: 9px; margin: -4px; border: 2px solid var(--ink); border-radius: 50%; background: var(--cream); }
     #pickup-hint, #target { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.85); font-family: var(--font-body); font-size: 18px; color: var(--cream); text-transform: none; text-shadow: 0 2px 0 var(--ink); }
     #target small { color: var(--amber); font-size: 15px; }
-    #throw-bar { border: 3px solid var(--ink); border-radius: 999px; background: #111c36; }
-    #throw-fill { border-radius: 999px; background: linear-gradient(#b7e46f, #6faa3a); }
+    #throw-bar { border: 3px solid var(--ink); border-radius: 999px; background: #0a2f33; }
+    #throw-fill { border-radius: 999px; background: linear-gradient(#ffb8a8, #ff6f7d); }
     #paused { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.9); color: var(--cream); font-family: var(--font-body); font-size: 20px; padding: 8px 26px; text-transform: none; box-shadow: 0 5px 0 rgba(0,0,0,.4); }
 
     #chat-log { font-size: 17px; gap: 4px; }
-    .line { padding: 2px 14px; border: 2px solid #c9a24a; border-radius: 999px; background: rgba(18,12,7,.78); color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
+    .line { padding: 2px 14px; border: 2px solid #e6b94a; border-radius: 999px; background: rgba(18,12,7,.78); color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
     .line b { color: var(--amber); }
     .line.dm { border-color: var(--river); background: rgba(10,30,40,.82); }
     .line.dm b { color: #9fe0ff; }
@@ -517,43 +517,43 @@
     .tabs { gap: 5px; padding: 12px 10px; border-right: 3px solid var(--ink); background: rgba(0,0,0,.3); }
     .tab { padding: 6px 14px; border: 3px solid transparent; border-radius: 999px; background: transparent; color: var(--cream); font-family: var(--font-body); font-size: 17px; font-weight: 600; text-shadow: 0 2px 0 var(--ink); }
     .tab:hover { background: rgba(255,255,255,.1); color: var(--cream); }
-    .tab.active { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; border-color: var(--ink); text-shadow: none; }
+    .tab.active { background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; border-color: var(--ink); text-shadow: none; }
     .pane { color: var(--cream); }
     .group-title { font-family: var(--font-body); font-size: 18px; color: var(--amber); border-bottom: 3px solid rgba(0,0,0,.35); text-shadow: 0 2px 0 var(--ink); letter-spacing: .05em; text-transform: uppercase; }
-    .setting, .pl-row, .bind { border: 2px solid #3b5a8f; border-radius: 14px; background: rgba(0,0,0,.28); color: var(--cream); }
+    .setting, .pl-row, .bind { border: 2px solid #2a8a8a; border-radius: 14px; background: rgba(0,0,0,.28); color: var(--cream); }
     .setting-title { color: var(--cream); font-size: 18px; text-shadow: 0 2px 0 var(--ink); }
     .setting-desc, .note, #players-note { color: #e8d7ad; font-size: 15px; }
     .setting-val, .pl-val { color: var(--amber); font-size: 16px; text-shadow: 0 2px 0 var(--ink); }
     .field > label { color: var(--cream); font-size: 16px; }
-    .meter { height: 18px; border: 3px solid var(--ink); border-radius: 999px; background: #111c36; overflow: hidden; }
-    #players-list:empty::before { border: 2px dashed #c9a24a; border-radius: 14px; color: #e8d7ad; }
+    .meter { height: 18px; border: 3px solid var(--ink); border-radius: 999px; background: #0a2f33; overflow: hidden; }
+    #players-list:empty::before { border: 2px dashed #e6b94a; border-radius: 14px; color: #e8d7ad; }
     .bind code { color: var(--amber); }
-    #avatar-preview { border: 3px solid var(--ink); border-radius: 14px; background: #111c36; }
-    .swatch { border: 3px solid var(--ink); border-radius: 12px; color: #1f2a4a; }
+    #avatar-preview { border: 3px solid var(--ink); border-radius: 14px; background: #0a2f33; }
+    .swatch { border: 3px solid var(--ink); border-radius: 12px; color: #0b3b3f; }
     .swatch.on { border-color: var(--ink); box-shadow: 0 0 0 3px var(--leaf); }
     .swatch:hover { border-color: var(--amber); }
     #t-stick { border: 3px solid var(--ink); background: radial-gradient(circle, rgba(90,61,36,.55), rgba(18,12,7,.55)); }
     #t-knob { border: 3px solid var(--ink); background: linear-gradient(#fff3c8, #e0c37a); }
-    .tb { border: 3px solid var(--ink); font-family: var(--font-body); color: var(--cream); background: linear-gradient(#3b5a8f, #2c4573); text-shadow: 0 2px 0 var(--ink); }
-    .tb.down { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+    .tb { border: 3px solid var(--ink); font-family: var(--font-body); color: var(--cream); background: linear-gradient(#2a8a8a, #1c7074); text-shadow: 0 2px 0 var(--ink); }
+    .tb.down { background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; }
 
     /* the animal picker on the join card */
     .animal-pick { display: flex; flex-direction: column; gap: 6px; }
     .animal-pick .setting-title { font-size: 17px; color: var(--amber); }
-    #join-animals { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+    #join-animals { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
     #join-animals .an { padding: 2px 0; font-size: 24px; line-height: 1.25; border: 3px solid var(--ink); border-radius: 12px; cursor: pointer; background: linear-gradient(#f7edd3, #dcc995);
       box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
     #join-animals .an:hover { transform: translateY(-3px) scale(1.1); }
-    #join-animals .an.on { background: linear-gradient(#cdf08e, #8fc653); transform: translateY(-4px) scale(1.12); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px var(--amber), 0 3px 0 rgba(0,0,0,.45); }
+    #join-animals .an.on { background: linear-gradient(#ffd5cc, #ff8f95); transform: translateY(-4px) scale(1.12); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px var(--amber), 0 3px 0 rgba(0,0,0,.45); }
     #join-animal-name { color: #ecdcb2; font-size: 15px; min-height: 18px; }
 
     /* sparring bar: your attack and two skills in the lobby */
     #spar { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 30px); display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 6; max-width: 94vw; }
     #spar.on { opacity: 1; transform: translate(-50%, 0); }
     #spar .mv { position: relative; width: 92px; height: 70px; overflow: hidden; border: 3px solid var(--ink); border-radius: 14px; text-align: center; color: var(--cream); font-weight: 700;
-      background: linear-gradient(#3b5a8f, #1a2b4d); box-shadow: inset 0 0 0 2px #c9a24a, 0 5px 0 rgba(0,0,0,.45); }
+      background: linear-gradient(#2a8a8a, #104b4e); box-shadow: inset 0 0 0 2px #e6b94a, 0 5px 0 rgba(0,0,0,.45); }
     #spar .mv b { position: absolute; left: 4px; right: 4px; bottom: 6px; font-size: 14px; line-height: 1.05; text-shadow: 0 2px 0 var(--ink); }
-    #spar .mv kbd { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); min-width: 34px; padding: 1px 9px; border: 2px solid var(--ink); border-radius: 999px; font: 700 15px var(--font-body); color: #17210c; background: var(--leaf); }
+    #spar .mv kbd { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); min-width: 34px; padding: 1px 9px; border: 2px solid var(--ink); border-radius: 999px; font: 700 15px var(--font-body); color: #3a0f1a; background: var(--leaf); }
     #spar .mv i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,.55); }
     #spar .mv.cool { filter: saturate(.55); }
     #spar .cap { flex-basis: 100%; text-align: center; font-size: 15px; font-weight: 600; color: var(--amber); text-shadow: 0 2px 0 var(--ink); }
@@ -561,14 +561,14 @@
 
     /* the big spotlit animal on the front screen */
     #join-stage { --acc: #e8a23a; position: relative; margin-top: 22px; height: clamp(260px, 48vh, 470px); border: 4px solid var(--ink); border-radius: 24px; overflow: hidden;
-      background: radial-gradient(ellipse at 50% 108%, rgba(255,240,190,.5), rgba(0,0,0,0) 55%), radial-gradient(ellipse at 50% 40%, #3a6ea5, #0e1a38 78%);
-      box-shadow: inset 0 0 0 3px #c9a24a, 0 8px 0 rgba(0,0,0,.45), 0 0 40px rgba(0,0,0,.35); }
+      background: radial-gradient(ellipse at 50% 108%, rgba(255,240,190,.5), rgba(0,0,0,0) 55%), radial-gradient(ellipse at 50% 40%, #2fa9a3, #0a3236 78%);
+      box-shadow: inset 0 0 0 3px #e6b94a, 0 8px 0 rgba(0,0,0,.45), 0 0 40px rgba(0,0,0,.35); }
     #join-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
     #join-stage .glow { position: absolute; left: 50%; top: -10%; width: 70%; height: 130%; transform: translateX(-50%); pointer-events: none;
       background: linear-gradient(180deg, rgba(255,244,200,.28), rgba(255,244,200,0) 78%); clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%); }
     #join-stage .nm { position: absolute; left: 20px; bottom: 16px; pointer-events: none; text-shadow: 0 4px 0 rgba(0,0,0,.5); }
     #join-stage .nm b { display: block; font-size: clamp(34px, 5vw, 58px); font-weight: 700; line-height: 1; letter-spacing: .04em; color: var(--cream); -webkit-text-stroke: 7px var(--ink); paint-order: stroke fill; }
-    #join-stage .nm span { display: inline-block; margin-top: 6px; padding: 1px 14px; border: 3px solid var(--ink); border-radius: 999px; font-size: 19px; font-weight: 700; color: #17210c; text-shadow: none;
+    #join-stage .nm span { display: inline-block; margin-top: 6px; padding: 1px 14px; border: 3px solid var(--ink); border-radius: 999px; font-size: 19px; font-weight: 700; color: #3a0f1a; text-shadow: none;
       background: linear-gradient(color-mix(in srgb, var(--acc) 70%, white), var(--acc)); }
     #join-stage .nm.in { animation: jsname .5s ease-out; }
     @keyframes jsname { from { transform: translateX(-30px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -579,14 +579,14 @@
 
     /* ================= Utopian academy =================
        Navy ink, parchment and gold trim: a sunlit school where the lessons are survival. */
-    :root { --serif: 'Fraunces', Georgia, 'Times New Roman', serif; --gold: #e8b830; }
+    :root { --serif: 'Limelight', Georgia, 'Times New Roman', serif; --gold: #e8b830; }
     .hero h1, .card h2, .panel-head h1, #join-stage .nm b, .group-title { font-family: var(--serif); letter-spacing: .02em; }
     .hero h1 { text-transform: none; font-size: clamp(40px, 6.2vw, 78px); line-height: .98; }
     .eyebrow { letter-spacing: .22em; text-transform: uppercase; font-size: 13px; color: var(--gold); }
-    .box, .panel, #spar .mv { box-shadow: inset 0 0 0 2px #c9a24a, inset 0 0 0 5px rgba(20,33,61,.9), 0 6px 0 rgba(0,0,0,.4); }
+    .box, .panel, #spar .mv { box-shadow: inset 0 0 0 2px #e6b94a, inset 0 0 0 5px rgba(20,33,61,.9), 0 6px 0 rgba(0,0,0,.4); }
     .box::after { content: none; }
     #join { background: radial-gradient(ellipse at 50% 100%, rgba(255,214,150,.35) 0, rgba(0,0,0,0) 60%), linear-gradient(180deg, rgba(40,70,140,.42), rgba(160,190,240,.12) 60%, rgba(255,210,170,.3)); }
-    #join-stage { background: radial-gradient(ellipse at 50% 108%, rgba(255,244,205,.6), rgba(0,0,0,0) 55%), radial-gradient(ellipse at 50% 40%, #3a6ea5, #0e1a38 78%); }
+    #join-stage { background: radial-gradient(ellipse at 50% 108%, rgba(255,244,205,.6), rgba(0,0,0,0) 55%), radial-gradient(ellipse at 50% 40%, #2fa9a3, #0a3236 78%); }
     #join-stage .glow { background: linear-gradient(180deg, rgba(255,244,210,.32), rgba(255,244,210,0) 78%); }
     .btn.primary, .key { background: linear-gradient(#ffe9a0, #e8b830); color: #3a2a00; }
     .btn.primary:hover:not(:disabled) { background: linear-gradient(#fff2b8, #f3c640); }
@@ -610,6 +610,40 @@
     #join-animals .an.on { animation: anbob 1.6s ease-in-out infinite alternate; }
     @keyframes anbob { from { transform: translateY(-4px) scale(1.12); } to { transform: translateY(-7px) scale(1.16); } }
     @media (prefers-reduced-motion: reduce) { #join .hero > *, #join-form, #join-animals .an.on, .btn.primary:hover::after { animation: none !important; } }
+
+    /* ================= Tropideco =================
+       Art Deco by the sea: lagoon teal, flamingo pink and sunrise gold, with stepped corners, double gold lines and rays. */
+    :root { --serif: 'Limelight', 'Poiret One', Georgia, serif; --gold: #f0c35a; --pink: #ff6f7d; --lagoon: #17666a; --sand: #fbf1dc; --font-body: 'Josefin Sans', 'Trebuchet MS', sans-serif; --font-pixel: 'Josefin Sans', 'Trebuchet MS', sans-serif; --leaf: #7fe3c4; --moss: #2fa38f; --amber: #f0c35a; }
+    html, body { font-family: var(--font-body); letter-spacing: .01em; }
+    .hero h1, .card h2, .panel-head h1, #join-stage .nm b, .group-title { font-family: var(--serif); font-weight: 400; letter-spacing: .05em; text-transform: uppercase; }
+    .hero h1 { color: var(--sand); font-size: clamp(38px, 5.6vw, 72px); }
+    .hero h1 .l2 { color: #ff9aa2; }
+    .eyebrow { letter-spacing: .3em; color: var(--gold); }
+    #join { background:
+      repeating-conic-gradient(from 270deg at 50% 112%, rgba(255,214,150,.2) 0 4deg, rgba(255,214,150,0) 4deg 8deg),
+      radial-gradient(ellipse at 50% 100%, rgba(255,140,120,.5) 0, rgba(0,0,0,0) 62%),
+      linear-gradient(180deg, rgba(8,90,100,.5), rgba(110,225,214,.14) 60%, rgba(255,160,150,.34)); }
+    /* stepped corners and a double gold line */
+    .box, .panel, #br-menu .panel { clip-path: polygon(16px 0, calc(100% - 16px) 0, 100% 16px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 16px 100%, 0 calc(100% - 16px), 0 16px); border-radius: 0;
+      box-shadow: inset 0 0 0 2px #f0c35a, inset 0 0 0 5px #0b3b3f, inset 0 0 0 7px #f0c35a; }
+    .card.box { padding-top: 26px; }
+    .card.box::before { content: ''; position: absolute; left: 50%; top: 7px; width: 120px; height: 11px; transform: translateX(-50%); background: #f0c35a;
+      clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%); }
+    .btn, .br-btn { border-radius: 0; clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%); padding-left: 26px; padding-right: 26px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
+    .btn.small { padding-left: 20px; padding-right: 20px; }
+    .btn.primary { background: linear-gradient(#ffc6b8, #ff6f7d); color: #3a0f1a; }
+    .btn.primary:hover:not(:disabled) { background: linear-gradient(#ffd8cd, #ff8a95); }
+    .tab.active, .btn.glass.active { background: linear-gradient(#ffc6b8, #ff6f7d); color: #3a0f1a; }
+    .chip { border-radius: 0; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%); padding-left: 20px; padding-right: 20px; letter-spacing: .05em; }
+    #join-stage { border-radius: 0; clip-path: polygon(22px 0, calc(100% - 22px) 0, 100% 22px, 100% calc(100% - 22px), calc(100% - 22px) 100%, 22px 100%, 0 calc(100% - 22px), 0 22px);
+      background: radial-gradient(ellipse at 50% 108%, rgba(255,230,190,.6), rgba(0,0,0,0) 55%), repeating-conic-gradient(from 270deg at 50% 100%, rgba(255,200,150,.1) 0 5deg, rgba(0,0,0,0) 5deg 10deg), radial-gradient(ellipse at 50% 40%, #1c8a88, #0a3236 80%); box-shadow: inset 0 0 0 3px #f0c35a, inset 0 0 0 6px #0b3b3f; }
+    #join-stage .nm span { border-radius: 0; clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); padding: 1px 20px; }
+    .animal-pick .setting-title, .group-title, .panel-head h1, .card h2 { color: var(--gold); }
+    #join-animals .an { border-radius: 0; clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+    #join-animals .an.on { background: linear-gradient(#ffd5cc, #ff8f95); }
+    .setting, .pl-row, .bind { border-radius: 0; }
+    input[type=text], input[type=email], input[type=password], select { border-radius: 0; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%); }
+    #spar .mv { border-radius: 0; }
   </style>
 </head>
 <body>

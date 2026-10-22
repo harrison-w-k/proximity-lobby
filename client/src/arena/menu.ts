@@ -3,7 +3,8 @@
 import { PAINT_SWATCHES, hex6, type Paint } from '../../../shared/arena/paint';
 import { loadPaint, savePaint } from './paintStore';
 import { SPAWN_BY_ID, SPAWN_CHOICES, bestSpawn, isSpawnId, type SpawnId } from '../../../shared/arena/spawn';
-import { ANIMALS, ANIMAL_BY_ID, CLASSES, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, type AnimalDef } from '../../../shared/arena/animals';
+import { ANIMAL_BY_ID, CLASS_BY_ID, EVOLVE_LEVELS, FORMS_OF_TREE, STAGE_BUDGET, STARTERS, STAT_KEYS, STAT_NAMES, TREE_BY_ID, type AnimalDef } from '../../../shared/arena/animals';
+import { ANIMAL_EMOJI } from './emoji';
 import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
 import type { Sfx } from '../sfx';
@@ -15,18 +16,18 @@ const CSS = `
 @keyframes brfade { from { opacity: 0; } }
 #br-menu .panel { width: min(1120px, 100%); max-height: 96vh; overflow: auto; padding: 16px 22px 18px; display: flex; flex-direction: column; gap: 10px; animation: brpanel .35s ease-out; }
 @keyframes brpanel { from { opacity: 0; transform: translateY(26px) scale(.98); } }
-#br-menu h2, #br-menu .show .name b { font-family: 'Fraunces', Georgia, 'Times New Roman', serif; }
+#br-menu h2, #br-menu .show .name b { font-family: 'Limelight', 'Poiret One', Georgia, serif; font-weight: 400; }
 #br-menu h2 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); text-shadow: 0 4px 0 var(--ink); }
 #br-menu .sub { font-size: 19px; color: #ecdcb2; line-height: 1.2; }
 #br-menu .stage { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 #br-menu .show { position: relative; height: 300px; border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
-  background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#243a5e, #101c36);
-  box-shadow: inset 0 0 0 3px #6d86b8, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
+  background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#14595c, #092e31);
+  box-shadow: inset 0 0 0 3px #5fb8b0, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
 #br-menu .show::before { content: ''; position: absolute; left: 50%; top: -10%; width: 70%; height: 120%; transform: translateX(-50%); background: conic-gradient(from 160deg at 50% 0, transparent 0 20%, rgba(255,238,180,.22) 25% 35%, transparent 40% 100%); pointer-events: none; mix-blend-mode: screen; }
 #br-menu .show canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 #br-menu .show .name { position: absolute; left: 18px; bottom: 12px; pointer-events: none; text-shadow: 0 4px 0 rgba(0,0,0,.5); }
 #br-menu .show .name b { display: block; font-size: 46px; font-weight: 700; letter-spacing: .04em; color: var(--cream); -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; line-height: 1; }
-#br-menu .show .name span { display: inline-block; margin-top: 4px; padding: 1px 12px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; font-weight: 700; font-size: 18px; text-shadow: none; }
+#br-menu .show .name span { display: inline-block; margin-top: 4px; padding: 1px 12px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; font-weight: 700; font-size: 18px; text-shadow: none; }
 #br-menu .show .name.in { animation: brname .5s ease-out; }
 @keyframes brname { from { opacity: 0; transform: translateX(-40px); } }
 #br-menu .show .flash { position: absolute; inset: 0; background: #fff6d0; opacity: 0; pointer-events: none; }
@@ -44,57 +45,68 @@ const CSS = `
 #br-menu .skills b { color: var(--amber); }
 #br-menu .skills div.inn { border-left-color: #6b9cff; }
 #br-menu .perks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 15px; line-height: 1.1; }
-#br-menu .perks .p { color: #a8e26a; } #br-menu .perks .d { color: #ff9a82; }
+#br-menu .perks .p { color: #ff9aa2; } #br-menu .perks .d { color: #ff9a82; }
 #br-menu .perks h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: #d9c99a; }
+#br-menu .tree { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; align-items: center; padding: 6px 2px; }
+#br-menu .tree .col { display: flex; flex-direction: column; gap: 6px; }
+#br-menu .tree .col.last { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#br-menu .tree .node { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 3px solid #120c07; border-radius: 12px; cursor: pointer; color: #0b3b3f; font-weight: 700; font-size: 16px;
+  background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 rgba(0,0,0,.4); transition: transform .1s; }
+#br-menu .tree .node:hover { transform: translateY(-2px); }
+#br-menu .tree .node.on { background: linear-gradient(#ffd5cc, #ff8f95); box-shadow: 0 0 0 3px #f3b43c, 0 3px 0 rgba(0,0,0,.4); }
+#br-menu .tree .node small { display: block; font-size: 12px; font-weight: 500; opacity: .75; }
+#br-menu .tree .node .em { font-size: 22px; }
+#br-menu .treehead { font-size: 18px; color: #ecdcb2; padding: 2px 2px 0; }
+@media (max-width: 960px) { #br-menu .tree { grid-template-columns: 1fr; } #br-menu .tree .col.last { grid-template-columns: 1fr 1fr; } }
 #br-menu .chips { display: flex; gap: 8px; flex-wrap: wrap; }
-#br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#4a6aa0, #344f82); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
-#br-menu .chip.on { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+#br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#2f9a98, #217f7e); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
+#br-menu .chip.on { background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; }
 #br-menu .paint { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 14px; align-items: center; padding: 4px 2px; }
 #br-menu .paint .lab { font-size: 18px; font-weight: 700; color: #f3b43c; }
 #br-menu .paint .sws { display: flex; flex-wrap: wrap; gap: 6px; }
-#br-menu .paint .sw { width: 30px; height: 30px; border: 3px solid #14213d; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
+#br-menu .paint .sw { width: 30px; height: 30px; border: 3px solid #0b3b3f; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
 #br-menu .paint .sw:hover { transform: translateY(-3px) scale(1.12); }
 #br-menu .paint .sw.on { box-shadow: 0 0 0 3px #f3b43c, 0 3px 0 rgba(0,0,0,.45); transform: translateY(-3px) scale(1.15); }
-#br-menu .paint .sw.nat { background: linear-gradient(135deg, #f7edd3 0 50%, #4a6aa0 50% 100%); }
-#br-menu .paint input[type=color] { width: 44px; height: 34px; padding: 0; border: 3px solid #14213d; border-radius: 10px; background: #f7edd3; cursor: pointer; }
+#br-menu .paint .sw.nat { background: linear-gradient(135deg, #f7edd3 0 50%, #2f9a98 50% 100%); }
+#br-menu .paint input[type=color] { width: 44px; height: 34px; padding: 0; border: 3px solid #0b3b3f; border-radius: 10px; background: #f7edd3; cursor: pointer; }
 #br-menu .paintnote { font-size: 14px; color: #ecdcb2; padding: 0 2px 4px; opacity: .85; }
 #br-menu .drop { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 4px 2px; }
-#br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #14213d; border-radius: 14px; cursor: pointer; font-family: inherit; color: #1f2a4a;
+#br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #0b3b3f; border-radius: 14px; cursor: pointer; font-family: inherit; color: #0b3b3f;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s; }
 #br-menu .drop button:hover { transform: translateY(-3px); }
-#br-menu .drop button.on { background: linear-gradient(#cdf08e, #8fc653); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px #f3b43c, 0 4px 0 rgba(0,0,0,.45); transform: translateY(-4px); }
+#br-menu .drop button.on { background: linear-gradient(#ffd5cc, #ff8f95); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px #f3b43c, 0 4px 0 rgba(0,0,0,.45); transform: translateY(-4px); }
 #br-menu .drop .ic { font-size: 30px; line-height: 1.1; }
 #br-menu .drop b { font-size: 18px; }
 #br-menu .drop small { font-size: 13px; line-height: 1.1; text-align: center; opacity: .8; }
-#br-menu .drop .star { position: absolute; top: -10px; right: -6px; padding: 0 8px; border: 2px solid #14213d; border-radius: 999px; font-size: 12px; font-weight: 700; color: #1f2a4a; background: linear-gradient(#ffd77a, #e09a1f); }
+#br-menu .drop .star { position: absolute; top: -10px; right: -6px; padding: 0 8px; border: 2px solid #0b3b3f; border-radius: 999px; font-size: 12px; font-weight: 700; color: #0b3b3f; background: linear-gradient(#ffd77a, #e09a1f); }
 #br-menu .dropinfo { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; padding: 6px 4px 2px; font-size: 16px; line-height: 1.25; }
 #br-menu .dropinfo h4 { margin: 0 0 2px; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; color: #f3b43c; }
-#br-menu .dropinfo .g { color: #b7e46f; }
+#br-menu .dropinfo .g { color: #ffb8a8; }
 #br-menu .dropinfo .x { color: #ff9a82; }
 #br-menu .dropinfo .fit { color: #ffd77a; }
 @media (max-width: 960px) { #br-menu .drop { grid-template-columns: repeat(3, 1fr); } #br-menu .dropinfo { grid-template-columns: 1fr; } }
-#br-menu .roster { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; padding: 8px 2px 4px; }
-#br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #1f2a4a;
+#br-menu .roster { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding: 8px 2px 4px; }
+#br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #0b3b3f;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s, box-shadow .12s, filter .12s; animation: brtile .45s ease-out both; }
 #br-menu .tile:hover { transform: translateY(-6px) scale(1.06); filter: brightness(1.06); }
 #br-menu .tile .em { font-size: 38px; line-height: 1.1; filter: drop-shadow(0 3px 0 rgba(0,0,0,.25)); }
 #br-menu .tile b { display: block; font-size: 15px; line-height: 1; color: #6a3410; }
-#br-menu .tile small { font-size: 13px; color: #4a5f8a; }
-#br-menu .tile.sel { background: linear-gradient(#cdf08e, #8fc653); transform: translateY(-9px) scale(1.1); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--amber), 0 0 22px rgba(255,200,80,.8), 0 5px 0 rgba(0,0,0,.45); z-index: 2; }
+#br-menu .tile small { font-size: 13px; color: #3b8f8c; }
+#br-menu .tile.sel { background: linear-gradient(#ffd5cc, #ff8f95); transform: translateY(-9px) scale(1.1); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--amber), 0 0 22px rgba(255,200,80,.8), 0 5px 0 rgba(0,0,0,.45); z-index: 2; }
 #br-menu .tile.focus:not(.sel) { transform: translateY(-6px) scale(1.06); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 3px #fff6c8, 0 4px 0 rgba(0,0,0,.45); }
 @keyframes brtile { from { opacity: 0; transform: translateY(40px) scale(.8); } }
 #br-menu .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-#br-menu input[type=text] { width: 240px; height: 44px; padding: 0 16px; font-family: var(--font); font-size: 20px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #1f2a4a; outline: none; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); user-select: text; }
+#br-menu input[type=text] { width: 240px; height: 44px; padding: 0 16px; font-family: var(--font); font-size: 20px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #0b3b3f; outline: none; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); user-select: text; }
 #br-menu input[type=text]:focus { box-shadow: inset 0 3px 0 rgba(0,0,0,.15), 0 0 0 3px var(--leaf); }
 #br-menu .status { font-size: 22px; font-weight: 600; color: var(--leaf); min-height: 28px; }
-#br-open { pointer-events: auto; cursor: pointer; font-family: 'Nunito', 'Trebuchet MS', sans-serif; font-weight: 700; }
+#br-open { pointer-events: auto; cursor: pointer; font-family: 'Josefin Sans', 'Trebuchet MS', sans-serif; font-weight: 700; }
 @media (max-width: 960px) { #br-menu .stage { grid-template-columns: 1fr; } #br-menu .roster { grid-template-columns: repeat(4, 1fr); } }
 
 #br-menu .show { --acc: #e8a23a; }
 #br-menu .show::after { content: ''; position: absolute; inset: 0; border-radius: 14px; pointer-events: none; box-shadow: inset 0 0 60px color-mix(in srgb, var(--acc) 40%, transparent); }
 #br-menu .show .name span { background: linear-gradient(color-mix(in srgb, var(--acc) 70%, white), var(--acc)); }
 #br-menu .show .pick { position: absolute; right: 14px; top: 12px; padding: 2px 12px; border-radius: 999px; border: 3px solid var(--ink); font-weight: 700; font-size: 16px; letter-spacing: .06em; background: rgba(18,12,7,.8); color: var(--cream); pointer-events: none; transition: transform .15s; }
-#br-menu .show .pick.yes { background: linear-gradient(#cdf08e, #8fc653); color: #17210c; animation: brpickpop .35s ease-out; }
+#br-menu .show .pick.yes { background: linear-gradient(#ffd5cc, #ff8f95); color: #3a0f1a; animation: brpickpop .35s ease-out; }
 @keyframes brpickpop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
 #br-menu .show .hint { position: absolute; right: 14px; bottom: 10px; font-size: 14px; color: rgba(255,255,255,.55); pointer-events: none; }
 #br-menu .detail > * { animation: brslideup .4s ease-out both; animation-delay: calc(var(--i, 0) * 70ms); }
@@ -103,14 +115,15 @@ const CSS = `
 #br-menu .skills div:hover { transform: translateX(5px); background: rgba(255,255,255,.1); }
 #br-menu .tile.sel { box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--tacc, var(--amber)), 0 0 24px var(--tacc, rgba(255,200,80,.8)), 0 5px 0 rgba(0,0,0,.45); }
 #br-menu .tile::after { content: ''; position: absolute; left: 12%; right: 12%; bottom: 3px; height: 4px; border-radius: 999px; background: var(--tacc); opacity: .85; }
-#br-menu .tile .tick { position: absolute; right: -6px; top: -8px; width: 24px; height: 24px; border-radius: 50%; background: #8fc653; border: 3px solid var(--ink); color: #17210c; font-weight: 700; font-size: 14px; line-height: 18px; display: none; }
+#br-menu .tile .tick { position: absolute; right: -6px; top: -8px; width: 24px; height: 24px; border-radius: 50%; background: #ff8f95; border: 3px solid var(--ink); color: #3a0f1a; font-weight: 700; font-size: 14px; line-height: 18px; display: none; }
 #br-menu .tile.sel .tick { display: block; animation: brpickpop .35s ease-out; }
 #br-menu .dice { font-size: 22px; }
 #br-menu .kb { font-size: 14px; color: rgba(236,220,178,.7); }
 `;
 
 export const ACCENT: Record<string, string> = { hunter: '#e8a23a', titan: '#6b9cff', ambusher: '#6fcf5a', brawler: '#ff6a5a', skirmisher: '#c78bff', guardian: '#4fd0d0' };
-const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
+const EMOJI = ANIMAL_EMOJI;
+const starterOf = (id: string) => TREE_BY_ID.get(ANIMAL_BY_ID.get(id)?.tree ?? '')?.starter ?? id;
 
 export class BrMenu {
   private root = document.createElement('div');
@@ -121,6 +134,8 @@ export class BrMenu {
   private sel = 'wolf';
   private spawn: SpawnId = 'any';
   private paintBox = document.createElement('div');
+  private treeHead = document.createElement('div');
+  private treeBox = document.createElement('div');
   private paintTitle = document.createElement('div');
   private dropBox = document.createElement('div');
   private dropInfo = document.createElement('div');
@@ -161,7 +176,7 @@ export class BrMenu {
     this.root.hidden = true;
     const panel = document.createElement('div');
     panel.className = 'panel wood';
-    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Dead players fight in the Gulag and come back leading a swarm.</div>';
+    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Everyone starts small and evolves twice. Dead players fight in Detention and come back leading a swarm.</div>';
 
     // the stage: a spotlit model on the left, its details on the right
     const stage = document.createElement('div');
@@ -179,23 +194,12 @@ export class BrMenu {
     stage.append(show, this.detail);
     panel.append(stage);
 
-    const chips = document.createElement('div');
-    chips.className = 'chips';
-    const mkChip = (label: string, cls: string | null) => {
-      const c = document.createElement('button');
-      c.className = `chip${cls === null ? ' on' : ''}`;
-      c.textContent = label;
-      c.addEventListener('click', () => {
-        chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c));
-        for (const [id, tile] of this.tiles) tile.hidden = cls !== null && ANIMAL_BY_ID.get(id)?.cls !== cls;
-      });
-      return c;
-    };
-    chips.append(mkChip('All animals', null), ...CLASSES.map((c) => mkChip(`${c.icon} ${c.name}`, c.id)));
-    panel.append(chips);
+    this.treeHead.className = 'treehead';
+    this.treeBox.className = 'tree';
+    panel.append(this.treeHead, this.treeBox);
     const roster = document.createElement('div');
     roster.className = 'roster';
-    ANIMALS.forEach((a, i) => {
+    STARTERS.forEach((a, i) => {
       const t = this.tile(a, i);
       this.tiles.set(a.id, t);
       roster.append(t);
@@ -251,7 +255,7 @@ export class BrMenu {
     dice.className = 'br-btn amber dice';
     dice.textContent = '🎲 Surprise me';
     dice.addEventListener('click', () => {
-      const ids = ANIMALS.map((x) => x.id);
+      const ids = STARTERS.map((x) => x.id);
       this.choose(ids[Math.floor(Math.random() * ids.length)]);
     });
     row.append(this.team, dice, this.queueBtn, this.leaveBtn, close);
@@ -260,7 +264,7 @@ export class BrMenu {
     const help = document.createElement('div');
     help.className = 'sub';
     help.style.fontSize = '16px';
-    help.innerHTML = '<span class="kb">Arrow keys move the spotlight · Enter picks</span><br>Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack · hold <b>RMB</b> guard (raise it just before a hit to parry) · <b>Q E R F</b> skills · <b>Tab</b> upgrades · <b>Left Alt</b> cursor.';
+    help.innerHTML = '<span class="kb">Arrow keys move the spotlight · Enter picks</span><br>Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack · tap <b>RMB</b> to parry (a hit inside the half-second window stuns the attacker for 1.5 s; a miss leaves you fumbling for 1.5 s and the parry takes 3 s to return) · <b>Q</b> skill · <b>Tab</b> upgrades and evolving · <b>Left Alt</b> cursor.';
     panel.append(help);
     this.root.append(panel);
     document.body.append(this.root);
@@ -319,10 +323,11 @@ export class BrMenu {
     return t;
   }
 
-  private choose(id: string) {
+  private choose(pick: string) {
+    const id = starterOf(pick);
     const changed = this.sel !== id;
     this.sel = id;
-    this.bringUp(id);
+    this.bringUp(pick === id ? id : pick);
     this.refreshSel();
     if (changed) {
       this.sfx?.choose();
@@ -335,21 +340,22 @@ export class BrMenu {
   private step(dx: number, dy: number) {
     const vis = [...this.tiles.entries()].filter(([, t]) => !t.hidden).map(([id]) => id);
     if (!vis.length) return;
-    const i = Math.max(0, vis.indexOf(this.focus));
-    const cols = window.innerWidth <= 960 ? 4 : 8;
+    const i = Math.max(0, vis.indexOf(starterOf(this.focus)));
+    const cols = window.innerWidth <= 960 ? 4 : 7;
     const n = Math.max(0, Math.min(vis.length - 1, i + dx + dy * cols));
     this.bringUp(vis[n]);
   }
 
   private refreshSel() {
-    const k = this.focus === this.sel;
-    this.pickEl.textContent = k ? '✓ YOUR PICK' : 'CLICK TO CHOOSE';
+    const f = ANIMAL_BY_ID.get(this.focus);
+    const k = starterOf(this.focus) === this.sel;
+    this.pickEl.textContent = k ? (f && f.stage > 1 ? `✓ YOUR TREE · STAGE ${f.stage}` : '✓ YOUR PICK') : 'CLICK TO CHOOSE';
     this.pickEl.classList.toggle('yes', k);
     const cls = ANIMAL_BY_ID.get(this.focus)?.cls;
     if (cls) this.show.style.setProperty('--acc', ACCENT[cls] ?? '#e8a23a');
     for (const [id, t] of this.tiles) {
       t.classList.toggle('sel', id === this.sel);
-      t.classList.toggle('focus', id === this.focus);
+      t.classList.toggle('focus', id === starterOf(this.focus));
     }
     this.refreshSpawn();
     this.refreshPaint();
@@ -357,16 +363,17 @@ export class BrMenu {
 
   /** Change one of the two colours (or both) for the animal in the spotlight. */
   private setPaint(next: Paint | undefined) {
-    const id = this.focus;
-    savePaint(id, next);
-    if (this.sel !== id) this.choose(id);
-    else {
-      this.net.send({ t: 'animal', a: id, paint: next });
-      this.onChoose(id, next ?? null);
+    const starter = starterOf(this.focus);
+    savePaint(starter, next);
+    if (this.sel !== starter) {
+      this.sel = starter;
+      this.sfx?.choose();
     }
+    this.net.send({ t: 'animal', a: starter, paint: next });
+    this.onChoose(starter, next ?? null);
     this.showcase.setPaint(next);
     this.sfx?.hoverTick();
-    this.refreshPaint();
+    this.refreshSel();
   }
 
   /** The colour pickers: a main colour and an accent colour, each with swatches and a free colour box. */
@@ -474,12 +481,12 @@ export class BrMenu {
     this.flashEl.classList.remove('go');
     void this.flashEl.offsetWidth;
     this.flashEl.classList.add('go');
-    const rows = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k]}</span><i data-w="${Math.min(100, (a.stats[k] / 36) * 100)}"></i><em>${a.stats[k]}</em>`).join('');
+    const rows = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k]}</span><i data-w="${Math.min(100, (a.stats[k] / (0.36 * STAGE_BUDGET[a.stage - 1])) * 100)}"></i><em>${a.stats[k]}</em>`).join('');
     this.detail.innerHTML =
-      `<div class="role"><b>${a.role}</b> · ${a.size} · ${a.swim === 'water' ? 'water animal' : 'land animal'}</div>` +
+      `<div class="role"><b>${a.role}</b> · stage ${a.stage} · ${a.size} · ${a.swim === 'water' ? 'fish: spawns in water, slow on land' : a.swim === 'semi' ? 'strong swimmer' : 'land animal'}${a.stage > 1 ? ` · evolve at level ${EVOLVE_LEVELS[a.stage - 2]}` : ''}</div>` +
       `<div class="blurb">${a.blurb}</div>` +
       `<div class="bars">${rows}</div>` +
-      `<div class="skills"><div><b>${a.sig[0].name}</b> (Q): ${a.sig[0].desc}</div><div><b>${a.sig[1].name}</b> (E): ${a.sig[1].desc}</div><div class="inn"><b>${a.innate.name}</b> (passive): ${a.innate.desc}</div></div>` +
+      `<div class="skills"><div><b>${a.skill.name}</b> (Q): ${a.skill.desc}</div><div class="inn"><b>${a.innate.name}</b> (passive): ${a.innate.desc}</div></div>` +
       `<div class="perks"><div><h4>${cls.icon} ${cls.name} gives</h4>${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}</div><div><h4>and costs</h4>${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^-\s?/, '')}</div>`).join('')}<div class="d">− ${a.weakness}</div></div></div>`;
     this.detail.querySelectorAll<HTMLElement>(':scope > *').forEach((el, i) => el.style.setProperty('--i', String(i)));
     // let the stat bars grow into place
@@ -490,7 +497,31 @@ export class BrMenu {
         }),
       ),
     );
+    this.refreshTree();
     this.refreshSel();
+  }
+
+  /** The evolution tree of the animal in the spotlight: click a form to see it on the stage. */
+  private refreshTree() {
+    const a = ANIMAL_BY_ID.get(this.focus);
+    if (!a) return;
+    const tree = TREE_BY_ID.get(a.tree)!;
+    this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · ${tree.blurb}. Evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}, into any form of the next stage: click one to preview it.`;
+    const forms = FORMS_OF_TREE(tree.id);
+    const node = (f: AnimalDef) => {
+      const d = document.createElement('div');
+      d.className = `node${f.id === this.focus ? ' on' : ''}`;
+      d.innerHTML = `<span class="em">${EMOJI[f.id] ?? '🐾'}</span><div>${f.name}<small>Stage ${f.stage} · ${f.role}</small></div>`;
+      d.addEventListener('click', () => this.bringUp(f.id));
+      return d;
+    };
+    const cols = [1, 2, 3].map((stage) => {
+      const c = document.createElement('div');
+      c.className = `col${stage === 3 ? ' last' : ''}`;
+      for (const f of forms.filter((x) => x.stage === stage)) c.append(node(f));
+      return c;
+    });
+    this.treeBox.replaceChildren(...cols);
   }
 
   open() {

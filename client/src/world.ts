@@ -132,19 +132,19 @@ function paintName(sprite: THREE.Sprite, name: string, emoji?: string) {
   g.clearRect(0, 0, c.width, c.height);
   // a little carved plank with a leaf-green rim
   const grad = g.createLinearGradient(0, 8, 0, 56);
-  grad.addColorStop(0, '#3b5a8f');
-  grad.addColorStop(1, '#1a2b4d');
+  grad.addColorStop(0, '#2a8a8a');
+  grad.addColorStop(1, '#104b4e');
   g.beginPath();
   g.roundRect(4, 8, 248, 48, 24);
   g.fillStyle = grad;
   g.fill();
   g.lineWidth = 4;
-  g.strokeStyle = '#14213d';
+  g.strokeStyle = '#0b3b3f';
   g.stroke();
   g.beginPath();
   g.roundRect(8, 12, 240, 40, 20);
   g.lineWidth = 2;
-  g.strokeStyle = emoji ? '#9bd15a' : '#c9a24a';
+  g.strokeStyle = emoji ? '#7fe3c4' : '#e6b94a';
   g.stroke();
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -152,10 +152,10 @@ function paintName(sprite: THREE.Sprite, name: string, emoji?: string) {
   if (emoji) {
     g.font = '28px system-ui, sans-serif';
     g.fillText(emoji, 36, 34);
-    g.font = '700 28px Nunito, system-ui, sans-serif';
+    g.font = '700 28px Josefin Sans, system-ui, sans-serif';
     g.fillText(name, 146, 33, 180);
   } else {
-    g.font = '700 28px Nunito, system-ui, sans-serif';
+    g.font = '700 28px Josefin Sans, system-ui, sans-serif';
     g.fillText(name, 128, 33, 232);
   }
   (sprite.material.map as THREE.CanvasTexture).needsUpdate = true;
@@ -1869,12 +1869,12 @@ export class World {
     g.textAlign = 'center';
     g.lineJoin = 'round';
     g.lineWidth = 8;
-    g.strokeStyle = '#14213d';
-    g.font = '700 54px Nunito, "Trebuchet MS", sans-serif';
+    g.strokeStyle = '#0b3b3f';
+    g.font = '700 54px Josefin Sans, "Trebuchet MS", sans-serif';
     g.strokeText(n, 96, 50);
     g.fillStyle = '#ffffff';
     g.fillText(n, 96, 50);
-    g.font = '700 22px Nunito, "Trebuchet MS", sans-serif';
+    g.font = '700 22px Josefin Sans, "Trebuchet MS", sans-serif';
     g.lineWidth = 5;
     g.strokeText('✦ INVINCIBLE', 96, 82);
     g.fillStyle = '#ffd77a';
@@ -2592,18 +2592,18 @@ export class World {
       const camYaw = this.yaw + Math.PI * f;
       const camPitch = this.pitch * (1 - 2 * f);
       const cp = Math.cos(camPitch);
-      // an animal sits in the middle of the screen: no shoulder offset, aimed at its body and not at a human's eyes
+      // over the shoulder: the camera rides above and to the right of the animal's back
       const an = !!this.selfAnimal;
       const rigH = this.selfRig?.height ?? 1.5;
       const back = SHOULDER_DISTANCE * (an ? Math.max(0.85, Math.min(1.7, rigH / 1.5)) : 1) * t * (1 - 0.5 * this.aimBlend);
-      const shoulder = (an ? 0 : SHOULDER_OFFSET) * t * (1 - f) * (1 + 0.45 * this.aimBlend);
+      const shoulder = SHOULDER_OFFSET * (an ? Math.max(1, rigH / 1.4) : 1) * t * (1 - f) * (1 + 0.45 * this.aimBlend);
       const rx = Math.cos(camYaw);
       const rz = -Math.sin(camYaw);
       const hx = this.pos.x;
-      const hy = an ? this.feetY + rigH * 0.5 + 0.2 : this.pos.y;
+      const hy = an ? this.feetY + rigH * 0.8 + 0.3 : this.pos.y;
       const hz = this.pos.z;
       let cx = hx + Math.sin(camYaw) * cp * back + rx * shoulder;
-      let cy = hy - Math.sin(camPitch) * back + (an ? 0.15 : SHOULDER_LIFT) * t;
+      let cy = hy - Math.sin(camPitch) * back + (an ? 0.2 : SHOULDER_LIFT) * t;
       let cz = hz + Math.cos(camYaw) * cp * back + rz * shoulder;
 
       // keep the camera out of walls: pull it in along the line from the head, smoothly

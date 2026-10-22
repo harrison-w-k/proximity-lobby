@@ -169,7 +169,7 @@ export class Showcase {
       const c = COMBO[combo];
       return { kind: 'swing', animal, combo, heavy: combo === 2, skill: '', fx: '', start: now, wind: c.wind * 1.6, strike: STRIKE_TIME * 1.4, rec: c.rec * 1.4 };
     }
-    const sk = def.sig[skillIdx];
+    const sk = def.skill; // one signature skill
     const fx = sk.fx;
     if (!fx) return null;
     const instant = fx.k === 'buff' || fx.k === 'heal' || fx.k === 'submerge';
@@ -186,7 +186,6 @@ export class Showcase {
       { name: 'swing2', len: 1.5, cue: (an, n) => this.cueFor(an, 'swing', 2, 0, n) },
       { name: 'idle', len: 0.7 },
       { name: 'skill0', len: 1.7, cue: (an, n) => this.cueFor(an, 'skill', 0, 0, n) },
-      { name: 'skill1', len: 1.7, cue: (an, n) => this.cueFor(an, 'skill', 0, 1, n) },
       { name: 'guard', len: 1.4, guard: true },
       { name: 'jump', len: 1.0, air: true },
       { name: 'idle', len: 1.2 },

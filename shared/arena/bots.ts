@@ -1,6 +1,6 @@
 // AI fighters. They fill empty slots (so a match is always 20 animals) and take over for anyone
 // who leaves. They play by the same rules and through the same Input a human uses.
-import { STAT_KEYS, type Stats } from './animals';
+import { STAT_KEYS, evolveOptions, type Stats } from './animals';
 import { swarmChoices } from './mobs';
 import { WATER_Y } from './terrain';
 import type { Fighter, Match, Mob } from './match';
@@ -145,7 +145,11 @@ export function botThink(m: Match, f: Fighter, dt: number) {
     const k = s.statPlan[(f.level - 2) % s.statPlan.length] ?? 'hp';
     m.spendStat(f, k);
   }
-  for (let t = 0; t < 4; t++) if (f.picks[t] === -1 && f.level >= [3, 7, 12, 18][t]) m.pickSkill(f, t, m.rnd() < 0.5 ? 0 : 1);
+  // evolve as soon as it is possible and nobody is close
+  if (!f.chan && f.level >= 7 && f.swing === null) {
+    const opts = evolveOptions(f.def, f.level);
+    if (opts.length && !m.fighters.some((o) => o !== f && o.team !== f.team && o.role === 'alive' && dist(o, f) < 28)) m.evolve(f, opts[Math.floor(m.rnd() * opts.length)].id);
+  }
 
   // channelled actions in progress: stand still
   if (f.chan) {
@@ -468,8 +472,7 @@ export const _internal = { WATER_Y };
 
 /** See an attack winding up in front of us and raise the guard just before it lands: a parry. */
 function botGuard(m: Match, f: Fighter, s: Mem) {
-  if (f.guarding && m.time > s.guardUntil) m.setGuard(f, false);
-  if (f.guarding || f.swing || m.time < f.guardCd || f.stunUntil > m.time) return;
+  if (f.guarding || f.swing || m.time < f.guardCd || f.stunUntil > m.time || f.whiffUntil > m.time) return;
   let threat = false;
   for (const o of m.fighters) {
     if (o === f || o.team === f.team || !o.swing || o.role === 'out') continue;

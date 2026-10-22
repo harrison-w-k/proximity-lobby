@@ -12,9 +12,10 @@ import { loadPaint } from './arena/paintStore';
 import { Showcase } from './arena/showcase';
 import { ACCENT } from './arena/menu';
 import { CLASS_BY_ID } from '../../shared/arena/animals';
-import { slotLabel, type Slot } from './arena/sparring';
 import type { Paint } from '../../shared/arena/paint';
-import { ANIMALS, ANIMAL_BY_ID } from '../../shared/arena/animals';
+import { ANIMAL_BY_ID, STARTERS, TREE_BY_ID } from '../../shared/arena/animals';
+/** Everyone starts as the stage 1 animal of a tree. */
+const starterOf = (id: string) => TREE_BY_ID.get(ANIMAL_BY_ID.get(id)?.tree ?? '')?.starter ?? 'house_cat';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
@@ -42,10 +43,10 @@ if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = wo
 if (import.meta.env.DEV) setTimeout(() => Object.assign(window, { __arena: arena, __world: world }), 0);
 let voice: Voice | null = null;
 let joined = false;
-let myAnimal = 'wolf';
+let myAnimal = 'house_cat';
 try {
   const saved = localStorage.getItem('br-animal');
-  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = saved;
+  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = starterOf(saved);
 } catch {
   /* storage unavailable */
 }
@@ -102,6 +103,7 @@ function refreshAnimalUi() {
 let myPaint: Paint | undefined = loadPaint(myAnimal);
 function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id)) {
   if (!ANIMAL_BY_ID.has(id)) return;
+  id = starterOf(id);
   myAnimal = id;
   myPaint = paint ?? undefined;
   try {
@@ -113,12 +115,13 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
   if (joined) {
     world.setSelfAnimal(id, myPaint);
     net.send({ t: 'animal', a: id, paint: myPaint });
+    if (!arena.active || arena.campus) net.send({ t: 'menter', animal: id, paint: myPaint }); // become this animal on the campus
   }
 }
 {
   // the picker on the join card
   const box = document.getElementById('join-animals');
-  for (const a of ANIMALS) {
+  for (const a of STARTERS) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'an';
@@ -133,7 +136,7 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
 const brMenu = new BrMenu(net, sfx);
 brMenu.onChoose = (id, paint) => chooseAnimal(id, paint);
 document.getElementById('animal-chip')?.addEventListener('click', () => {
-  if (!arena.active) brMenu.open();
+  if (!arena.active || arena.campus) brMenu.open();
 });
 const arena = new Arena({
   world,
@@ -143,11 +146,11 @@ const arena = new Arena({
   getVoice: () => voice,
   isBlocked: () => typing || menuOpen || brMenu.isOpen,
   openSettings: () => openMenu(),
-  onStart: () => {
+  onStart: (campus) => {
     // make room for the paper doll and the animal card
     $('hud').style.left = '196px';
     $('chat').style.left = '312px';
-    brMenu.close();
+    if (!campus) brMenu.close(); // a new animal in the campus keeps the menu open
     updatePaused();
   },
   onExit: () => {
@@ -169,7 +172,7 @@ brMenu.onOpen = () => {
 };
 brMenu.onClose = () => {
   world.inputEnabled = true;
-  if (!arena.active) world.lock();
+  if (!arena.active || arena.campus) world.lock();
   updatePaused();
 };
 function refreshBrButton() {
@@ -177,12 +180,12 @@ function refreshBrButton() {
   if (b) {
     b.textContent = brMenu.summary();
     b.className = 'br-btn';
-    b.hidden = arena.active;
+    b.hidden = arena.active && !arena.campus;
   }
 }
 setInterval(refreshBrButton, 500);
 document.getElementById('br-open')?.addEventListener('click', () => {
-  if (!arena.active) brMenu.open();
+  if (!arena.active || arena.campus) brMenu.open();
 });
 let typing = false;
 let myId = '';
@@ -224,40 +227,7 @@ canvas.addEventListener('click', () => joined && !typing && world.lock());
 // Aiming a throw: hold the left button to charge the bar, release to throw.
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && world.aiming && hasControl()) world.charging = true;
-  else if (e.button === 0 && !world.aiming) tryCast('a');
 });
-
-// Sparring: your animal's attack (left button) and two skills (Q, X) work in the lobby, and nobody can be hurt.
-function tryCast(slot: Slot) {
-  if (!joined || typing || menuOpen || arena.active || brMenu.isOpen || !hasControl()) return;
-  world.cast(slot);
-}
-world.onSwing = (slot) => (slot === 'a' ? sfx.swing() : sfx.whoosh());
-world.onSpar = (slot, combo) => net.send({ t: 'lfx', s: slot, c: combo });
-world.onSparHit = (to, n, kx, kz) => net.send({ t: 'lhit', to, n, kx, kz });
-const sparBar = document.createElement('div');
-sparBar.id = 'spar';
-sparBar.innerHTML = ['d|Shift', 'a|LMB', 'q|Q', 'x|X'].map((s) => `<div class="mv" data-s="${s.split('|')[0]}"><i></i><kbd>${s.split('|')[1]}</kbd><b></b></div>`).join('') + '<div class="cap">✦ Everyone here is invincible <span id="spar-total"></span></div>';
-document.body.append(sparBar);
-world.onDamage = (total) => {
-  const t = document.getElementById('spar-total');
-  if (t) t.textContent = `· ${total} damage dealt`;
-};
-function refreshSparBar() {
-  const show = joined && !arena.active && !brMenu.isOpen && !menuOpen;
-  sparBar.classList.toggle('on', show);
-  if (!show) return;
-  sparBar.querySelectorAll<HTMLElement>('.mv').forEach((el) => {
-    const s = el.dataset.s as Slot;
-    const cd = (el.dataset.s as string) === 'd' ? world.dashFrac : world.cooldown(s);
-    (el.querySelector('i') as HTMLElement).style.height = `${Math.round(cd * 100)}%`;
-    el.classList.toggle('cool', cd > 0);
-    const label = (el.dataset.s as string) === 'd' ? 'Dash' : slotLabel(myAnimal, s);
-    const b = el.querySelector('b')!;
-    if (b.textContent !== label) b.textContent = label;
-  });
-}
-setInterval(refreshSparBar, 80);
 function releaseThrow() {
   if (!world.aiming || !world.charging) return;
   world.charging = false;
@@ -862,7 +832,7 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
-  } else if (e.code === 'KeyB' && !typing && !menuOpen && !arena.active && !brMenu.isOpen && !e.ctrlKey && !e.metaKey) {
+  } else if (e.code === 'KeyB' && !typing && !menuOpen && (!arena.active || arena.campus) && !brMenu.isOpen && !e.ctrlKey && !e.metaKey) {
     brMenu.open();
   } else if (arena.active || brMenu.isOpen) {
     // the match (or its menu) owns the keyboard
@@ -886,8 +856,6 @@ window.addEventListener('keydown', (e) => {
     }
   } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
     world.cycleView();
-  } else if ((e.code === 'KeyQ' || e.code === 'KeyX') && !typing && !e.ctrlKey && !e.metaKey && !e.repeat) {
-    tryCast(e.code === 'KeyQ' ? 'q' : 'x');
   }
 });
 
@@ -995,6 +963,7 @@ net.onMessage = (m: ServerMsg) => {
       world.setSelfLook(myLook);
       world.setSelfAnimal(myAnimal, myPaint);
       net.send({ t: 'animal', a: myAnimal, paint: myPaint });
+      net.send({ t: 'menter', animal: myAnimal, paint: myPaint }); // walk into the campus
       net.send({ t: 'look', c: myLook.c, h: myLook.h });
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);

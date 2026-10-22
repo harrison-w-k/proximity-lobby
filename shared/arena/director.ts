@@ -1,6 +1,6 @@
 // Runs the queue and the current match for a host. The lobby feeds it client messages and calls
 // tick() from its timer; it talks back through `send`.
-import { ANIMALS } from './animals';
+import { ANIMALS, STARTERS } from './animals';
 import { DT, Match, type Entrant } from './match';
 import { cleanPaint } from './paint';
 import { isSpawnId, type SpawnId } from './spawn';
@@ -36,6 +36,13 @@ export class Director {
   private acc = 0;
   private lastInfo = '';
   private inMatch = new Set<string>();
+  /** The campus: the lobby as a permanent match nobody can die in. */
+  campus: Match | null = null;
+  private inCampus = new Set<string>();
+  private campusAcc = 0;
+  private campusLast = 0;
+  /** What each player last asked to be, so walking back into the campus is automatic. */
+  private profiles = new Map<string, { animal: string; paint?: [number, number] }>();
   /** Fill the empty slots with AI so there are always 20 animals. */
   fillWithBots = true;
   /** Seconds a match waits for more players after the first one queues. */
@@ -45,7 +52,7 @@ export class Director {
 
   /** Something is waiting or running, so the host must keep calling tick(). */
   busy(): boolean {
-    return this.queue.size > 0 || this.match !== null || this.startAt !== null;
+    return this.queue.size > 0 || this.match !== null || this.startAt !== null || this.inCampus.size > 0;
   }
 
   info(id: string): QueueInfo {
@@ -68,17 +75,53 @@ export class Director {
     }
   }
 
+  /** Walk a player into the campus (starting a campus if there is none). */
+  enterCampus(id: string, animal?: string, paint?: unknown) {
+    if (this.inMatch.has(id) && this.match && !this.match.finished) return;
+    const prev = this.profiles.get(id);
+    const a = STARTERS.find((x) => x.id === animal) ?? STARTERS.find((x) => x.id === prev?.animal) ?? STARTERS[0];
+    const p = paint === undefined ? prev?.paint : cleanPaint(paint);
+    this.profiles.set(id, { animal: a.id, paint: p });
+    const name = this.host.players().find((x) => x.id === id)?.name;
+    if (!name) return;
+    if (!this.campus) {
+      const bots: Entrant[] = [];
+      const used = new Set<string>();
+      for (let n = 0; n < 8; n++) {
+        let nm = BOT_NAMES[(n * 3) % BOT_NAMES.length];
+        while (used.has(nm)) nm += '_';
+        used.add(nm);
+        bots.push({ id: `cbot${n}`, name: nm, animal: STARTERS[n % STARTERS.length].id, team: n, bot: true });
+      }
+      this.campus = new Match(424242, bots, { send: (pid, msg) => this.host.send(pid, msg) }, { campus: true });
+      this.campusAcc = 0;
+      this.campusLast = Date.now();
+    }
+    this.campus.addPlayer({ id, name, animal: a.id, team: 0, bot: false, paint: p });
+    this.inCampus.add(id);
+    this.host.send(id, this.campus.startMsg(id));
+    this.host.send(id, { t: 'mq', q: this.info(id) });
+  }
+
+  private leaveCampus(id: string) {
+    if (!this.inCampus.delete(id)) return;
+    this.campus?.removePlayer(id);
+    if (this.inCampus.size === 0) this.campus = null; // nobody left: let it go
+  }
+
   join(id: string, animal: string, team?: string, spawn?: string, paint?: unknown) {
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
-    const a = ANIMALS.find((x) => x.id === animal);
+    const a = STARTERS.find((x) => x.id === animal); // everyone starts as a stage 1 animal
     if (!a) return;
     if (!this.queue.has(id) && this.queue.size >= MATCH_SLOTS) return;
+    this.profiles.set(id, { animal: a.id, paint: cleanPaint(paint) ?? this.profiles.get(id)?.paint });
     this.queue.set(id, { animal: a.id, team: (team ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12), spawn: isSpawnId(spawn) ? spawn : 'any', paint: cleanPaint(paint) });
     if (this.startAt === null && !(this.match && !this.match.finished)) this.startAt = Date.now() + this.countdownMs;
     this.broadcastQueue(true);
   }
 
   leave(id: string) {
+    this.leaveCampus(id);
     const had = this.queue.delete(id);
     if (this.queue.size === 0 && !(this.match && !this.match.finished)) this.startAt = null;
     if (this.inMatch.has(id)) {
@@ -95,6 +138,9 @@ export class Director {
 
   handle(id: string, msg: ClientMatchMsg) {
     switch (msg.t) {
+      case 'menter':
+        if (typeof msg.animal === 'string') this.enterCampus(id, msg.animal, msg.paint);
+        break;
       case 'mq':
         if (typeof msg.animal === 'string') this.join(id, msg.animal, typeof msg.team === 'string' ? msg.team : '', msg.spawn, msg.paint);
         break;
@@ -102,12 +148,15 @@ export class Director {
         this.leave(id);
         this.host.send(id, { t: 'mq', q: this.info(id) });
         break;
-      case 'mleave':
+      case 'mleave': {
+        // leaving a match (or its end screen) puts you back in the campus
         this.leave(id);
-        this.host.send(id, { t: 'mq', q: this.info(id) });
+        this.enterCampus(id);
         break;
+      }
       default:
         if (this.inMatch.has(id)) this.match?.handle(id, msg);
+        else if (this.inCampus.has(id)) this.campus?.handle(id, msg);
     }
   }
 
@@ -143,10 +192,11 @@ export class Director {
         let name = BOT_NAMES[(n + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length];
         while (used.has(name.toLowerCase())) name += '_';
         used.add(name.toLowerCase());
-        entrants.push({ id: `bot${n++}`, name, animal: ANIMALS[Math.floor(Math.random() * ANIMALS.length)].id, team: nextTeam++, bot: true });
+        entrants.push({ id: `bot${n++}`, name, animal: STARTERS[Math.floor(Math.random() * STARTERS.length)].id, team: nextTeam++, bot: true });
       }
     }
     const seed = (Math.random() * 0x7fffffff) | 0;
+    for (const e of entrants) if (!e.bot) this.leaveCampus(e.id);
     this.match = new Match(seed, entrants, { send: (id, msg) => this.host.send(id, msg) });
     this.inMatch = new Set(entrants.filter((e) => !e.bot).map((e) => e.id));
     this.queue.clear();
@@ -160,6 +210,15 @@ export class Director {
 
   /** Call every ~30 ms. */
   tick(now = Date.now()) {
+    if (this.campus) {
+      this.campusAcc += Math.min(0.25, (now - (this.campusLast || now)) / 1000);
+      this.campusLast = now;
+      let steps = 0;
+      while (this.campusAcc >= DT && steps++ < 4) {
+        this.campus.tick();
+        this.campusAcc -= DT;
+      }
+    }
     if (!this.match) {
       if (this.startAt !== null) {
         if (this.queue.size >= MATCH_SLOTS || now >= this.startAt) this.start();

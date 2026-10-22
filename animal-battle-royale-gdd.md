@@ -4,7 +4,7 @@ Last updated: 2026-10-21
 
 ## Overview
 
-A 20-player 3D animal battle royale where you level up by slaughtering animal hordes, then hunt each other while a lava ring closes in. Every player picks a real animal with skills drawn from what that animal does in nature. Dead players are never spectators: they pass through a Gulag and come back as the leader of a fodder swarm that harasses survivors but cannot win the match.
+A 20-player 3D animal battle royale where you level up by slaughtering animal hordes, then hunt each other while a lava ring closes in. Every player starts as a small real animal and evolves it twice into stronger forms, with skills drawn from what each animal does in nature. Dead players are never spectators: they pass through a Gulag and come back as the leader of a fodder swarm that harasses survivors but cannot win the match.
 
 | Item | Decision |
 | --- | --- |
@@ -56,11 +56,236 @@ You hunt horde animals for XP, level up, spend stat points and unlock skills, th
 | 3 Elite | Big XP and food drops | Boar, heron, large pike | Strong single targets, drop healing meat |
 | 4 Alpha | Jackpot XP | Alpha bear, giant gator | One per match in the center, draws players together |
 
-Levels run 1 to 20. Each level gives one stat point to spend on Health, Attack, Speed, Stamina or Senses. Skills unlock at levels 3, 7, 12 and 18, with two branches to pick from at each unlock.
+Levels run 1 to 20. Each level gives one stat point to spend on Health, Attack, Speed, Stamina or Senses. You can evolve from levels 7 and 14 whenever you choose, and levels 15 to 20 give stat points only (see Evolution trees).
 
 XP needed for level $L$ (starting curve):
 
 $$XP_{need}(L) = 60 \cdot L^{1.35}$$
+
+## Evolution trees
+
+You start as a small stage 1 animal and evolve twice, picking a branch each time. Seven starting animals ship first, each with two stage 2 forms and four final forms, so there are 28 possible endings. Branches are drafts, and the biology is loose where the game needs it.
+
+```mermaid
+flowchart LR
+    subgraph cats["Cats: stealth and burst"]
+        direction LR
+        HouseCat["House Cat"]
+        Bobcat["Bobcat"]
+        Lynx["Lynx"]
+        Cheetah["Cheetah"]
+        Panther["Panther"]
+        Tiger["Tiger"]
+        Lion["Lion"]
+        HouseCat --> Bobcat
+        HouseCat --> Lynx
+        Bobcat --> Cheetah
+        Bobcat --> Panther
+        Lynx --> Tiger
+        Lynx --> Lion
+    end
+    subgraph canines["Canines and scavengers: pack and tracking"]
+        direction LR
+        Fox["Fox"]
+        Coyote["Coyote"]
+        Jackal["Jackal"]
+        GrayWolf["Gray Wolf"]
+        Dhole["Dhole"]
+        SpottedHyena["Spotted Hyena"]
+        AfricanWildDog["African Wild Dog"]
+        Fox --> Coyote
+        Fox --> Jackal
+        Coyote --> GrayWolf
+        Coyote --> Dhole
+        Jackal --> SpottedHyena
+        Jackal --> AfricanWildDog
+    end
+    subgraph mustelids["Mustelids: brawlers and swimmers"]
+        direction LR
+        Weasel["Weasel"]
+        RiverOtter["River Otter"]
+        Badger["Badger"]
+        GiantOtter["Giant Otter"]
+        SeaOtter["Sea Otter"]
+        HoneyBadger["Honey Badger"]
+        Wolverine["Wolverine"]
+        Weasel --> RiverOtter
+        Weasel --> Badger
+        RiverOtter --> GiantOtter
+        RiverOtter --> SeaOtter
+        Badger --> HoneyBadger
+        Badger --> Wolverine
+    end
+    subgraph bears["Bears: bruisers and foragers"]
+        direction LR
+        Raccoon["Raccoon"]
+        BlackBear["Black Bear"]
+        SlothBear["Sloth Bear"]
+        Grizzly["Grizzly"]
+        PolarBear["Polar Bear"]
+        KodiakBear["Kodiak Bear"]
+        GiantPanda["Giant Panda"]
+        Raccoon --> BlackBear
+        Raccoon --> SlothBear
+        BlackBear --> Grizzly
+        BlackBear --> PolarBear
+        SlothBear --> KodiakBear
+        SlothBear --> GiantPanda
+    end
+    subgraph reptiles["Reptiles: venom and armor"]
+        direction LR
+        Gecko["Gecko"]
+        MonitorLizard["Monitor Lizard"]
+        SnappingTurtle["Snapping Turtle"]
+        KomodoDragon["Komodo Dragon"]
+        KingCobra["King Cobra"]
+        SaltwaterCrocodile["Saltwater Crocodile"]
+        GiantTortoise["Giant Tortoise"]
+        Gecko --> MonitorLizard
+        Gecko --> SnappingTurtle
+        MonitorLizard --> KomodoDragon
+        MonitorLizard --> KingCobra
+        SnappingTurtle --> SaltwaterCrocodile
+        SnappingTurtle --> GiantTortoise
+    end
+    subgraph bugs["Bugs and arachnids: traps and bursts"]
+        direction LR
+        Ant["Ant"]
+        Beetle["Beetle"]
+        Spider["Spider"]
+        HerculesBeetle["Hercules Beetle"]
+        BombardierBeetle["Bombardier Beetle"]
+        Tarantula["Tarantula"]
+        BlackWidow["Black Widow"]
+        Ant --> Beetle
+        Ant --> Spider
+        Beetle --> HerculesBeetle
+        Beetle --> BombardierBeetle
+        Spider --> Tarantula
+        Spider --> BlackWidow
+    end
+    subgraph fish["Fish: water control and bursts"]
+        direction LR
+        Mudskipper["Mudskipper"]
+        Piranha["Piranha"]
+        Pufferfish["Pufferfish"]
+        BullShark["Bull Shark"]
+        Barracuda["Barracuda"]
+        ElectricEel["Electric Eel"]
+        Anglerfish["Anglerfish"]
+        Mudskipper --> Piranha
+        Mudskipper --> Pufferfish
+        Piranha --> BullShark
+        Piranha --> Barracuda
+        Pufferfish --> ElectricEel
+        Pufferfish --> Anglerfish
+    end
+```
+
+Pick a starter, then evolve into any stage 2 branch from level 7 and any final form from level 14. The tables below list every form and its signature skill.
+
+**Evolution rules**
+
+| Stage | Can evolve at | Stat budget | Skills |
+| --- | --- | --- | --- |
+| 1 | Level 1 | 100 points | 1 signature skill |
+| 2 | Level 7 | 160 points | Replaces your stage 1 skill |
+| 3 | Level 14 | 230 points | Replaces your stage 2 skill |
+
+- Every form at a given stage is balanced to be equal: the same stat budget, and each skill trades power for a clear cooldown or weakness. No form is a strict upgrade over another, and playtests aim for win rates within 5% of each other. All numbers are first drafts.
+- Evolving is your choice. Once you reach level 7 or 14 you can evolve whenever you want, into any branch, with no unlocks or restrictions.
+- Evolving replaces your skill with the new form's skill. Stat points you have already spent stay with you.
+- Evolving takes 3 seconds and cancels if you are hit, so it cannot be used mid-fight to escape. Health refills when it completes.
+- Size grows each stage: stage 1 is small, stage 2 medium, stage 3 medium to large. Bugs are scaled up so they stay readable and fair next to mammals. Enemies can read your stage from your silhouette.
+- Levels 15 to 20 give stat points only. The hunted mark follows level, not stage.
+
+**Cats: stealth and burst**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | House Cat | Start | Pounce: short leap, no fall damage |
+| 2 | Bobcat | House Cat | Stalk: stealth in brush, bonus damage when striking from hiding |
+| 2 | Lynx | House Cat | Leap: long jump strike, spots hidden animals within 30 m |
+| 3 | Cheetah | Bobcat | Sprint: 3 s burst of speed |
+| 3 | Panther | Bobcat | Shadow: nearly invisible in shade and thick brush |
+| 3 | Tiger | Lynx | Ambush: heavy pounce from water or brush, strong swimmer |
+| 3 | Lion | Lynx | Roar: scares small hordes and buffs nearby teammates |
+
+**Canines and scavengers: pack and tracking**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Fox | Start | Dig: short burrow to dodge or hide |
+| 2 | Coyote | Fox | Scavenger Gut: eats spoiled meat with no penalty |
+| 2 | Jackal | Fox | Carrion Sense: shows carcasses and loot piles within 50 m |
+| 3 | Gray Wolf | Coyote | Howl: marks enemies within 40 m for 5 s |
+| 3 | Dhole | Coyote | Pack Hunt: bonus damage when a teammate is nearby |
+| 3 | Spotted Hyena | Jackal | Bone Crush: bite breaks shields and armor |
+| 3 | African Wild Dog | Jackal | Endurance: sprints with almost no stamina loss |
+
+**Mustelids: brawlers and swimmers**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Weasel | Start | Squeeze: fits through tight gaps, quick dash |
+| 2 | River Otter | Weasel | Slick: fast swimmer, slippery dodge |
+| 2 | Badger | Weasel | Dig In: burrows to block, resists knockback |
+| 3 | Giant Otter | River Otter | Shoal Hunt: bonus damage in water, teammates swim faster |
+| 3 | Sea Otter | River Otter | Rock Throw: throws rocks, cracks shells |
+| 3 | Honey Badger | Badger | Thick Hide: damage resistance, Frenzy under 30% health |
+| 3 | Wolverine | Badger | Blood Trail: follows wounded enemies, bite slows them |
+
+**Bears: bruisers and foragers**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Raccoon | Start | Nimble Hands: harvests twice as fast |
+| 2 | Black Bear | Raccoon | Climb: climbs trees to scout or escape |
+| 2 | Sloth Bear | Raccoon | Raider: extra items from hives and dens, ignores bee stings |
+| 3 | Grizzly | Black Bear | Maul: heavy swipe, and a roar that scares small hordes |
+| 3 | Polar Bear | Black Bear | Swim Hunter: fast, quiet swimmer, ambushes from water |
+| 3 | Kodiak Bear | Sloth Bear | Salmon Feast: meat heals double |
+| 3 | Giant Panda | Sloth Bear | Bamboo Roll: rolls out of danger, plants heal double |
+
+**Reptiles: venom and armor**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Gecko | Start | Cling: climbs rocks, drops its tail to escape a grab |
+| 2 | Monitor Lizard | Gecko | Venom Bite: poison damage over time |
+| 2 | Snapping Turtle | Gecko | Shell: blocks all damage while standing still |
+| 3 | Komodo Dragon | Monitor Lizard | Rotting Bite: venom stacks, strong against wounded targets |
+| 3 | King Cobra | Monitor Lizard | Spit: blinds targets at range |
+| 3 | Saltwater Crocodile | Snapping Turtle | Death Roll: grapples and rolls targets in water |
+| 3 | Giant Tortoise | Snapping Turtle | Fortress: huge defense, crushing stomp |
+
+**Bugs and arachnids: traps and bursts**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Ant | Start | Trail: leaves a scent path only teammates can see and follow |
+| 2 | Beetle | Ant | Carapace: takes much less damage from the front |
+| 2 | Spider | Ant | Silk: shoots a line that pulls you to terrain or snares a target |
+| 3 | Hercules Beetle | Beetle | Horn Flip: charge that flips targets and knocks them back |
+| 3 | Bombardier Beetle | Beetle | Acid Spray: short-range burst that damages and blinds |
+| 3 | Tarantula | Spider | Leap Bite: heavy venom pounce, hairs blind attackers |
+| 3 | Black Widow | Spider | Web Trap: lays webs that slow targets and stack venom |
+
+**Fish: water control and bursts**
+
+| Stage | Animal | Evolves from | Signature skill |
+| --- | --- | --- | --- |
+| 1 | Mudskipper | Start | Skitter: quick leaps that carry it across short gaps between ponds |
+| 2 | Piranha | Mudskipper | Blood Frenzy: faster and harder bites against wounded targets |
+| 2 | Pufferfish | Mudskipper | Inflate: swells to block damage and knock attackers back |
+| 3 | Bull Shark | Piranha | Lateral Line: senses every animal in water within 50 m, even hidden ones |
+| 3 | Barracuda | Piranha | Torpedo: short burst dash in water that hits hard on impact |
+| 3 | Electric Eel | Pufferfish | Shock: area stun that is strongest in water |
+| 3 | Anglerfish | Pufferfish | Lure: glowing light that draws nearby hordes and players toward it |
+
+**Fish rules.** Fish wear shoes on land, so they can leave the water for as long as they like but move slowly there. Fish always spawn in water. In water they swim faster than land animals run. Every lava ring keeps at least one water body, but lava still burns any pool it covers.
+
+Not placed yet: Wild Boar and Porcupine from the earlier roster, and flying animals after v1.
 
 ## Harvesting and inventory
 
@@ -92,29 +317,6 @@ Food, water and loot turn the map into a supply puzzle, and a small inventory st
 - Dying drops your whole inventory as a loot pile, and leaders can eat it.
 - Harvesting and eating take a few seconds and make noise, so they draw hordes.
 - Meat spoils, so food is meant to be used soon, not saved.
-
-## Animals and skills
-
-Eight land and water animals ship at launch, balanced by role and size class rather than by raw stats. Every animal gets the same 100 base stat points to distribute, and its size class sets the trade-off. Flying animals wait until after v1 so the lava rules stay simple.
-
-| Size class | Hitbox | Advantage | Cost |
-| --- | --- | --- | --- |
-| Small | Tiny | Stealth, dodging, fits through brush | Low health, short reach |
-| Medium | Standard | Balanced speed and damage | No strong specialty |
-| Large | Big | High health and damage, intimidates small hordes | Slow turns, loud footsteps, easy to hit |
-
-| Animal | Class | Role | Signature skills | Weakness |
-| --- | --- | --- | --- | --- |
-| Wolf | Medium | Tracker | Howl marks enemies within 40 m for 5 s, lunge | Weak defense when alone |
-| Bear | Large | Bruiser | Maul, Roar that scares small hordes | Slow, loud, big target |
-| Cheetah | Medium | Assassin | 3 s burst sprint, pounce | Tires fast, low health |
-| Honey Badger | Small | Brawler | Thick Hide damage resistance, Frenzy under 30% health | Short reach |
-| Crocodile | Large | Ambusher | Submerge, Death Roll grapple in water | Slow on land |
-| Wild Boar | Medium | Charger | Knockback charge, tusk gore that bleeds | Turns poorly |
-| Otter | Small | Skirmisher | Fast swim, rock throw, slippery dodge | Fragile |
-| Porcupine | Small | Counter-fighter | Quill Coat reflects damage, quill shot | Low mobility and damage |
-
-Each animal has one passive and a pool of actives. The level 3, 7, 12 and 18 unlocks offer a choice of two, so two players on the same animal can build differently.
 
 ## Forced engagement
 
@@ -218,7 +420,7 @@ The center holds the watering hole and the Alpha den. Lava spreads from the map 
 
 - Bushes hide you from view, trees block line of sight, and long grass slows you down.
 - Shallow water slows land animals, and deep water needs swimming. Water animals gain speed and stealth there.
-- Spawn points sit at least 120 m apart, and every ring contains at least one water body and one height advantage.
+- Spawn points sit at least 120 m apart, and every ring contains at least one water body and one height advantage. Fish players spawn in water, so the generator keeps enough spawn spots in lakes and rivers.
 - The generator guarantees one connected landmass and places resources by Poisson disk sampling.
 
 ## Balance guardrails
@@ -231,7 +433,7 @@ Each known failure mode of this genre has a built-in guardrail and a number to t
 | Level leader snowballs | Hunted mark on the top 3, catch-up bonus for killing higher levels | Roar every 45 s, bonus cap 2x |
 | Death spiral from many leaders | Fixed 60-animal swarm budget, 30% damage cap, swarms disband at 3 players | Budget and damage cap |
 | Campers | Standing still leaves a scent trail swarms can follow, and combat noise draws hordes | Stationary timer of 30 s |
-| Size imbalance | Equal 100-point stat budget and size-class trade-offs | Per-animal stat split |
+| Size imbalance | Equal stat budget per stage and size-class trade-offs | Per-animal stat split |
 | Voice ghosting | Short ranges, leaders limited to 15 m, separate Gulag channel | Range values |
 
 ## Technical notes
@@ -251,9 +453,9 @@ Build the fun first and the fairness second: prove the farming loop alone, then 
 
 | Phase | Scope | Exit gate |
 | --- | --- | --- |
-| 1. Greybox solo | Terrain generator, 1 animal, tier 1 and 2 hordes, XP and levels, no network | Farming for 3 minutes is fun on its own |
-| 2. Multiplayer slice | 4 to 6 players, 3 animals, lava ring, player kill XP | Players seek each other out instead of farming |
-| 3. Full loop | 20 players, Gulag, Horde Leaders, proximity voice, all 8 animals | A match finishes in about 12 minutes with no death spiral |
+| 1. Greybox solo | Terrain generator, 1 evolution tree (cats), tier 1 and 2 hordes, XP and levels, no network | Farming for 3 minutes is fun on its own |
+| 2. Multiplayer slice | 4 to 6 players, 2 evolution trees, lava ring, player kill XP | Players seek each other out instead of farming |
+| 3. Full loop | 20 players, Gulag, Horde Leaders, proximity voice, all 7 evolution trees | A match finishes in about 12 minutes with no death spiral |
 | 4. Playtest and balance | Tune XP, swarm budget and animals, add voice moderation tools | No animal dominates win rate over about 50 test matches |
 
 ## Open questions and risks
@@ -265,7 +467,11 @@ These decisions change the design the most, so settle them before Phase 2.
 - [x] Leaders cannot revive, and grow stronger by eating
 - [x] Art style: defined in a separate document
 - [x] Monetization: none
+- [x] Progression: three-stage evolution trees, like deeeep.io
+- [x] Evolving replaces your skill, happens whenever you want, any branch is open, every form balanced equal
 - [ ] Gulag format: still to be decided
+- [ ] Which trees come next, and where do Wild Boar and Porcupine go?
+- [ ] One skill per form, or an active plus a passive so stage 3 feels deeper?
 - [ ] Squad size cap, friendly fire, and whether living teammates can revive each other
 - [ ] Can a dead player's leader swarm defend their former squad?
 - [ ] Win condition with squads: last team standing, and when swarms disband
@@ -273,7 +479,7 @@ These decisions change the design the most, so settle them before Phase 2.
 - [ ] Do living players have hunger and thirst meters, or is food only healing and buffs?
 - [ ] Inventory size: the same for every animal, or smaller for small animals?
 - [ ] Which item abilities ship in v1?
-- [ ] Flying animals after v1, and how they interact with lava
+- [ ] Flying animals and bird trees after v1, and how they interact with lava
 
 **Top risks**
 

@@ -407,12 +407,13 @@ export class Lobby {
         this.broadcast({ t: 'item', item: it, fly: launch });
         break;
       }
+      case 'menter':
       case 'mq':
       case 'mqx':
       case 'min':
       case 'mskill':
       case 'mstat':
-      case 'mpick':
+      case 'mevolve':
       case 'muse':
       case 'mact':
       case 'mcmd':

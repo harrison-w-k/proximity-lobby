@@ -2,7 +2,7 @@
 // ring, XP and skills, the Gulag and Horde Leaders. It knows nothing about sockets: a host feeds
 // it client messages, calls tick() at 30 Hz and sends the snapshots it produces.
 import {
-  ANIMAL_BY_ID, ANIMALS, MAX_LEVEL, SKILL_BY_ID, STAT_KEYS, UNLOCK_LEVELS, derive, emptyStats, hordeXp, killXp, sumMods, xpNeed,
+  ANIMAL_BY_ID, ANIMALS, EVOLVE_TIME, MAX_LEVEL, SKILL_BY_ID, STAT_KEYS, derive, evolveOptions, emptyStats, hordeXp, killXp, sumMods, xpNeed,
   type AnimalDef, type Derived, type Effect, type Mods, type Skill, type Status, type Stats,
 } from './animals';
 import {
@@ -15,7 +15,7 @@ import {
   type ServerMatchMsg, type YouState,
 } from './proto';
 import { classSkill } from './animals';
-import { COMBO, COMBO_RESET, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW } from './combat';
+import { COMBO, COMBO_RESET, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { SPAWN_BY_ID, type SpawnId } from './spawn';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
@@ -29,7 +29,7 @@ export const MATCH_LEN = 720;
 export const PVP_DAMAGE = 0.6; // blows between players land at 60%: fights last longer
 export const DASH_COST = 22; // stamina
 export { DASH_COOLDOWN, DASH_TIME, DASH_SPEED };
-export { COMBO, COMBO_RESET, GUARD_COOLDOWN, GUARD_DRAIN, PARRY_WINDOW };
+export { COMBO, COMBO_RESET, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW };
 /** Seconds of wind-up before each kind of skill lands: the telegraph others can react to. */
 const SKILL_WIND: Record<string, number> = { cone: 0.22, dash: 0.18, aoe: 0.3, proj: 0.16, grab: 0.2 };
 export const SCATTER_PEACE = 90; // no player-vs-player damage while everyone scatters
@@ -107,7 +107,8 @@ interface Buff {
 }
 
 interface Chan {
-  k: 'eat' | 'harvest' | 'drink' | 'loot';
+  k: 'eat' | 'harvest' | 'drink' | 'loot' | 'evolve';
+  to?: string;
   until: number;
   total: number;
   slot?: number;
@@ -130,7 +131,6 @@ export interface Fighter extends Body {
   totalXp: number;
   pts: number;
   alloc: Stats;
-  picks: number[];
   mods: Required<Mods>;
   dv: Derived;
   sta: number;
@@ -145,6 +145,7 @@ export interface Fighter extends Body {
   guarding: boolean;
   guardAt: number;
   guardCd: number;
+  whiffUntil: number; // fumbling after a parry that caught nothing: can walk, nothing else
   counterUntil: number;
   jy: number;
   jv: number;
@@ -309,7 +310,6 @@ const NODE_RESPAWN: Record<string, number> = { berry: 50, fruit: 90, herb: 80, m
 const HARVEST_TIME: Record<string, number> = { berry: 2.2, fruit: 3, herb: 2.5, mud: 2, hive: 3.5, reed: 1.8 };
 
 const FIXED_GULAG_ALLOC: Stats = { hp: 6, atk: 6, spd: 0, sta: 0, sen: 0 };
-const NO_PICKS = [-1, -1, -1, -1];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const yawOf = (dx: number, dz: number) => Math.atan2(dx, dz);
@@ -366,17 +366,27 @@ export class Match {
   lastResult: 'hit' | 'block' | 'parry' | 'dodge' = 'hit';
   private rosterDirty = false;
   readonly humans = new Set<string>();
+  /** The campus: the lobby as a permanent, non-lethal match. Nobody can be hurt, there is no lava or clock, and players come and go. */
+  readonly campus: boolean;
 
   constructor(
     seed: number,
     entrants: Entrant[],
     private host: Host,
+    opts: { campus?: boolean } = {},
   ) {
+    this.campus = !!opts.campus;
+    if (this.campus) this.phase = 1;
     this.seed = seed;
     this.terrain = new Terrain(seed);
     this.rnd = mulberry32(seed ^ 0xfaceb00c);
     this.createFighters(entrants);
     this.populateStart();
+    if (this.campus) {
+      // farming has to be worth it for the whole evolution path, so every tier of horde is out from the start
+      for (let i = 0; i < 70; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
+      for (let i = 0; i < 34; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 0);
+    }
     this.startTeams = new Set(this.fighters.map((f) => f.team)).size;
     for (const f of this.fighters) if (!f.bot) this.humans.add(f.id);
   }
@@ -388,10 +398,10 @@ export class Match {
     const f: Fighter = {
       paint: e.paint,
       kind: 'f', id: e.id, name: e.name, def, team: e.team, bot: e.bot, role: 'alive', level: 1, xp: 0, totalXp: 0, pts: 0,
-      alloc: emptyStats(), picks: [...NO_PICKS], mods: sumMods([def.innate]), dv: derive(def, emptyStats(), sumMods([def.innate])),
+      alloc: emptyStats(), mods: sumMods([def.innate]), dv: derive(def, emptyStats(), sumMods([def.innate])),
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
-      cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
+      cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, whiffUntil: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
       speedUntil: 0, glideUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, waitSince: 0, deathX: 0, deathZ: 0,
@@ -449,7 +459,12 @@ export class Match {
       for (const f of this.fighters) {
         if (f.team !== team) continue;
         const a = (k++ / 4) * Math.PI * 2;
-        const p = this.terrain.collide(sp.x + Math.cos(a) * 2.5 * (k > 1 ? 1 : 0), sp.z + Math.sin(a) * 2.5 * (k > 1 ? 1 : 0), 0.6);
+        let p = this.terrain.collide(sp.x + Math.cos(a) * 2.5 * (k > 1 ? 1 : 0), sp.z + Math.sin(a) * 2.5 * (k > 1 ? 1 : 0), 0.6);
+        if (f.def.swim === 'water') {
+          // fish start in the water, as close to their drop point as there is a lake
+          const w = this.terrain.findWater(sp.x, sp.z, this.rnd);
+          if (w) p = { x: w.x + Math.cos(a) * 1.5 * (k > 1 ? 1 : 0), z: w.z + Math.sin(a) * 1.5 * (k > 1 ? 1 : 0), hit: false };
+        }
         f.x = p.x;
         f.z = p.z;
         f.y = standY(this.terrain, f.x, f.z);
@@ -493,16 +508,12 @@ export class Match {
 
   /** Skills the fighter currently has: slots Q E R F. */
   slotSkills(f: Fighter): (Skill | null)[] {
-    const u = f.def.unlock;
-    return [f.def.sig[0], f.def.sig[1], f.picks[0] >= 0 ? u[0][f.picks[0]] : null, f.picks[2] >= 0 ? u[2][f.picks[2]] : null];
+    return [f.def.skill, null, null, null]; // one signature skill: evolving replaces it
   }
 
   recompute(f: Fighter, fill = false) {
-    const picks = f.role === 'gulag' ? NO_PICKS : f.picks;
     const skills: Skill[] = [f.def.innate];
     if (f.role !== 'gulag') skills.push(classSkill(f.def.cls)); // gulag duels are on equal terms
-    if (picks[1] >= 0) skills.push(f.def.unlock[1][picks[1]]);
-    if (picks[3] >= 0) skills.push(f.def.unlock[3][picks[3]]);
     f.mods = sumMods(skills);
     const oldMax = f.maxHp;
     if (f.role === 'leader') {
@@ -640,8 +651,8 @@ export class Match {
       case 'mstat':
         this.spendStat(f, msg.k);
         break;
-      case 'mpick':
-        this.pickSkill(f, msg.i | 0, msg.o | 0);
+      case 'mevolve':
+        this.evolve(f, typeof msg.to === 'string' ? msg.to : '');
         break;
       case 'muse':
         this.useItem(f, msg.i | 0);
@@ -671,6 +682,49 @@ export class Match {
   }
 
   /** A human left: the AI takes over so the match goes on. */
+  /** Campus: a player walks in as a stage 1 animal at a random spot. Joining again swaps the animal (and resets your progress). */
+  addPlayer(e: Entrant): Fighter {
+    this.removePlayer(e.id);
+    const team = 1 + this.fighters.reduce((m, f) => Math.max(m, f.team), -1);
+    const f = this.newFighter({ ...e, team, bot: false });
+    const spot = f.def.swim === 'water' ? this.terrain.findWater(0, 0, this.rnd) : this.terrain.randomLand(this.rnd, 170, 30);
+    const p = spot ?? this.terrain.randomLand(this.rnd, 170, 30);
+    f.x = p.x;
+    f.z = p.z;
+    f.y = standY(this.terrain, f.x, f.z);
+    f.yaw = Math.atan2(-p.x, -p.z);
+    f.input.yaw = f.yaw;
+    f.lastInputAt = this.time;
+    this.fighters.push(f);
+    this.byId.set(f.id, f);
+    this.humans.add(f.id);
+    this.teamsAlive.add(team);
+    this.rosterDirty = true;
+    return f;
+  }
+
+  /** Campus: a player leaves (or goes off to a real match). */
+  removePlayer(id: string) {
+    const f = this.byId.get(id);
+    if (!f) return;
+    this.humans.delete(id);
+    this.byId.delete(id);
+    const i = this.fighters.indexOf(f);
+    if (i >= 0) this.fighters.splice(i, 1);
+    for (const m of this.mobs) {
+      if (m.target === f) {
+        m.target = null;
+        if (m.state === 'attack') m.state = 'idle';
+      }
+    }
+    this.rosterDirty = true;
+  }
+
+  /** The message that starts the match on a client. */
+  startMsg(id: string): ServerMatchMsg {
+    return { t: 'mstart', seed: this.seed, you: id, roster: this.roster(), nodes: [...this.nodeUntil], campus: this.campus || undefined };
+  }
+
   release(id: string) {
     const f = this.byId.get(id);
     if (!f || f.bot) return;
@@ -689,12 +743,26 @@ export class Match {
     return true;
   }
 
-  pickSkill(f: Fighter, tier: number, opt: number): boolean {
-    if (f.role !== 'alive' || tier < 0 || tier > 3 || (opt !== 0 && opt !== 1)) return false;
-    if (f.level < UNLOCK_LEVELS[tier] || f.picks[tier] !== -1) return false;
-    f.picks[tier] = opt;
-    this.recompute(f);
+  /** Start evolving: three seconds standing still. Any form of the next stage in your tree, once you are high enough a level. */
+  evolve(f: Fighter, to: string): boolean {
+    if (f.role !== 'alive' || f.chan || f.stunUntil > this.time || f.grab || f.holding) return false;
+    const target = evolveOptions(f.def, f.level).find((a) => a.id === to);
+    if (!target) return false;
+    f.swing = null;
+    f.guarding = false;
+    f.chan = { k: 'evolve', until: this.time + EVOLVE_TIME, total: EVOLVE_TIME, to: target.id, x: f.x, z: f.z };
+    this.emit({ k: 'evolving', id: f.id, to: target.id, x: f.x, z: f.z }, f.x, f.z);
     return true;
+  }
+
+  private finishEvolve(f: Fighter, to: string) {
+    const def = ANIMAL_BY_ID.get(to);
+    if (!def || f.role !== 'alive') return;
+    f.def = def;
+    f.cdAt = [0, 0, 0, 0];
+    this.recompute(f, true); // health refills when it completes
+    this.rosterDirty = true;
+    this.emit({ k: 'evolve', id: f.id, to: def.id, x: f.x, z: f.z }, f.x, f.z);
   }
 
   gainXp(f: Fighter, amount: number) {
@@ -718,7 +786,7 @@ export class Match {
     if (f.role === 'leader') return this.leaderSkill(f, slot);
     if (f.role === 'out') return false;
     if (f.role === 'gulag' && (!f.duel || f.defeated)) return false;
-    if (f.stunUntil > this.time || f.grab) return false;
+    if (f.stunUntil > this.time || f.whiffUntil > this.time || f.grab) return false;
     const skill = this.slotSkills(f)[slot];
     if (!skill?.fx || this.time < f.cdAt[slot]) return false;
     const cost = skill.cost ?? 0;
@@ -778,6 +846,9 @@ export class Match {
           case 'scare':
             f.scareUntil = this.time + s.dur;
             break;
+          case 'blind':
+            f.blindUntil = Math.max(f.blindUntil, this.time + s.dur);
+            break;
         }
       } else {
         const m = t as Mob;
@@ -795,6 +866,9 @@ export class Match {
             break;
           case 'scare':
             this.scareMob(m, s.dur);
+            break;
+          case 'blind':
+            m.slowUntil = this.time + s.dur; // a blinded animal stumbles
             break;
         }
       }
@@ -900,7 +974,7 @@ export class Match {
   /** Every animal can dash: a short burst of speed, for timing a dodge or a chase. */
   dash(f: Fighter, dx: number, dz: number): boolean {
     if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return false;
-    if (f.stunUntil > this.time || f.grab || f.holding || f.dash || this.time < f.dashAt) return false;
+    if (f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.holding || f.dash || this.time < f.dashAt) return false;
     const leader = f.role === 'leader';
     if (!leader && f.sta < DASH_COST && !this.hasFree(f)) return false;
     const l = Math.hypot(dx, dz);
@@ -912,7 +986,7 @@ export class Match {
     f.guarding = false;
     f.invUntil = Math.max(f.invUntil, this.time + 0.16); // slip through an attack that is landing
     f.dashAt = this.time + DASH_COOLDOWN * (1 + f.mods.dashCd);
-    f.yaw = Math.atan2(ux, uz);
+    if (f.bot) f.yaw = Math.atan2(ux, uz); // a player keeps facing the camera while dashing
     const base = f.walkSpeed || f.dv.speed;
     f.dash = { dx: ux, dz: uz, speed: base * DASH_SPEED, until: this.time + DASH_TIME, dmg: 0, hit: new Set(), knock: 0, aoe: 0 };
     this.emit({ k: 'skill', id: f.id, s: 'dash', x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
@@ -923,7 +997,7 @@ export class Match {
 
   /** Start the next swing of the combo. The damage lands after the wind-up, so it can be read and answered. */
   private basicAttack(f: Fighter) {
-    if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.grab || f.chan || f.guarding) return;
+    if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.chan || f.guarding) return;
     const leader = f.role === 'leader';
     const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0;
     const c = COMBO[combo];
@@ -979,34 +1053,33 @@ export class Match {
 
   // --- guard, parry -------------------------------------------------------------------------
 
-  /** Hold to guard. A guard raised in the instant before a blow lands is a parry that staggers the attacker. */
+  /**
+   * Tap to parry: the guard is up for a short window and cannot be taken back. A blow from the front that
+   * lands inside it is parried; if nothing lands you are left fumbling (see `whiff`).
+   */
   setGuard(f: Fighter, on: boolean) {
+    if (!on) return; // releasing the button does nothing: a parry runs its course
     if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return;
-    if (on) {
-      if (f.guarding || this.time < f.guardCd || f.stunUntil > this.time || f.grab || f.dash || f.holding) return;
-      const leader = f.role === 'leader';
-      if (!leader && f.sta < 8) return;
-      if (f.swing) {
-        // changing your mind mid-swing: a feint, at a small stamina cost
-        f.swing = null;
-        if (!leader) f.sta = Math.max(0, f.sta - 6);
-        f.atkAt = this.time + 0.2;
-      }
-      f.chan = null;
-      f.guarding = true;
-      f.guardAt = this.time;
-    } else if (f.guarding) {
-      f.guarding = false;
-      f.guardCd = this.time + GUARD_COOLDOWN;
+    const t = this.time;
+    if (f.guarding || t < f.guardCd || f.stunUntil > t || f.whiffUntil > t || f.grab || f.dash || f.holding) return;
+    if (f.swing) {
+      // changing your mind mid-swing: a feint, at a small stamina cost
+      f.swing = null;
+      if (f.role !== 'leader') f.sta = Math.max(0, f.sta - 6);
+      f.atkAt = t + 0.2;
     }
+    f.chan = null;
+    f.guarding = true;
+    f.guardAt = t;
   }
 
-  private breakGuard(f: Fighter, x: number, z: number) {
+  /** The parry window ran out without catching a blow: guard down, a short fumble, a long recharge. */
+  private whiff(f: Fighter) {
     f.guarding = false;
-    f.guardCd = this.time + 1.2;
-    f.stunUntil = Math.max(f.stunUntil, this.time + 0.8);
+    f.whiffUntil = this.time + PARRY_MISS_STUN;
+    f.guardCd = this.time + PARRY_MISS_CD;
     f.swing = null;
-    this.emit({ k: 'block', id: f.id, x, z, broke: true }, x, z);
+    this.emit({ k: 'whiff', id: f.id, x: f.x, z: f.z }, f.x, f.z);
   }
 
   // --- damage --------------------------------------------------------------------------------
@@ -1046,52 +1119,30 @@ export class Match {
     if (o.lava) dr = this.time < f.mudUntil ? 0.6 : 0;
     let amount = raw * (1 - dr);
     if (srcF && srcF !== f && (srcF.role === 'alive' || srcF.role === 'gulag') && !o.lava && !o.dot) amount *= PVP_DAMAGE;
-    // a raised guard stops blows that come from the front
+    // a blow from the front that lands inside the parry window is parried
     if (o.blockable && src && f.guarding && !o.lava && !o.dot) {
       const front = Math.abs(angDiff(yawOf(src.x - f.x, src.z - f.z), f.yaw)) < 1.3;
       if (front) {
-        if (this.time - f.guardAt <= PARRY_WINDOW + f.mods.parryWin) {
-          // PARRY: no damage, the attacker is staggered and we get the opening
-          this.lastResult = 'parry';
-          const heavy = !!o.heavy;
-          if (src.kind === 'f') {
-            const a = src as Fighter;
-            a.stunUntil = Math.max(a.stunUntil, this.time + (heavy ? 1.5 : 1.0));
-            a.swing = null;
-            a.chan = null;
-            a.guarding = false;
-            a.sta = Math.max(0, a.sta - (heavy ? 18 : 10));
-          } else {
-            const m = src as Mob;
-            m.stunUntil = this.time + (m.def.behavior === 'alpha' ? 1.7 : heavy ? 1.5 : 1.0);
-            m.strikeAt = 0;
-          }
-          f.sta = Math.min(f.dv.maxSta, f.sta + 18);
-          f.counterUntil = this.time + 1.6;
-          f.guardCd = 0;
-          const stun = src.kind === 'f' ? (heavy ? 1.5 : 1.0) : (src as Mob).def.behavior === 'alpha' ? 1.7 : heavy ? 1.5 : 1.0;
-          this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy, mob: src.kind === 'm' ? (src as Mob).id : undefined, stun }, f.x, f.z);
-          return 0;
-        }
-        if (o.heavy) {
-          // a heavy blow breaks the guard
-          this.lastResult = 'block';
-          this.breakGuard(f, f.x, f.z);
-          amount *= 0.55;
+        this.lastResult = 'parry';
+        const heavy = !!o.heavy;
+        if (src.kind === 'f') {
+          const a = src as Fighter;
+          a.stunUntil = Math.max(a.stunUntil, this.time + PARRY_STUN);
+          a.swing = null;
+          a.chan = null;
+          a.guarding = false;
+          a.sta = Math.max(0, a.sta - (heavy ? 18 : 10));
         } else {
-          const cost = raw * 0.45 * (1 + f.mods.guardCost);
-          if (f.sta >= cost) {
-            f.sta -= cost;
-            amount *= 0.15;
-            this.lastResult = 'block';
-            this.emit({ k: 'block', id: f.id, x: f.x, z: f.z, broke: false }, f.x, f.z);
-          } else {
-            f.sta = 0;
-            this.lastResult = 'block';
-            this.breakGuard(f, f.x, f.z);
-            amount *= 0.6;
-          }
+          const m = src as Mob;
+          m.stunUntil = this.time + PARRY_STUN;
+          m.strikeAt = 0;
         }
+        f.guarding = false;
+        f.guardCd = this.time + PARRY_HIT_CD; // a clean parry recharges fast
+        f.sta = Math.min(f.dv.maxSta, f.sta + 18);
+        f.counterUntil = this.time + 1.6;
+        this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy, mob: src.kind === 'm' ? (src as Mob).id : undefined, stun: PARRY_STUN }, f.x, f.z);
+        return 0;
       }
     }
     // swarms may deal at most 30% of a player's health per 10 s
@@ -1104,7 +1155,7 @@ export class Match {
       if (amount <= 0) return 0;
       f.swarmHurt.push([this.time, amount, swarmId]);
     }
-    f.hp -= amount;
+    if (!this.campus) f.hp -= amount; // in the campus the numbers fly but nobody loses anything
     f.lastHurt = this.time;
     f.lastCombat = this.time;
     f.chan = null;
@@ -1649,7 +1700,7 @@ export class Match {
     f.cdAt = [0, 0, 0, 0];
     this.recompute(f, true);
     // return to the world near where they fell, inside the lava ring
-    const ring = ringAt(this.time).r;
+    const ring = ringAt(this.ringTime()).r;
     let x = f.deathX;
     let z = f.deathZ;
     const d = Math.hypot(x, z);
@@ -1915,7 +1966,7 @@ export class Match {
   private maintainPopulation() {
     if (this.time - this.lastPop < 4) return;
     this.lastPop = this.time;
-    const ring = ringAt(this.time).r;
+    const ring = ringAt(this.ringTime()).r;
     // only animals still inside the lava count, and the herds shrink with the ring (a small ring cannot hold hundreds)
     const wild = this.mobs.filter((m) => m.hp > 0 && !m.owner && !m.warden && Math.hypot(m.x, m.z) < ring);
     const count = (t: number) => wild.filter((m) => m.def.tier === t).length;
@@ -1944,7 +1995,7 @@ export class Match {
   }
 
   private updateMobs() {
-    const ring = ringAt(this.time);
+    const ring = ringAt(this.ringTime());
     const dt = DT;
     const living = this.fighters.filter((f) => f.role === 'alive' && f.hp > 0 && f.subUntil <= this.time);
     const mig = this.migrating > 0;
@@ -2192,7 +2243,7 @@ export class Match {
     const dmg = m.def.dmg * (1 + (L.tier - 1) * 0.25) * (frenzy ? 1.6 : 1);
     const anchorX = L.order === 'guard' ? L.guardX : L.x;
     const anchorZ = L.order === 'guard' ? L.guardZ : L.z;
-    const ring = ringAt(this.time);
+    const ring = ringAt(this.ringTime());
     if (Math.hypot(m.x, m.z) > ring.r) this.hurt(m, m.maxHp * ring.dps * dt, null, { lava: true });
     const aggroR = L.order === 'guard' ? 14 : 16;
     let tgt: Fighter | null = null;
@@ -2298,7 +2349,7 @@ export class Match {
       if (t >= f.respawnAt && !this.disbanded) {
         f.hp = f.maxHp;
         const a = this.rnd() * 6.28;
-        const ring = ringAt(t).r;
+        const ring = ringAt(this.campus ? 0 : t).r;
         let x = f.x + Math.cos(a) * 8;
         let z = f.z + Math.sin(a) * 8;
         const d = Math.hypot(x, z);
@@ -2322,13 +2373,7 @@ export class Match {
       f.guarding = false;
     }
     if (f.swing && t >= f.swing.at) this.resolveSwing(f);
-    if (f.guarding) {
-      if (f.role !== 'leader') f.sta -= GUARD_DRAIN * (1 + f.mods.guardCost) * dt;
-      if (f.sta <= 0) {
-        f.sta = 0;
-        this.breakGuard(f, f.x, f.z);
-      }
-    }
+    if (f.guarding && t >= f.guardAt + PARRY_WINDOW + f.mods.parryWin) this.whiff(f);
     if (this.tickN % 3 === 0 && f.role === 'alive') this.autoPickup(f);
     if (f.bleed && f.bleed.until > t) this.hurt(f, f.bleed.dps * dt, this.byId.get(f.bleed.src) ?? null, { dot: true, kind: 'bleed' });
     else f.bleed = undefined;
@@ -2358,6 +2403,7 @@ export class Match {
         if (c.k === 'harvest') this.finishHarvest(f, c.node!);
         else if (c.k === 'eat') this.finishEat(f, c.slot!);
         else if (c.k === 'loot') this.finishLoot(f, c.node!);
+        else if (c.k === 'evolve') this.finishEvolve(f, c.to!);
         else if (c.k === 'drink') {
           const w = f.inv.find((s) => s?.k === 'water');
           if (w) w.n = 2;
@@ -2377,15 +2423,16 @@ export class Match {
     // movement
     const inp = f.input;
     const blocked = stunned || !!f.grab || !!f.holding;
-    const med = medium(this.terrain, f.x, f.z, f.def.swim === 'water' && f.role === 'alive', f.mods.waterSpeed);
+    const med = medium(this.terrain, f.x, f.z, f.def.swim !== 'land' && f.role === 'alive', f.mods.waterSpeed);
     let base = f.dv.speed * (1 + this.buffSum(f, 'speed')) * med.mul;
+    if (f.def.landMul < 1 && !med.swim && !med.shallow && f.role === 'alive') base *= f.def.landMul; // fish out of water
     if (f.speedUntil > t) base *= 1.12;
     if (f.slow && f.slow.until > t) base *= 1 - f.slow.f;
     else f.slow = undefined;
     if (f.subUntil > t) base *= 1.2;
     if (f.role === 'leader' && f.frenzyUntil > t) base *= 1.15;
     if (f.swing) base *= 0.45; // committed to the swing
-    else if (f.guarding) base *= 0.55;
+    else if (f.guarding) base *= 0.75;
     f.walkSpeed = base;
     const bound: Bound = f.role === 'gulag' && f.duel ? { cx: f.duel.cx, cz: f.duel.cz, r: GULAG_R } : f.role === 'gulag' ? { cx: GULAG_X - 70, cz: 0, r: 19 } : MAP_BOUND;
     f.moving = false;
@@ -2448,7 +2495,7 @@ export class Match {
 
     // lava
     if (f.role !== 'gulag' && !inGulagZone(f.x)) {
-      const ring = ringAt(t);
+      const ring = ringAt(this.campus ? 0 : t);
       if (Math.hypot(f.x, f.z) > ring.r && f.glideUntil <= t) {
         this.hurt(f, f.maxHp * ring.dps * dt, null, { lava: true, kind: 'lava' });
       }
@@ -2458,7 +2505,7 @@ export class Match {
   /** One step of walking: stamina, facing, and the move itself. */
   private applyMove(f: Fighter, dx: number, dz: number, sprint: boolean, crouch: boolean, jump: boolean, dt: number, base: number, noSprint: boolean, blocked: boolean, bound: Bound) {
     // jumping: a hop that clears low rocks and stones
-    if (jump && !blocked && f.jy <= 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
+    if (jump && !blocked && this.time >= f.whiffUntil && f.jy <= 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
       const leader = f.role === 'leader';
       if (leader || f.sta >= JUMP_COST || this.hasFree(f)) {
         if (!leader && !this.hasFree(f)) f.sta -= JUMP_COST;
@@ -2471,7 +2518,9 @@ export class Match {
     const moving = k > 0.05;
     let sp = base;
     let sprinting = false;
-    if (sprint && moving && !noSprint && !f.guarding && !f.swing && f.role !== 'leader' && (f.sta > 1 || this.hasFree(f))) {
+    // players only run forward: strafing and backpedalling are at walking pace (bots do not use a camera)
+    const forward = f.bot || (k > 0.05 && (dx * Math.sin(f.input.yaw) + dz * Math.cos(f.input.yaw)) / k > 0.55);
+    if (sprint && forward && moving && !noSprint && !f.guarding && !f.swing && f.role !== 'leader' && (f.sta > 1 || this.hasFree(f))) {
       sprinting = true;
       sp *= 1.45;
       if (!this.hasFree(f)) f.sta -= 14 * dt;
@@ -2483,7 +2532,7 @@ export class Match {
     f.input.crouch = crouch;
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
-      if (!blocked && !moving && f.input.at) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
+      if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
       stepVertical(f, dt);
       if (wasAir && f.jy <= 0) this.landed(f);
       return;
@@ -2493,8 +2542,8 @@ export class Match {
     stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
     stepVertical(f, dt);
     if (wasAir && f.jy <= 0) this.landed(f);
-    // face where they walk (the camera yaw only steers)
-    f.yaw += clampTurn(angDiff(yawOf(dx, dz), f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
+    // a player always faces the camera, so strafing and backpedalling never turn the animal around; bots face where they walk
+    f.yaw += clampTurn(angDiff(f.bot ? yawOf(dx, dz) : f.input.yaw, f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
   }
 
   /** Back on the ground: if we came down inside a rock, step out of it. */
@@ -2507,7 +2556,13 @@ export class Match {
 
   // --- hunted mark -----------------------------------------------------------------------------
 
+  /** The lava clock: in the campus it never starts. */
+  private ringTime() {
+    return this.campus ? 0 : this.time;
+  }
+
   private updateHunted() {
+    if (this.campus) return;
     if (this.time - this.lastHunted < 2) return;
     this.lastHunted = this.time;
     for (const f of this.fighters) f.hunted = false;
@@ -2532,6 +2587,7 @@ export class Match {
   // --- the clock -------------------------------------------------------------------------------
 
   private updateClock() {
+    if (this.campus) return;
     const ph = PHASE_AT.reduce((p, at, i) => (this.time >= at ? i : p), 0);
     if (ph !== this.phase) {
       this.phase = ph;
@@ -2564,6 +2620,7 @@ export class Match {
   }
 
   private checkEnd() {
+    if (this.campus) return; // the campus never ends
     const alive = this.fighters.filter((f) => f.role === 'alive');
     const teams = new Set(alive.map((f) => f.team));
     // 3 players left: every swarm disbands for a clean final fight
@@ -2622,7 +2679,7 @@ export class Match {
     if (this.time - this.lastLava > 0.5) {
       const dtl = this.time - this.lastLava;
       this.lastLava = this.time;
-      const ring = ringAt(this.time);
+      const ring = ringAt(this.ringTime());
       for (const m of this.mobs) {
         if (m.hp > 0 && !m.warden && !m.owner && Math.hypot(m.x, m.z) > ring.r) this.hurt(m, m.maxHp * ring.dps * dtl * 1.5, null, { lava: true });
       }
@@ -2643,7 +2700,7 @@ export class Match {
   // --- snapshots -----------------------------------------------------------------------------
 
   globalState(): Global {
-    const ring = ringAt(this.time);
+    const ring = ringAt(this.ringTime());
     const next = RINGS.find((s) => s.start > this.time);
     const top = this.fighters.filter((f) => f.hunted).map((f): [string, number] => [f.id, f.level]);
     return {
@@ -2666,7 +2723,7 @@ export class Match {
     if (f.hunted) fl |= FL.hunted;
     if (f.markUntil > t) fl |= FL.marked;
     if (f.bleed && f.bleed.until > t) fl |= FL.bleed;
-    if (f.stunUntil > t) fl |= FL.stun;
+    if (f.stunUntil > t || f.whiffUntil > t) fl |= FL.stun;
     if (f.grab) fl |= FL.grabbed;
     if (f.subUntil > t || f.reedUntil > t) fl |= FL.hidden;
     if (f.buffs.some((b) => b.until > t)) fl |= FL.buff;
@@ -2691,6 +2748,7 @@ export class Match {
     if (f.blindUntil > t) out.push('blind');
     if (f.bleed && f.bleed.until > t) out.push('bleeding');
     if (f.stunUntil > t) out.push('stunned');
+    if (f.whiffUntil > t) out.push('fumbled');
     if (f.slow && f.slow.until > t) out.push('slowed');
     if (f.markUntil > t) out.push('marked');
     if (f.scareUntil > t) out.push('scared');
@@ -2712,9 +2770,9 @@ export class Match {
     const cdMax = [0, 1, 2, 3].map((i) => (f.role === 'leader' ? (i === 0 ? (SWARMS.find((s) => s.id === f.swarm)?.skill.cd ?? 10) : 25) : (sk[i]?.cd ?? 0)));
     const you: YouState = {
       x: r1(f.x), z: r1(f.z), hp: Math.max(0, Math.round(f.hp)), maxHp: f.maxHp, sta: Math.round(f.sta), maxSta: f.dv.maxSta,
-      lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, picks: f.picks,
+      lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, evolve: f.role === 'alive' ? evolveOptions(f.def, f.level).map((a) => a.id) : [],
       cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN * (1 + f.mods.dashCd), inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
-      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
+      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, parryCd: Math.max(0, Math.round((f.guardCd - t) * 10) / 10), guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
       noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };

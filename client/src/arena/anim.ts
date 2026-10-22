@@ -21,7 +21,7 @@ export interface Pose {
 export const zeroPose = (): Pose => ({ y: 0, z: 0, rx: 0, ry: 0, rz: 0, hx: 0, hy: 0, fl: 0, fr: 0, bl: 0, br: 0, tail: 0, sc: 1 });
 
 export type Style = 'bite' | 'swipe' | 'snap' | 'gore' | 'quill' | 'slap';
-export const STYLE: Record<string, Style> = { wolf: 'bite', cheetah: 'swipe', bear: 'swipe', badger: 'swipe', croc: 'snap', boar: 'gore', otter: 'slap', porcupine: 'quill', lion: 'swipe', hippo: 'snap', redfox: 'bite', leopard: 'swipe', gorilla: 'swipe', turtle: 'snap', kangaroo: 'slap', skunk: 'quill' };
+export const STYLE: Record<string, Style> = { house_cat: 'swipe', bobcat: 'swipe', lynx: 'swipe', cheetah: 'swipe', panther: 'swipe', tiger: 'swipe', lion: 'swipe', fox: 'bite', coyote: 'bite', jackal: 'bite', gray_wolf: 'bite', dhole: 'bite', hyena: 'bite', wild_dog: 'bite', weasel: 'bite', badger: 'bite', honey_badger: 'bite', wolverine: 'bite', gecko: 'bite', ant: 'bite', river_otter: 'slap', giant_otter: 'slap', sea_otter: 'slap', bombardier: 'slap', raccoon: 'swipe', black_bear: 'swipe', sloth_bear: 'swipe', grizzly: 'swipe', polar_bear: 'swipe', kodiak: 'swipe', panda: 'swipe', monitor: 'snap', snapping_turtle: 'snap', komodo: 'snap', cobra: 'snap', croc: 'snap', tortoise: 'snap', spider: 'snap', tarantula: 'snap', black_widow: 'snap', mudskipper: 'snap', piranha: 'snap', pufferfish: 'snap', bull_shark: 'snap', barracuda: 'snap', eel: 'snap', angler: 'snap', beetle: 'gore', hercules: 'gore' };
 
 export interface Cue {
   kind: 'swing' | 'skill' | 'parry' | 'flex';

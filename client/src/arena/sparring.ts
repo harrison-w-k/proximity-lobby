@@ -31,7 +31,7 @@ export const COOLDOWN: Record<Slot, number> = { a: 0.55, q: 1.8, x: 1.8 };
 export function slotLabel(animal: string, slot: Slot): string {
   const def = ANIMAL_BY_ID.get(animal);
   if (!def) return '';
-  return slot === 'a' ? 'Attack' : def.sig[slot === 'q' ? 0 : 1].name;
+  return slot === 'a' ? 'Attack' : slot === 'q' ? def.skill.name : '';
 }
 
 /** Builds the animation cue, hit shape and damage number for one of an animal's three lobby moves. */
@@ -52,7 +52,8 @@ export function makeMove(animal: string, slot: Slot, combo: number, now: number)
       lunge: 0,
     };
   }
-  const sk = def.sig[slot === 'q' ? 0 : 1];
+  if (slot === 'x') return null;
+  const sk = def.skill;
   const fx = sk.fx;
   if (!fx) return null;
   const instant = fx.k === 'buff' || fx.k === 'heal' || fx.k === 'submerge';

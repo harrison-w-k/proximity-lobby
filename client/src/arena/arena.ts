@@ -28,7 +28,7 @@ export interface ArenaDeps {
   openSettings: () => void;
   onExit: () => void;
   /** the match has started (the page hides its own click-to-resume) */
-  onStart: () => void;
+  onStart: (campus: boolean) => void;
 }
 
 interface Cmd {
@@ -63,8 +63,8 @@ export class Arena {
   private pos = { x: 0, z: 0, jy: 0, jv: 0 }; // jy / jv: the jump, predicted like the walk
   private haveSnap = false;
   private camYaw = 0;
-  private camPitch = 0.5;
-  private zoom = 7.2;
+  private camPitch = 0.42;
+  private zoom = 5.8;
   private keys = new Set<string>();
   private mouseDown = false;
   private panelOpen = false;
@@ -72,7 +72,8 @@ export class Arena {
   private panelBeforeAlt = false;
   private jumpQueued = false;
   private shiftAt = 0; // a quick tap of Shift is a dash; holding it is a sprint
-  private guardHeld = false;
+  private guardHeld = false; // a parry is up (it runs its course; releasing the button does nothing)
+  private guardEnds = 0;
   private shake = 0;
   private hitstop = 0;
   private slowmo = 0;
@@ -99,7 +100,12 @@ export class Arena {
   private drops: [number, string, number, number, number][] = [];
   private pings: { x: number; z: number; until: number }[] = [];
   private lastRole = 0;
+  /** The lobby is a campus: a match nobody can die in. */
+  campus = false;
+  private seedNow = -1;
+  private queueInfo: QueueInfo | null = null;
   private lastLvl = 1;
+  private lastEvolve = 0;
   private droppedIn = false;
   private camFrac = 1;
   private lastZone = '';
@@ -116,7 +122,7 @@ export class Arena {
 
   constructor(private d: ArenaDeps) {
     this.hud.onStat = (k) => this.spend(k);
-    this.hud.onPick = (t, o) => this.d.net.send({ t: 'mpick', i: t, o });
+    this.hud.onEvolve = (to) => this.d.net.send({ t: 'mevolve', to });
     this.hud.onSwarm = (k) => this.d.net.send({ t: 'mswarm', k: k as 'rat' | 'bird' | 'shoal' });
     this.hud.onResume = () => {
       if (!this.droppedIn && this.scene) {
@@ -185,14 +191,18 @@ export class Arena {
     return document.pointerLockElement === this.d.canvas && this.hasControl();
   }
 
-  /** Hold the guard up (right mouse). A guard raised just before a blow lands is a parry. */
+  /** Tap right mouse to parry: the guard stays up about half a second. A hit inside it is parried; a miss leaves you fumbling. */
   private setGuard(on: boolean) {
-    if (on === this.guardHeld) return;
-    this.guardHeld = on;
-    this.d.net.send({ t: 'mguard', on: on ? 1 : 0 });
+    if (!on || this.guardHeld) return; // letting go changes nothing
+    const you = this.you;
+    if (!you || you.role === 3 || you.parryCd > 0 || you.buffs.includes('fumbled') || you.buffs.includes('stunned')) return;
+    this.guardHeld = true;
+    this.guardEnds = this.clock + you.parryWin + 0.2;
+    this.d.net.send({ t: 'mguard', on: 1 });
   }
 
   private dash() {
+    if (this.you?.buffs.includes('fumbled')) return; // fumbling: walking only
     const inp = this.readInput();
     this.d.net.send({ t: 'mdash', x: Math.round(inp.dx * 100) / 100, z: Math.round(inp.dz * 100) / 100 });
   }
@@ -228,6 +238,7 @@ export class Arena {
   handle(m: ServerMsg): boolean {
     switch (m.t) {
       case 'mq':
+        this.queueInfo = m.q;
         this.onQueue(m.q);
         return true;
       case 'mstart':
@@ -247,16 +258,38 @@ export class Arena {
   }
 
   private start(m: Extract<ServerMatchMsg, { t: 'mstart' }>) {
+    if (this.active && this.campus && m.campus && this.scene && this.seedNow === m.seed && !this.loading) {
+      // still the same campus: only who you are changed (a new animal), so keep the map and drop in again
+      this.myId = m.you;
+      this.ended = false;
+      const me = m.roster.find((r) => r.id === m.you);
+      this.def = ANIMAL_BY_ID.get(me?.animal ?? 'house_cat') ?? this.def;
+      this.myTeam = me?.team ?? -1;
+      this.roster = new Map(m.roster.map((r) => [r.id, r]));
+      this.scene.setRoster(m.roster, this.myId);
+      this.haveSnap = false;
+      this.pending = [];
+      this.seq = 0;
+      this.acc = 0;
+      this.lastLvl = 1;
+      this.lastEvolve = 0;
+      this.lastRole = 0;
+      this.scene.dropIn();
+      this.d.onStart(true);
+      return;
+    }
     if (this.active) this.teardown();
+    this.campus = !!m.campus;
+    this.seedNow = m.seed;
     this.myId = m.you;
     this.ended = false;
     const me = m.roster.find((r) => r.id === m.you);
-    this.def = ANIMAL_BY_ID.get(me?.animal ?? 'wolf') ?? this.def;
+    this.def = ANIMAL_BY_ID.get(me?.animal ?? 'house_cat') ?? this.def;
     this.myTeam = me?.team ?? -1;
     this.roster = new Map(m.roster.map((r) => [r.id, r]));
     // the map takes a moment to build: say so first
     this.loading = document.createElement('div');
-    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#3a6ea5,#0e1a38 70%);color:#f7edd3;font-family:Nunito,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #14213d';
+    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#2fa9a3,#0a3236 70%);color:#f7edd3;font-family:Josefin Sans,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #0b3b3f';
     this.loading.innerHTML = `<div style="font-size:72px;animation:brbob 1s ease-in-out infinite alternate">${ANIMAL_EMOJI[this.def.id] ?? '🐾'}</div><div>Generating the wilds…</div><div style="font-size:17px;font-weight:500;color:#f3b43c">${this.def.name} · ${this.def.role}</div><style>@keyframes brbob{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-14px) rotate(6deg)}}</style>`;
     document.body.append(this.loading);
     setTimeout(() => {
@@ -304,8 +337,10 @@ export class Arena {
         fade.style.opacity = '0';
         setTimeout(() => fade.remove(), 600);
       }
-      this.d.onStart();
-      this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
+      this.hud.setCampus(this.campus);
+      this.d.onStart(this.campus);
+      if (this.campus) this.hud.announce('WELCOME TO CAMPUS', 'Farm the herds, evolve at level 7 and 14, and spar freely: nobody can be hurt here. Press B to queue for the Tournament.', 6500);
+      else this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
     }, 60);
   }
 
@@ -313,7 +348,11 @@ export class Arena {
     this.roster = new Map(r.map((x) => [x.id, x]));
     this.scene?.setRoster(r, this.myId);
     const me = this.roster.get(this.myId);
-    if (me) this.myTeam = me.team;
+    if (me) {
+      this.myTeam = me.team;
+      const d = ANIMAL_BY_ID.get(me.animal);
+      if (d) this.def = d; // evolving changes who you are
+    }
   }
 
   private onSnap(m: Extract<ServerMatchMsg, { t: 'snap' }>) {
@@ -378,6 +417,11 @@ export class Arena {
     if (you.role === 0 && you.lvl === this.lastLvl && you.xp > this.lastXp + 0.5) {
       sc.floater(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 3.0, this.pos.z, `+${Math.round(you.xp - this.lastXp)} XP`, '#9fe8ff', 0.9);
     }
+    if (you.role === 0 && you.evolve.length > 0 && this.lastEvolve === 0) {
+      this.hud.announce('YOU CAN EVOLVE', 'Press Tab and pick your next form', 3200);
+      this.d.sfx.levelUp();
+    }
+    this.lastEvolve = you.evolve.length;
     this.lastXp = you.xp;
     this.lastLvl = you.lvl;
     if (you.hp < this.prevHp - 0.5 && you.role !== 3) this.hud.flashHurt();
@@ -527,6 +571,18 @@ export class Arena {
         this.nearSfx(e.x, e.z, () => this.d.sfx.block(e.broke), 35);
         break;
       }
+      case 'whiff': {
+        // a parry that caught nothing: the fumble is its own lesson
+        const gy = sc.groundY(e.x, e.z);
+        sc.floater(e.x, gy + 2.4, e.z, 'MISSED', '#ff9a82', 1.1);
+        sc.burst(e.x, gy + 0.9, e.z, 0xbfc8d8, 8, 2, 0.4);
+        if (e.id === this.myId) {
+          this.hud.callout('FUMBLED', '#ff9a82');
+          this.hud.dizzy(0.9);
+          this.d.sfx.block();
+        }
+        break;
+      }
       case 'dodge': {
         const gy = sc.groundY(e.x, e.z);
         sc.floater(e.x, gy + 2.4, e.z, 'DODGE', '#d8f0ff', 1.1);
@@ -554,6 +610,27 @@ export class Arena {
         const killer = e.killer ? this.who(e.killer) : e.how === 'lava' ? 'The lava' : 'The wild';
         this.hud.feedLine(`${killer} ▸ ${this.who(e.victim)}`, e.killer === this.myId || e.victim === this.myId);
         this.scene?.faint(e.victim);
+        break;
+      }
+      case 'evolving': {
+        const gy = sc.groundY(e.x, e.z);
+        sc.floater(e.x, gy + 2.6, e.z, 'EVOLVING…', '#bff0ff', 1.2);
+        sc.ringFx(e.x, e.z, 3.2, 0xbff0ff, 2.6);
+        sc.burst(e.x, gy + 1, e.z, 0xbff0ff, 14, 2, 1.2);
+        break;
+      }
+      case 'evolve': {
+        const gy = sc.groundY(e.x, e.z);
+        const to = ANIMAL_BY_ID.get(e.to);
+        sc.burst(e.x, gy + 1.2, e.z, 0xffe9a0, 36, 7, 1.0);
+        sc.ringFx(e.x, e.z, 6, 0xffe9a0, 0.7);
+        sc.floater(e.x, gy + 3, e.z, to ? to.name.toUpperCase() : 'EVOLVED', '#ffe27a', 1.5);
+        if (e.id === this.myId) {
+          this.hud.announce(`YOU EVOLVED: ${to?.name.toUpperCase() ?? ''}`, to ? `${to.skill.name} (Q): ${to.skill.desc}` : '', 4200);
+          this.hud.levelUp();
+          this.addShake(0.4);
+          this.d.sfx.levelUp();
+        } else this.nearSfx(e.x, e.z, () => this.d.sfx.levelUp(), 40);
         break;
       }
       case 'level':
@@ -648,6 +725,8 @@ export class Arena {
     this.scene?.dispose();
     this.scene = null;
     this.active = false;
+    this.campus = false;
+    this.seedNow = -1;
     const v = this.d.getVoice();
     v?.setRange(VOICE_REF, VOICE_MAX);
     for (const id of this.roster.keys()) {
@@ -695,16 +774,10 @@ export class Arena {
         this.spend(STAT_KEYS[n - 1]);
         return;
       }
-      if (e.code === 'KeyZ' || e.code === 'KeyX') {
-        const opt = e.code === 'KeyZ' ? 0 : 1;
-        const tier = [0, 1, 2, 3].find((t) => you.picks[t] === -1 && you.lvl >= [3, 7, 12, 18][t]);
-        if (tier !== undefined) this.d.net.send({ t: 'mpick', i: tier, o: opt });
-        return;
-      }
     }
     if (e.code === 'Space') {
       e.preventDefault();
-      if (role !== 3) this.jumpQueued = true; // hop over low rocks, or just for fun
+      if (role !== 3 && !this.you?.buffs.includes('fumbled')) this.jumpQueued = true; // hop over low rocks, or just for fun
       return;
     }
     if (e.code in KEYS_SKILL) {
@@ -805,7 +878,8 @@ export class Arena {
       dz /= l;
     }
     // holding Shift for more than a moment sprints; a quick tap is a dash (see the key-up handler)
-    const sprint = (k.has('ShiftLeft') || k.has('ShiftRight')) && performance.now() - this.shiftAt > 200;
+    // (only forward: strafing and backpedalling stay at walking pace)
+    const sprint = (k.has('ShiftLeft') || k.has('ShiftRight')) && performance.now() - this.shiftAt > 200 && f > 0;
     return { dx, dz, sprint, crouch: k.has('KeyC'), at: this.mouseDown };
   }
 
@@ -842,7 +916,8 @@ export class Arena {
       const moving = Math.hypot(inp.dx, inp.dz) > 0.05;
       if (self && you.role !== 3) {
         // start our own swing animation the instant the button goes down (the server confirms it a moment later)
-        if (inp.at && !this.guardHeld && !you.wind && this.clock > this.nextSwing && !you.buffs.includes('stunned') && (you.sta >= 5 || you.role === 2)) {
+        if (this.guardHeld && this.clock > this.guardEnds && !you.guard) this.guardHeld = false;
+        if (inp.at && !this.guardHeld && !you.wind && this.clock > this.nextSwing && !you.buffs.includes('stunned') && !you.buffs.includes('fumbled') && (you.sta >= 5 || you.role === 2)) {
           const combo = this.clock - this.localComboAt < COMBO_RESET ? (this.localCombo + 1) % 3 : 0;
           const c = COMBO[combo];
           this.localCombo = combo;
@@ -860,7 +935,7 @@ export class Arena {
         if (you.wind) flags |= FL.wind;
         if (you.counter > 0) flags |= FL.counter;
         if (inp.at || this.guardHeld) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
-        else if (moving) this.visYaw = Math.atan2(inp.dx, inp.dz);
+        else this.visYaw = this.camYaw; // always facing where the camera looks: strafing never turns you
         sc.setSelf(this.pos.x, this.pos.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, moving ? you.speed : 0, this.pos.jy);
         // landing
         const air = this.pos.jy > 0.05;
@@ -896,7 +971,7 @@ export class Arena {
         this.hintAt = this.clock;
         this.hint = this.computeHint(you);
       }
-      this.hud.render({ you, g, def: this.def, roster: this.roster, myId: this.myId, now: this.clock, hint: this.hint, panelOpen: this.panelOpen });
+      this.hud.render({ you, g, def: this.def, roster: this.roster, myId: this.myId, now: this.clock, hint: this.hint, panelOpen: this.panelOpen, campus: this.campus, queue: this.queueInfo });
       this.hud.setReticle(you, this.guardHeld || you.guard, you.role === 0 || you.role === 1 || you.role === 2);
       this.hud.setLowHp(you.role === 0 && you.hp / you.maxHp < 0.3);
       this.pings = this.pings.filter((p) => p.until > this.clock);
@@ -993,8 +1068,8 @@ export class Arena {
     const sp = Math.sin(this.camPitch);
     const sy = Math.sin(this.camYaw);
     const cy = Math.cos(this.camYaw);
-    // the animal stays in the middle of the screen: no shoulder offset, and nothing may come between it and the camera
-    const shoulder = 0;
+    // over the shoulder: the camera sits behind and to the right, so the animal is left of the crosshair and you see where you are going
+    const shoulder = 1.0 * sizeK;
     const rx = -cy;
     const rz = sy;
     let px = tx - sy * cp * dist + rx * shoulder;
@@ -1021,8 +1096,7 @@ export class Arena {
       cam.position.y += (Math.random() - 0.5) * a;
       cam.position.z += (Math.random() - 0.5) * a;
     }
-    // look a little past the animal so you can see ahead, but it stays near the middle (slightly below it)
-    this.lookAt.set(tx + sy * 0.8, ty - 0.05 - sp * 0.1, tz + cy * 0.8);
+    this.lookAt.set(tx + rx * shoulder * 0.9 + sy * 2.4, ty - 1.0 - sp * 0.3, tz + rz * shoulder * 0.9 + cy * 2.4);
     cam.lookAt(this.lookAt);
     px = 0;
     pz = 0;

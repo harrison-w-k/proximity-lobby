@@ -15,17 +15,18 @@ export interface InvItem {
 // --- client -> server ------------------------------------------------------------------------
 
 export type ClientMatchMsg =
+  | { t: 'menter'; animal: string; paint?: [number, number] } // walk into the campus as this animal
   | { t: 'mq'; animal: string; team?: string; spawn?: string; paint?: [number, number] } // join the queue for the next match (and where to drop)
   | { t: 'mqx' } // leave the queue
   | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
   | { t: 'mskill'; i: number; yaw: number } // use the skill in slot 0..3 (Q E R F)
   | { t: 'mstat'; k: StatKey }
-  | { t: 'mpick'; i: number; o: number } // choose option o (0/1) at unlock tier i (0..3)
+  | { t: 'mevolve'; to: string } // evolve into this form (needs level 7 / 14)
   | { t: 'muse'; i: number } // use or eat the inventory slot
   | { t: 'mact'; a: 'harvest' | 'loot' | 'drink' | 'drop'; i?: number }
   | { t: 'mcmd'; c: 'attack' | 'scatter' | 'guard' | 'skill' | 'frenzy'; yaw?: number }
   | { t: 'mswarm'; k: SwarmKind }
-  | { t: 'mguard'; on: 0 | 1 } // hold to guard; a guard raised just before a hit is a parry
+  | { t: 'mguard'; on: 0 | 1 } // tap (on: 1) to parry: the guard stays up about half a second
   | { t: 'mdash'; x: number; z: number } // burst of speed toward (x, z), or where you face if both are 0
   | { t: 'mleave' };
 
@@ -63,17 +64,18 @@ export interface YouState {
   need: number;
   pts: number;
   alloc: Stats;
-  picks: number[]; // -1 = not chosen, else 0/1
+  evolve: string[]; // forms you can evolve into right now (empty until level 7 / 14)
   cds: number[]; // seconds left for slots Q E R F
   cdMax: number[];
   dash: number; // seconds until you can dash again
   dashMax: number;
   jy: number; // height above the ground
   jv: number;
-  parryWin: number; // seconds of the parry window
+  parryWin: number; // seconds the parry window stays open
+  parryCd: number; // seconds until you can parry again
   guard: boolean;
   wind: boolean; // winding up an attack
-  guardAge: number; // seconds since the guard went up (a parry needs it under ~0.24)
+  guardAge: number; // seconds since the guard went up
   combo: number; // 0..2: which swing of the combo comes next
   counter: number; // seconds left of the counter-attack bonus after a parry
   inv: (InvItem | null)[];
@@ -105,7 +107,7 @@ export interface Global {
 
 export type ServerMatchMsg =
   | { t: 'mq'; q: QueueInfo }
-  | { t: 'mstart'; seed: number; you: string; roster: RosterEntry[]; nodes: [id: number, until: number][] }
+  | { t: 'mstart'; seed: number; you: string; roster: RosterEntry[]; nodes: [id: number, until: number][]; campus?: boolean }
   | { t: 'mros'; r: RosterEntry[] }
   | {
       t: 'snap';
@@ -126,6 +128,9 @@ export type MatchEvent =
   | { k: 'strike'; id: string; s: string; x: number; z: number; yaw: number } // the skill lands
   | { k: 'swing'; id: string; c: number; w: number; h: boolean; r: number; a: number; x: number; z: number; yaw: number } // a basic attack winds up
   | { k: 'mswing'; id: number; x: number; z: number; yaw: number; w: number; r: number; big: boolean } // a boss winds up
+  | { k: 'whiff'; id: string; x: number; z: number } // a parry that caught nothing
+  | { k: 'evolving'; id: string; to: string; x: number; z: number } // started to evolve
+  | { k: 'evolve'; id: string; to: string; x: number; z: number } // finished evolving
   | { k: 'parry'; id: string; by: string; x: number; z: number; heavy: boolean; mob?: number; stun?: number }
   | { k: 'block'; id: string; x: number; z: number; broke: boolean }
   | { k: 'dodge'; id: string; x: number; z: number }

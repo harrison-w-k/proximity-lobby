@@ -644,13 +644,13 @@ varying vec3 vWP;`)
     g.font = 'bold 22px "Courier New", monospace';
     g.textAlign = 'center';
     g.lineWidth = 5;
-    g.strokeStyle = '#14213d';
+    g.strokeStyle = '#0b3b3f';
     const label = `${v.name}${v.role === 2 ? ' ☠' : ''}`;
     g.strokeText(label, 128, 22);
     g.fillStyle = (v.flags & FL.hunted) !== 0 ? '#ffd23f' : friend ? '#9bf08a' : '#ffffff';
     g.fillText(label, 128, 22);
     // level and health
-    g.fillStyle = '#0b0b1a';
+    g.fillStyle = '#08272a';
     g.fillRect(34, 32, 188, 14);
     g.fillStyle = friend ? '#58c23a' : '#e5483a';
     g.fillRect(36, 34, Math.max(0, (184 * v.hp) / 100), 10);
@@ -684,7 +684,7 @@ varying vec3 vWP;`)
     for (const r of list) {
       let v = this.fighters.get(r.id);
       const tier = r.tier ?? 1;
-      if (v && (v.role !== r.role || v.swarm !== r.swarm || v.tier !== tier)) {
+      if (v && (v.role !== r.role || v.swarm !== r.swarm || v.tier !== tier || v.animal !== r.animal)) {
         this.scene.remove(v.group, v.shadow);
         v = undefined;
       }
@@ -1017,7 +1017,7 @@ varying vec3 vWP;`)
     c.width = 64;
     c.height = 8;
     const g = c.getContext('2d')!;
-    g.fillStyle = '#0b0b1a';
+    g.fillStyle = '#08272a';
     g.fillRect(0, 0, 64, 8);
     g.fillStyle = '#e5483a';
     g.fillRect(1, 1, Math.max(0, 62 * pct / 100), 6);
@@ -1233,10 +1233,10 @@ varying vec3 vWP;`)
     c.width = 128;
     c.height = 48;
     const g = c.getContext('2d')!;
-    g.font = '700 38px Nunito, "Trebuchet MS", sans-serif';
+    g.font = '700 38px Josefin Sans, "Trebuchet MS", sans-serif';
     g.textAlign = 'center';
     g.lineWidth = 6;
-    g.strokeStyle = '#0b0b1a';
+    g.strokeStyle = '#08272a';
     g.strokeText(text, 64, 36);
     g.fillStyle = color;
     g.fillText(text, 64, 36);

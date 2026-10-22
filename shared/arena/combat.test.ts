@@ -1,12 +1,12 @@
-// Telegraphed swings, guard, parry and jumping.
+// Telegraphed swings, parry and jumping.
 import assert from 'node:assert/strict';
-import { COMBO, DT, Match, PARRY_WINDOW, type Entrant, type Fighter } from './match';
+import { COMBO, DT, Match, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW, type Entrant, type Fighter } from './match';
 
 const ents: Entrant[] = [
-  { id: 'a', name: 'A', animal: 'wolf', team: 0, bot: false },
-  { id: 'b', name: 'B', animal: 'wolf', team: 1, bot: false },
-  { id: 'c', name: 'C', animal: 'bear', team: 2, bot: true },
-  { id: 'd', name: 'D', animal: 'bear', team: 3, bot: true },
+  { id: 'a', name: 'A', animal: 'gray_wolf', team: 0, bot: false },
+  { id: 'b', name: 'B', animal: 'gray_wolf', team: 1, bot: false },
+  { id: 'c', name: 'C', animal: 'grizzly', team: 2, bot: true },
+  { id: 'd', name: 'D', animal: 'grizzly', team: 3, bot: true },
 ];
 
 function fresh() {
@@ -65,29 +65,76 @@ const ticks = (m: Match, n: number) => {
   assert.equal(a.swing, null);
 }
 
-// 3. an old guard only blocks: heavily reduced damage, not none
+// 3. the attacker is stunned for 1.5 s and the parry comes back after a second
 {
   const { m, a, b } = fresh();
-  m.setGuard(b, true);
-  ticks(m, Math.ceil((PARRY_WINDOW + 0.1) / DT)); // the guard is no longer fresh
   a.input.at = true;
-  ticks(m, Math.ceil((COMBO[0].wind + 0.1) / DT));
-  const lost = b.maxHp - b.hp;
-  assert.ok(lost > 0 && lost < a.dv.dmg * 0.4, `a block takes only a little (${lost.toFixed(1)})`);
+  m.tick();
+  ticks(m, 2);
+  m.setGuard(b, true);
+  ticks(m, Math.ceil(COMBO[0].wind / DT));
+  assert.ok(Math.abs(a.stunUntil - m.time - PARRY_STUN) < 0.3, 'the parried attacker is stunned for about 1.5 s');
+  assert.ok(b.guardCd - m.time <= PARRY_HIT_CD + 0.01, 'a parry that lands recharges in about a second');
+  assert.equal(b.whiffUntil, 0, 'and nothing fumbles');
 }
 
-// 4. a heavy swing breaks a guard
+// 4. a parry that catches nothing leaves you fumbling, and slow to try again
 {
   const { m, a, b } = fresh();
+  a.input.at = false;
   m.setGuard(b, true);
-  ticks(m, 12);
-  a.combo = 1;
-  a.comboAt = m.time;
-  a.atkAt = 0;
-  a.input.at = true;
-  ticks(m, Math.ceil((COMBO[2].wind + 0.12) / DT));
-  assert.equal(b.guarding, false, 'the guard is broken');
-  assert.ok(b.stunUntil > m.time, 'and the defender is staggered');
+  assert.equal(b.guarding, true);
+  m.setGuard(b, false);
+  assert.equal(b.guarding, true, 'you cannot cancel a parry');
+  ticks(m, Math.ceil((PARRY_WINDOW + 0.1) / DT));
+  assert.equal(b.guarding, false, 'the guard drops when the window ends');
+  assert.ok(b.whiffUntil > m.time && b.whiffUntil - m.time <= PARRY_MISS_STUN, 'you fumble for about 1.5 s');
+  assert.ok(b.guardCd - m.time > PARRY_MISS_CD - 0.5, 'and the parry takes about 3 s to come back');
+  // while fumbling: no attacks, no dash, no new parry
+  b.input.at = true;
+  const hp = a.hp;
+  ticks(m, 20);
+  assert.equal(b.swing, null, 'no attacking while fumbling');
+  assert.equal(m.dash(b, 1, 0), false, 'no dashing while fumbling');
+  m.setGuard(b, true);
+  assert.equal(b.guarding, false, 'no parrying again yet');
+  assert.equal(a.hp, hp);
+}
+
+// 4b. a blow from behind is not parried, and the window keeps running
+{
+  const { m, a, b } = fresh();
+  a.yaw = Math.PI; // a now faces away
+  a.input.yaw = Math.PI;
+  m.setGuard(a, true);
+  b.input.at = true;
+  ticks(m, Math.ceil((COMBO[0].wind + 0.05) / DT));
+  assert.ok(a.hp < a.maxHp, 'a hit from behind lands normally');
+}
+
+// 4c. players face the camera and only run forward: strafing and backpedalling never turn them or sprint
+{
+  const { m, a } = fresh();
+  const sx = a.x;
+  const sz = a.z;
+  const mv = (dx: number, dz: number, sprint: boolean) => {
+    a.input.yaw = 0; // the camera looks along +z
+    a.x = sx;
+    a.z = sz;
+    a.yaw = 0;
+    a.sta = a.dv.maxSta;
+    const x0 = a.x;
+    const z0 = a.z;
+    for (let i = 0; i < 30; i++) (m as unknown as { applyMove: (...args: unknown[]) => void }).applyMove(a, dx, dz, sprint, false, false, DT, 6, false, false, { cx: 0, cz: 0, r: 400 });
+    return { yaw: a.yaw, d: Math.hypot(a.x - x0, a.z - z0) };
+  };
+  const side = mv(1, 0, true); // strafing right while "sprinting"
+  assert.ok(Math.abs(side.yaw) < 0.05, `strafing does not turn the animal (${side.yaw.toFixed(2)})`);
+  const fwd = mv(0, 1, true);
+  const walkFwd = mv(0, 1, false);
+  assert.ok(fwd.d > walkFwd.d * 1.3, 'running forward is faster than walking');
+  const strafeWalk = mv(1, 0, false);
+  assert.ok(Math.abs(side.d - strafeWalk.d) < 0.05, 'sprinting sideways is no faster than walking');
 }
 
 // 5. a dash slips through an attack (i-frames)

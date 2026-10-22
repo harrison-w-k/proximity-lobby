@@ -36,18 +36,24 @@ Players are solid circles (0.4 m radius). Collision is client-side (`client/src/
 `railway.json` + `Dockerfile` are all it needs. New Project -> Deploy from GitHub repo -> pick this repo, then
 Settings -> Networking -> Generate Domain. Railway sets `PORT` automatically; HTTPS and WebSockets work out of the box.
 
-## Animal Battle Royale
-The lobby is the front door to the game in `animal-battle-royale-gdd.md`. Press **B** (or the paw button) to pick one of eight
-animals and queue; 25 s after the first player queues the match starts and AI animals fill the 20 slots.
+## Utopia Academy: the Animal Battle Royale
+The game in `animal-battle-royale-gdd.md`. When you join you walk straight onto **the campus**: the same sim as a match (same map, controls,
+camera, voice and hordes) but nobody can be hurt, there is no lava or clock, and players come and go. Farm the herds, spar, and try the whole
+evolution path. Press **B** (or the Tournament button) to queue; 25 s after the first player queues a real 20-animal match starts and AI
+animals fill the slots. When it ends you walk back onto the campus.
 
-- **Sim** (`shared/arena/`): `terrain.ts` (seeded 700 m map, biomes, lakes, Poisson-placed resources), `animals.ts` (8 animals, stats, 80+ skills),
+Everyone starts as a small stage 1 animal from one of **seven evolution trees** (cats, canines, mustelids, bears, reptiles, bugs, fish) and
+evolves at level 7 and level 14 into any form of the next stage (49 forms in all). Evolving takes 3 s standing still, a hit cancels it,
+replaces your skill and refills your health. Fish always spawn in water and are slow on land.
+
+- **Sim** (`shared/arena/`): `terrain.ts` (seeded 700 m map, biomes, lakes, Poisson-placed resources), `animals.ts` (the 49 forms of the 7 evolution trees, stage budgets, skills),
   `mobs.ts` (4 horde tiers, swarms), `match.ts` (authoritative 30 Hz match: phases, lava rings, XP, combat, items, hunted mark, Gulag, Horde Leaders),
-  `bots.ts`, `director.ts` (queue + match lifecycle). The server owns everything; the client only predicts its own steps (`move.ts`).
+  `bots.ts`, `director.ts` (the campus, the queue and the match lifecycle). The server owns everything; the client only predicts its own steps (`move.ts`).
 - **Client** (`client/src/arena/`): `scene.ts` (terrain, lava shader, instanced forests, animals, effects), `models.ts` (procedural animals),
   `hud.ts`, `arena.ts` (input, prediction, camera, proximity-voice rules), `menu.ts`.
-- **Controls**: WASD move, Space dash (every animal, 2.4 s cooldown, costs stamina), Left Alt toggles a free cursor (click the upgrade panel / swarm choices), Shift sprint, C sneak (halves voice range), LMB attack, Q E R F skills, X harvest, G pick up / eat (leaders), V fill pouch,
-  1-6 use item, Tab upgrade panel (1-5 spend, Z / X pick a skill). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
+- **Controls**: WASD move, Space dash (every animal, 2.4 s cooldown, costs stamina), Left Alt toggles a free cursor (click the upgrade panel / swarm choices), Shift sprint, C sneak (halves voice range), LMB attack, Q skill, RMB parry (tap), X harvest, G pick up / eat (leaders), V fill pouch,
+  1-6 use item, Tab panel (1-5 spend a stat point, pick an evolution). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
 - **Squads**: friends who type the same squad code on the menu share a team (max 4): no friendly fire, shared win.
 - **Voice**: 10 m full / 40 m silent, 15 m for leaders, whisper when sneaking, muffled behind rocks/trees and underwater, separate Gulag channel.
 - Matches run on both hosts (the Node server and the Cloudflare Durable Object, which stays awake while a queue or match is active). On Node, `MATCH_COUNTDOWN_MS` and `MATCH_BOTS=0` tune the queue.
-- Tests: `npm test` runs a full 20-bot match headlessly (`shared/arena/match.test.ts [seed]`).
+- Tests: `npm test` runs a full 20-bot match headlessly (`shared/arena/match.test.ts [seed]`) plus the campus and evolution tests.

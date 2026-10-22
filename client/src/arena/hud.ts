@@ -1,51 +1,52 @@
 // The match HUD: bars, skills, inventory, minimap, banners, the upgrade panel and the end screen.
-import { ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, UNLOCK_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
+import { ANIMAL_EMOJI } from './emoji';
+import { ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, EVOLVE_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
 import { SWARMS } from '../../../shared/arena/mobs';
 import type { Global, InvItem, RosterEntry, YouState } from '../../../shared/arena/proto';
 import { MAP_RADIUS, Biome, type Terrain } from '../../../shared/arena/terrain';
 
 const CSS = `
 #br-root, #br-menu {
-  --bark: #1b2a4a; --bark2: #28406b; --bark3: #3b5a8f; --ink: #14213d; --moss: #4f8a3a; --leaf: #9bd15a; --amber: #f3b43c;
-  --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf; --font: 'Nunito', 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --bark: #0f4a4d; --bark2: #17666a; --bark3: #2a8a8a; --ink: #0b3b3f; --moss: #2fa38f; --leaf: #7fe3c4; --amber: #f3b43c;
+  --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf; --font: 'Josefin Sans', 'Trebuchet MS', 'Segoe UI', sans-serif;
   font-family: var(--font); letter-spacing: .01em;
 }
 #br-root { position: fixed; inset: 0; z-index: 7; pointer-events: none; color: var(--cream); font-size: 18px; }
 #br-root[hidden] { display: none; }
 /* carved-wood panel used everywhere */
-.wood { background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, rgba(0,0,0,0) 1px 26px), linear-gradient(#2c4573, #1d2f55);
-  border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 0 0 2px #c9a24a, inset 0 3px 0 rgba(255,255,255,.14), 0 5px 0 rgba(0,0,0,.45); color: var(--cream); }
-.br-btn { font-family: var(--font); font-weight: 700; font-size: 20px; color: #17210c; background: linear-gradient(#b7e46f, #6faa3a); border: 3px solid var(--ink); border-radius: 999px;
+.wood { background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, rgba(0,0,0,0) 1px 26px), linear-gradient(#1c7074, #135558);
+  border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 0 0 2px #e6b94a, inset 0 3px 0 rgba(255,255,255,.14), 0 5px 0 rgba(0,0,0,.45); color: var(--cream); }
+.br-btn { font-family: var(--font); font-weight: 700; font-size: 20px; color: #3a0f1a; background: linear-gradient(#ffb8a8, #ff6f7d); border: 3px solid var(--ink); border-radius: 999px;
   padding: 7px 20px; cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.4); }
 .br-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .br-btn:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 1px 0 var(--ink); }
 .br-btn:disabled { opacity: .5; cursor: default; }
 .br-btn.amber { background: linear-gradient(#ffd77a, #e09a1f); }
 .br-btn.red { background: linear-gradient(#ff9c86, #d4412a); color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.4); }
-.br-btn.wood { background: linear-gradient(#4a6aa0, #344f82); color: var(--cream); text-shadow: 0 1px 0 rgba(0,0,0,.5); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 4px 0 var(--ink); }
+.br-btn.wood { background: linear-gradient(#2f9a98, #217f7e); color: var(--cream); text-shadow: 0 1px 0 rgba(0,0,0,.5); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 4px 0 var(--ink); }
 
 .br-top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .br-phase { display: flex; gap: 14px; align-items: center; padding: 6px 20px; font-weight: 700; font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
 .br-phase b { color: var(--amber); font-weight: 700; font-size: 26px; letter-spacing: .02em; }
 .br-phase span:first-child::before { content: '🍃'; margin-right: 6px; }
-.br-ring { font-size: 20px; font-weight: 600; padding: 3px 18px; border-radius: 999px; background: rgba(18,12,7,.8); border: 2px solid #c9a24a; text-shadow: 0 2px 0 var(--ink); }
+.br-ring { font-size: 20px; font-weight: 600; padding: 3px 18px; border-radius: 999px; background: rgba(18,12,7,.8); border: 2px solid #e6b94a; text-shadow: 0 2px 0 var(--ink); }
 .br-ring.warn { background: linear-gradient(#e2573a, #a82a14); border-color: #3a0e06; animation: brpulse .7s infinite alternate; }
 @keyframes brpulse { from { filter: brightness(1); } to { filter: brightness(1.45); } }
 .br-banner { position: absolute; top: 20%; left: 50%; transform: translateX(-50%) scale(.92); font-weight: 700; font-size: 44px; text-align: center; text-transform: uppercase; letter-spacing: .05em;
   color: var(--cream); -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 rgba(0,0,0,.4); opacity: 0; transition: opacity .3s, transform .3s; white-space: nowrap; }
-.br-banner, .br-end h2, .br-streak b { font-family: 'Fraunces', Georgia, 'Times New Roman', serif; }
+.br-banner, .br-end h2, .br-streak b, .br-end .stamp { font-family: 'Limelight', 'Poiret One', Georgia, serif; font-weight: 400; }
 .br-banner.on { opacity: 1; transform: translateX(-50%) scale(1); }
 .br-banner small { display: block; margin-top: 10px; font-size: 21px; font-weight: 500; text-transform: none; letter-spacing: 0; -webkit-text-stroke: 4px var(--ink); color: var(--amber); }
 
 .br-mapbox { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.br-mapbox canvas { width: 184px; height: 184px; border-radius: 50%; background: #123; image-rendering: pixelated; border: 6px solid #33497a;
-  box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #6d86b8, 0 6px 0 rgba(0,0,0,.4); }
+.br-mapbox canvas { width: 184px; height: 184px; border-radius: 50%; background: #123; image-rendering: pixelated; border: 6px solid #207a7c;
+  box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #5fb8b0, 0 6px 0 rgba(0,0,0,.4); }
 .br-hunted { font-size: 19px; text-align: right; }
 .br-hunted .t { font-weight: 700; letter-spacing: .12em; color: var(--amber); font-size: 15px; text-shadow: 0 2px 0 var(--ink); }
-.br-hunted div.r { padding: 1px 12px; margin-top: 3px; background: rgba(18,12,7,.78); border-radius: 999px; border: 2px solid #c9a24a; }
+.br-hunted div.r { padding: 1px 12px; margin-top: 3px; background: rgba(18,12,7,.78); border-radius: 999px; border: 2px solid #e6b94a; }
 
 .br-feed { position: absolute; top: 102px; left: 14px; width: 340px; display: flex; flex-direction: column; gap: 4px; font-size: 19px; text-shadow: 0 2px 0 var(--ink); }
-.br-feed div { background: rgba(18,12,7,.74); padding: 2px 12px; border-radius: 999px; border: 2px solid #c9a24a; transition: opacity .6s; }
+.br-feed div { background: rgba(18,12,7,.74); padding: 2px 12px; border-radius: 999px; border: 2px solid #e6b94a; transition: opacity .6s; }
 .br-feed div::before { content: '🐾 '; }
 .br-feed div.old { opacity: 0; }
 .br-feed div.me { border-color: var(--amber); }
@@ -55,7 +56,7 @@ const CSS = `
 .br-slot { position: relative; width: 66px; height: 66px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 14px; }
 .br-slot .ic { font-size: 30px; line-height: 1; margin-top: -8px; filter: drop-shadow(0 2px 0 rgba(0,0,0,.5)); }
 .br-slot .n { position: absolute; left: 0; right: 0; bottom: 3px; font-size: 12px; font-weight: 600; text-align: center; line-height: 1; padding: 0 2px; color: var(--cream); text-shadow: 0 1px 0 var(--ink); }
-.br-slot .k { position: absolute; top: 3px; left: 3px; min-width: 20px; height: 20px; padding: 0 3px; border-radius: 999px; background: var(--leaf); color: #17210c; font-size: 13px; font-weight: 700; line-height: 20px; text-align: center; border: 2px solid var(--ink); z-index: 2; }
+.br-slot .k { position: absolute; top: 3px; left: 3px; min-width: 20px; height: 20px; padding: 0 3px; border-radius: 999px; background: var(--leaf); color: #3a0f1a; font-size: 13px; font-weight: 700; line-height: 20px; text-align: center; border: 2px solid var(--ink); z-index: 2; }
 .br-slot .cd { position: absolute; inset: 0; border-radius: 12px; background: conic-gradient(rgba(10,6,3,.72) var(--p, 0%), transparent 0); }
 .br-slot .cdt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 var(--ink); z-index: 2; }
 .br-slot.ready { box-shadow: inset 0 0 0 2px var(--leaf), inset 0 3px 0 rgba(255,255,255,.14), 0 5px 0 rgba(0,0,0,.45); }
@@ -66,7 +67,7 @@ const CSS = `
 .br-slot .q { position: absolute; top: 3px; right: 5px; font-size: 15px; font-weight: 700; color: var(--amber); text-shadow: 0 1px 0 var(--ink); z-index: 2; }
 .br-slot.dash { width: 78px; }
 .br-slot.dash .k { background: var(--amber); font-size: 10px; padding: 0 5px; height: 17px; line-height: 15px; }
-.br-bar { position: relative; height: 26px; width: 100%; border: 3px solid var(--ink); border-radius: 999px; background: #111c36; overflow: hidden; box-shadow: inset 0 3px 0 rgba(0,0,0,.4), 0 3px 0 rgba(0,0,0,.35); }
+.br-bar { position: relative; height: 26px; width: 100%; border: 3px solid var(--ink); border-radius: 999px; background: #0a2f33; overflow: hidden; box-shadow: inset 0 3px 0 rgba(0,0,0,.4), 0 3px 0 rgba(0,0,0,.35); }
 .br-bar > i { display: block; height: 100%; border-radius: 999px; transition: width .12s linear; box-shadow: inset 0 4px 0 rgba(255,255,255,.28), inset 0 -4px 0 rgba(0,0,0,.18); }
 .br-bar span { position: absolute; inset: 0; text-align: center; font-size: 17px; font-weight: 700; line-height: 20px; text-shadow: 0 2px 0 var(--ink); }
 .br-bar.hp > i { background: linear-gradient(#ff7a62, #d2432c); }
@@ -74,12 +75,12 @@ const CSS = `
 .br-bar.xp > i { background: linear-gradient(#78d6e8, #2c8fb8); }
 .br-bar.sm { height: 18px; } .br-bar.sm span { font-size: 13px; line-height: 12px; }
 .br-lvl { min-width: 74px; text-align: center; font-weight: 700; font-size: 20px; padding: 3px 10px; border-radius: 14px; }
-.br-lvl.br-point { animation: brpulse .6s infinite alternate; background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+.br-lvl.br-point { animation: brpulse .6s infinite alternate; background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; }
 .br-buffs { display: flex; gap: 6px; min-height: 26px; font-size: 16px; flex-wrap: wrap; justify-content: center; }
 .br-buffs span { background: rgba(18,12,7,.82); border: 2px solid var(--amber); border-radius: 999px; padding: 0 10px; text-transform: capitalize; }
 .br-hint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: 24px; font-weight: 600; padding: 4px 18px; border-radius: 999px; background: rgba(18,12,7,.85); border: 3px solid var(--leaf); text-shadow: 0 2px 0 var(--ink); }
-.br-chan { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); width: 240px; height: 18px; background: #111c36; border: 3px solid var(--ink); border-radius: 999px; padding: 2px; }
-.br-chan i { display: block; height: 100%; background: linear-gradient(#b7e46f, #6faa3a); border-radius: 999px; }
+.br-chan { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); width: 240px; height: 18px; background: #0a2f33; border: 3px solid var(--ink); border-radius: 999px; padding: 2px; }
+.br-chan i { display: block; height: 100%; background: linear-gradient(#ffb8a8, #ff6f7d); border-radius: 999px; }
 .br-vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(217,80,58,.6) 100%); opacity: 0; transition: opacity .25s; }
 .br-lavavig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,120,0,.12) 20%, rgba(255,60,0,.62) 100%); opacity: 0; transition: opacity .2s; }
 .br-blind { position: absolute; inset: 0; background: #fff; opacity: 0; transition: opacity .3s; }
@@ -91,14 +92,14 @@ const CSS = `
 .br-panel .pts b { color: var(--leaf); font-size: 26px; }
 .br-stat { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: 21px; }
 .br-stat .nm { flex: 1; }
-.br-stat .key { min-width: 26px; height: 26px; border-radius: 999px; background: var(--leaf); color: #17210c; font-weight: 700; font-size: 15px; line-height: 22px; text-align: center; border: 2px solid var(--ink); }
+.br-stat .key { min-width: 26px; height: 26px; border-radius: 999px; background: var(--leaf); color: #3a0f1a; font-weight: 700; font-size: 15px; line-height: 22px; text-align: center; border: 2px solid var(--ink); }
 .br-stat .val { font-weight: 700; min-width: 30px; text-align: right; }
 .br-stat .br-btn { padding: 0; width: 34px; height: 30px; font-size: 20px; line-height: 22px; }
-.br-pick { margin: 8px 0; padding: 8px; background: rgba(0,0,0,.3); border-radius: 12px; border: 2px solid #3b5a8f; }
+.br-pick { margin: 8px 0; padding: 8px; background: rgba(0,0,0,.3); border-radius: 12px; border: 2px solid #2a8a8a; }
 .br-pick .opts { display: flex; gap: 8px; }
-.br-pick .opt { flex: 1; padding: 6px 8px; background: linear-gradient(#f7edd3, #e1d0a2); color: #1f2a4a; border: 3px solid var(--ink); border-radius: 12px; font-size: 16px; line-height: 1.1; cursor: pointer; text-align: left; }
+.br-pick .opt { flex: 1; padding: 6px 8px; background: linear-gradient(#f7edd3, #e1d0a2); color: #0b3b3f; border: 3px solid var(--ink); border-radius: 12px; font-size: 16px; line-height: 1.1; cursor: pointer; text-align: left; }
 .br-pick .opt:hover { filter: brightness(1.06); }
-.br-pick .opt.chosen { background: linear-gradient(#b7e46f, #7fb844); }
+.br-pick .opt.chosen { background: linear-gradient(#ffb8a8, #2fb59a); }
 .br-pick .opt.off { opacity: .45; cursor: default; filter: grayscale(.5); }
 .br-pick .opt b { display: block; font-size: 18px; color: #6a3410; }
 .br-pick .opt.chosen b { color: #1d3009; }
@@ -115,12 +116,12 @@ const CSS = `
 @keyframes brrow { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
 @keyframes brconf { 0% { transform: translateY(-20px) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
 .br-end .box { position: relative; }
-.br-end .stamp { position: absolute; top: 18px; right: 26px; min-width: 96px; padding: 0 14px; text-align: center; border: 6px solid #e2573a; border-radius: 16px; color: #e2573a; font: 700 68px/1.1 'Fraunces', Georgia, serif;
+.br-end .stamp { position: absolute; top: 18px; right: 26px; min-width: 96px; padding: 0 14px; text-align: center; border: 6px solid #e2573a; border-radius: 16px; color: #e2573a; font: 700 68px/1.1 'Limelight', Georgia, serif;
   background: rgba(255,255,255,.06); transform: rotate(-12deg); animation: brstamp .7s .45s cubic-bezier(.2,.8,.3,1) both; text-shadow: 0 3px 0 rgba(0,0,0,.35); }
 .br-end .stamp.gold { color: #ffd23f; border-color: #ffd23f; }
 .br-end .note { margin: 4px 0 6px; max-width: 70%; font-style: italic; color: #e8d7ad; font-size: 19px; }
 .br-end tr.row { animation: brrow .4s calc(var(--i) * 60ms + .3s) ease-out both; }
-.br-end td.gr { font: 700 20px 'Fraunces', Georgia, serif; color: var(--amber); }
+.br-end td.gr { font: 700 20px 'Limelight', Georgia, serif; color: var(--amber); }
 .br-conf { position: absolute; top: -20px; width: 10px; height: 16px; border-radius: 2px; pointer-events: none; animation: brconf 3.4s linear infinite; }
 .br-end h2 { font-size: 40px; margin: 0 0 4px; color: var(--amber); letter-spacing: .06em; text-shadow: 0 4px 0 var(--ink); }
 .br-end table { width: 100%; border-collapse: collapse; font-size: 20px; margin: 12px 0 16px; }
@@ -155,7 +156,7 @@ const CSS = `
 .br-bar.sta.empty > i { background: linear-gradient(#ff8a6a, #d2432c); }
 
 .br-zone { position: absolute; left: 50%; top: 104px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 22px 6px 14px; border: 3px solid var(--ink); border-radius: 999px; pointer-events: none; opacity: 0;
-  background: linear-gradient(#3b5a8f, #1a2b4d); box-shadow: inset 0 0 0 2px #c9a24a, 0 5px 0 rgba(0,0,0,.45); color: var(--cream); font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 var(--ink); }
+  background: linear-gradient(#2a8a8a, #104b4e); box-shadow: inset 0 0 0 2px #e6b94a, 0 5px 0 rgba(0,0,0,.45); color: var(--cream); font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 var(--ink); }
 .br-zone i { font-style: normal; font-size: 28px; }
 .br-zone small { display: block; font-size: 13px; font-weight: 500; color: var(--amber); letter-spacing: .08em; text-transform: uppercase; }
 .br-zone.on { animation: brzone 3.2s ease-out forwards; }
@@ -200,7 +201,7 @@ const CSS = `
 .br-phase b { text-shadow: 0 0 12px rgba(243,180,60,.5); }
 
 .br-feed { top: 212px !important; }
-.br-doll { position: absolute; left: 14px; top: 14px; width: 168px; height: 198px; border: 5px solid #33497a; border-radius: 16px; box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #6d86b8, inset 0 0 40px rgba(0,0,0,.35), 0 6px 0 rgba(0,0,0,.4); background: radial-gradient(circle at 50% 35%, rgba(120,170,90,.35), rgba(20,30,15,.55)); }
+.br-doll { position: absolute; left: 14px; top: 14px; width: 168px; height: 198px; border: 5px solid #207a7c; border-radius: 16px; box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px #5fb8b0, inset 0 0 40px rgba(0,0,0,.35), 0 6px 0 rgba(0,0,0,.4); background: radial-gradient(circle at 50% 35%, rgba(120,170,90,.35), rgba(20,30,15,.55)); }
 .br-doll .tag { position: absolute; left: 10px; right: 10px; bottom: -22px; text-align: center; font-weight: 700; font-size: 17px; letter-spacing: .06em; text-shadow: 0 2px 0 var(--ink); }
 .br-info { position: absolute; left: 14px; bottom: 14px; width: 286px; padding: 10px 12px; font-size: 16px; line-height: 1.12; }
 .br-info .hd { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
@@ -211,7 +212,7 @@ const CSS = `
 .br-info .st i { display: block; height: 7px; border-radius: 999px; background: linear-gradient(#f0a640, #c3680f); border: 1px solid var(--ink); }
 .br-info .st em { font-style: normal; text-align: right; color: var(--cream); }
 .br-info .pk { border-top: 2px dashed rgba(255,255,255,.18); padding-top: 5px; font-size: 14px; }
-.br-info .pk .p { color: #a8e26a; } .br-info .pk .d { color: #ff9a82; }
+.br-info .pk .p { color: #ff9aa2; } .br-info .pk .d { color: #ff9a82; }
 
 .br-dizzy { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,240,150,.0) 20%, rgba(255,215,90,.32) 100%); }
 .br-dizzy.go { animation: brdizzyov var(--dz, 1.2s) ease-out forwards; }
@@ -240,7 +241,7 @@ const SKILL_ICON: Record<string, string> = {
   quill_shot: '🪶', quill_burst: '🌵', quill_storm: '🌵', earthshaker: '🌋', splash: '💦', tail_whip: '🌀', death_roll: '🐊', submerge: '🌊', rampage: '😡',
 };
 const skillIcon = (s: { id: string; fx?: { k: string } } | null) => (s ? (SKILL_ICON[s.id] ?? (s.fx ? (FX_ICON[s.fx.k] ?? '✨') : '⭐')) : '🔒');
-const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
+const EMOJI = ANIMAL_EMOJI;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const ITEM_NAMES: Record<string, string> = {
   meat: 'Meat', berry: 'Berries', herb: 'Herb', water: 'Water', mud: 'Mud', honey: 'Honeycomb', feather: 'Feather', tusk: 'Tusk', musk: 'Musk', reed: 'Reed',
@@ -261,6 +262,8 @@ export interface HudCtx {
   now: number; // client clock
   hint: string;
   panelOpen: boolean;
+  campus: boolean;
+  queue: { queued: number; startsIn: number | null; inMatch: boolean; you: boolean } | null;
 }
 
 export class Hud {
@@ -319,7 +322,7 @@ export class Hud {
   private lastGulagKey = '';
   private lastLeaderKey = '';
   onStat: (k: StatKey) => void = () => {};
-  onPick: (tier: number, opt: number) => void = () => {};
+  onEvolve: (to: string) => void = () => {};
   onSwarm: (k: string) => void = () => {};
   onResume: () => void = () => {};
   onSettings: () => void = () => {};
@@ -385,7 +388,7 @@ export class Hud {
     rows.append(this.skillRow, el('div', '', '&nbsp;'), this.invRow);
     bottom.append(this.buffs, rows, bars);
 
-    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (3-hit combo) · hold RMB guard — raise it just before a hit to PARRY<br>Q E R F skills · X harvest · V drink · 1-6 eat/use · Tab upgrades · Left Alt cursor';
+    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (3-hit combo) · tap RMB to PARRY: a hit in the half-second window stuns the attacker, a miss leaves you fumbling<br>Q skill · X harvest · V drink · 1-6 eat/use · Tab stats and evolving · Left Alt cursor';
     this.gulag.hidden = true;
     this.leader.hidden = true;
     this.panel.hidden = true;
@@ -479,7 +482,7 @@ export class Hud {
           c.fill();
           break;
         case 'friend':
-          c.fillStyle = '#58e03a';
+          c.fillStyle = '#5ff0c8';
           c.beginPath();
           c.arc(px, py, 3, 0, Math.PI * 2);
           c.fill();
@@ -507,7 +510,7 @@ export class Hud {
     c.translate(px, py);
     c.rotate(-me.yaw + Math.PI);
     c.fillStyle = '#fff';
-    c.strokeStyle = '#0b0b1a';
+    c.strokeStyle = '#08272a';
     c.lineWidth = 1.5;
     c.beginPath();
     c.moveTo(0, -6);
@@ -562,12 +565,8 @@ export class Hud {
 
   // --- the frame ----------------------------------------------------------------------------------
 
-  private skillFor(def: AnimalDef, you: YouState, slot: number): { skill: Skill | null; locked: string } {
-    if (slot < 2) return { skill: def.sig[slot], locked: '' };
-    const tier = slot === 2 ? 0 : 2;
-    const p = you.picks[tier];
-    if (p >= 0) return { skill: def.unlock[tier][p], locked: '' };
-    return { skill: null, locked: you.lvl >= UNLOCK_LEVELS[tier] ? 'Pick (Tab)' : `Lv ${UNLOCK_LEVELS[tier]}` };
+  private skillFor(def: AnimalDef, _you: YouState, slot: number): { skill: Skill | null; locked: string } {
+    return slot === 0 ? { skill: def.skill, locked: '' } : { skill: null, locked: '' }; // one signature skill: evolving replaces it
   }
 
   render(c: HudCtx) {
@@ -591,6 +590,22 @@ export class Hud {
       this.ring.classList.remove('warn');
     }
 
+    if (c.campus) {
+      (this.root.querySelector('#br-ph') as HTMLElement).textContent = 'Campus';
+      (this.root.querySelector('#br-clock') as HTMLElement).textContent = 'Free roam';
+      (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${c.roster.size} here`;
+      const q = c.queue;
+      this.ring.classList.toggle('warn', !!q && q.startsIn !== null && q.startsIn <= 10);
+      this.ring.textContent = q?.you
+        ? q.startsIn !== null
+          ? `Tournament starts in ${q.startsIn}s · ${q.queued} queued`
+          : 'You are queued for the Tournament'
+        : q && q.startsIn !== null
+          ? `A Tournament starts in ${q.startsIn}s: press B to join (${q.queued} queued)`
+          : q?.inMatch
+            ? 'A Tournament is running: press B to queue for the next one'
+            : 'Nobody can be hurt here · press B to queue for the Tournament';
+    }
     const body = role === 0 || role === 1 || role === 2;
     this.skillRow.parentElement!.parentElement!.style.display = role === 3 ? 'none' : '';
     // bars
@@ -617,15 +632,16 @@ export class Hud {
     (this.xp.lastElementChild as HTMLElement).textContent = role === 0 ? (you.lvl >= 20 ? 'MAX' : `${you.xp} / ${you.need} XP`) : '';
     this.xp.style.display = role === 0 ? '' : 'none';
     this.lvl.textContent = role === 2 ? `T${you.swarm?.tier ?? 1}` : role === 1 ? 'GULAG' : `LV ${you.lvl}`;
-    this.lvl.classList.toggle('br-point', role === 0 && (you.pts > 0 || this.canPick(you)));
+    this.lvl.classList.toggle('br-point', role === 0 && (you.pts > 0 || this.canEvolve(you)));
 
     // buffs
     const buffs = you.buffs.map((b) => `<span>${b.replace(/_/g, ' ')}</span>`).join('') + (you.ability ? `<span>${you.ability}</span>` : '');
     if (this.buffs.innerHTML !== buffs) this.buffs.innerHTML = buffs;
 
-    // skill slots
+    // skill slots: an animal has one signature skill (Q); a horde leader has two
     for (let i = 0; i < 4; i++) {
       const e = this.skillEls[i];
+      e.root.style.display = i === 0 || (role === 2 && i === 1) ? '' : 'none';
       let name = '';
       let ready = false;
       let locked = false;
@@ -700,8 +716,8 @@ export class Hud {
     this.blind.style.opacity = you.buffs.includes('blind') ? '0.8' : '0';
   }
 
-  private canPick(you: YouState) {
-    return UNLOCK_LEVELS.some((l, i) => you.lvl >= l && you.picks[i] === -1);
+  private canEvolve(you: YouState) {
+    return you.evolve.length > 0;
   }
 
   private renderPanel(c: HudCtx) {
@@ -709,7 +725,7 @@ export class Hud {
     const open = c.panelOpen && you.role === 0;
     this.panel.hidden = !open;
     if (!open) return;
-    const key = JSON.stringify([you.lvl, you.pts, you.alloc, you.picks, def.id]);
+    const key = JSON.stringify([you.lvl, you.pts, you.alloc, you.evolve, def.id]);
     if (key === this.lastPanelKey) return;
     this.lastPanelKey = key;
     this.panel.innerHTML = '';
@@ -724,25 +740,28 @@ export class Hud {
       row.append(b);
       this.panel.append(row);
     });
-    const tiers = [0, 1, 2, 3];
     this.panel.append(el('h3', '', 'Skills'));
     const inn = def.innate;
-    this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${inn.name}</b> (innate): ${inn.desc}</div>`));
-    for (const t of tiers) {
+    this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${def.skill.name}</b> (Q): ${def.skill.desc}</div>`));
+    this.panel.append(el('div', 'br-pick', `<div class="t"><b style="color:var(--amber)">${inn.name}</b> (passive): ${inn.desc}</div>`));
+    this.panel.append(el('h3', '', 'Evolve'));
+    if (def.stage >= 3) this.panel.append(el('div', 'br-pick', '<div class="t">This is your final form.</div>'));
+    else if (you.evolve.length === 0) this.panel.append(el('div', 'br-pick', `<div class="t">Reach level ${EVOLVE_LEVELS[def.stage - 1]} to evolve. It takes 3 s standing still and a hit cancels it.</div>`));
+    else {
       const box = el('div', 'br-pick');
-      const need = UNLOCK_LEVELS[t];
-      const chosen = you.picks[t];
-      box.append(el('div', 't', `Level ${need} · ${t % 2 === 0 ? 'active' : 'passive'}${you.lvl < need ? ' (locked)' : chosen < 0 ? ` — press Z or X` : ''}`));
+      box.append(el('div', 't', 'Pick a form. Evolving replaces your skill, refills your health and keeps your stat points.'));
       const opts = el('div', 'opts');
-      def.unlock[t].forEach((s, o) => {
-        const d = el('div', `opt${chosen === o ? ' chosen' : ''}${you.lvl < need || (chosen >= 0 && chosen !== o) ? ' off' : ''}`, `<b>${s.name}</b>${s.desc}`);
-        d.addEventListener('click', () => this.onPick(t, o));
+      for (const id of you.evolve) {
+        const a = ANIMAL_BY_ID.get(id);
+        if (!a) continue;
+        const d = el('div', 'opt', `<b>${EMOJI[a.id] ?? '🐾'} ${a.name}</b><i>${a.role}</i> ${a.skill.name} (Q): ${a.skill.desc}<br><i>${a.innate.name}:</i> ${a.innate.desc}`);
+        d.addEventListener('click', () => this.onEvolve(a.id));
         opts.append(d);
-      });
+      }
       box.append(opts);
       this.panel.append(box);
     }
-    this.panel.append(el('div', 'br-pick', '<div class="t">Keys: 1-5 spend a point · Z / X pick the first open skill · Tab closes</div>'));
+    this.panel.append(el('div', 'br-pick', '<div class="t">Keys: 1-5 spend a point · Tab closes</div>'));
   }
 
   private renderGulag(c: HudCtx) {
@@ -825,7 +844,7 @@ export class Hud {
       for (let i = 0; i < 36; i++) {
         const c = el('i', 'br-conf');
         c.style.left = `${Math.random() * 100}%`;
-        c.style.background = ['#ffd23f', '#e2573a', '#7fd1ff', '#b7e46f', '#f1a7c0'][i % 5];
+        c.style.background = ['#ffd23f', '#e2573a', '#7fd1ff', '#ffb8a8', '#f1a7c0'][i % 5];
         c.style.animationDelay = `${Math.random() * 3}s`;
         c.style.animationDuration = `${2.6 + Math.random() * 1.6}s`;
         this.end.append(c);
@@ -840,6 +859,14 @@ export class Hud {
     this.end.hidden = true;
   }
 
+  private leaveBtn: HTMLButtonElement | null = null;
+  private pauseNote: HTMLElement | null = null;
+  /** In the campus there is nothing to leave: it is the lobby. */
+  setCampus(on: boolean) {
+    if (this.leaveBtn) this.leaveBtn.hidden = on;
+    if (this.pauseNote) this.pauseNote.textContent = on ? 'The campus keeps running. Press B to queue for the Tournament.' : 'The match keeps running. If you leave, an AI takes your animal.';
+  }
+
   private buildPause() {
     const box = el('div', 'box wood');
     box.append(el('h2', '', 'Paused'));
@@ -849,7 +876,9 @@ export class Hud {
     settings.addEventListener('click', () => this.onSettings());
     const leave = el<HTMLButtonElement>('button', 'br-btn red', 'Leave the match');
     leave.addEventListener('click', () => this.onLeave());
-    box.append(resume, settings, leave, el('small', '', 'The match keeps running. If you leave, an AI takes your animal.'));
+    this.leaveBtn = leave;
+    this.pauseNote = el('small', '', 'The match keeps running. If you leave, an AI takes your animal.');
+    box.append(resume, settings, leave, this.pauseNote);
     this.pause.append(box);
   }
   showPause(on: boolean) {
@@ -862,15 +891,15 @@ export class Hud {
   setReticle(you: YouState, guarding: boolean, show: boolean) {
     this.reticle.style.display = show ? '' : 'none';
     if (!show) return;
-    const parry = guarding && (you.guardAge < 0.24 || !you.guard);
-    this.reticle.classList.toggle('guard', guarding && !parry);
-    this.reticle.classList.toggle('parry', guarding && parry);
+    const fumbled = you.buffs.includes('fumbled');
+    this.reticle.classList.toggle('guard', false);
+    this.reticle.classList.toggle('parry', guarding || you.guard);
     this.reticle.classList.toggle('counter', you.counter > 0);
     this.reticle.classList.toggle('wind', !!you.wind);
     const pips = this.reticle.querySelectorAll('.br-pips i');
     // `combo` is the swing that comes next; light the ones already thrown in this chain
     pips.forEach((p, i) => p.classList.toggle('on', i < you.combo));
-    (this.reticle.querySelector('.br-guardtag') as HTMLElement).textContent = guarding ? (parry ? 'PARRY' : 'GUARD') : '';
+    (this.reticle.querySelector('.br-guardtag') as HTMLElement).textContent = guarding || you.guard ? 'PARRY' : fumbled ? 'FUMBLED' : you.parryCd > 0 ? `parry ${you.parryCd.toFixed(1)}s` : '';
     this.sta.classList.toggle('empty', you.sta < 8);
   }
 
@@ -941,7 +970,7 @@ export class Hud {
     this.info.style.display = role === 3 ? 'none' : '';
     const form = role === 2 ? 'Horde Leader' : role === 1 ? 'In Detention' : '';
     (this.dollFrame.querySelector('.tag') as HTMLElement).textContent = '';
-    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.picks, role, you.swarm?.tier]);
+    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.evolve.length, role, you.swarm?.tier]);
     if (key === this.infoKey) return;
     this.infoKey = key;
     const rows = STAT_KEYS.map((k) => {

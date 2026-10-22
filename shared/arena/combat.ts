@@ -1,8 +1,12 @@
 // Numbers for fighting that the server and the client share (the client uses them to start an
 // attack animation the instant you press the button, instead of waiting for the network).
-export const PARRY_WINDOW = 0.24; // s after raising the guard in which a hit is parried
-export const GUARD_COOLDOWN = 0.4;
-export const GUARD_DRAIN = 3.5; // stamina per second while guarding
+// Parry (after Combat Warriors): tap to raise the guard for a short window. A hit that lands inside it is parried:
+// the attacker is stunned and your parry comes back quickly. A parry that catches nothing leaves YOU fumbling.
+export const PARRY_WINDOW = 0.5; // s the guard stays up
+export const PARRY_STUN = 1.5; // s the attacker is stunned by a parry: cannot move, act or use items
+export const PARRY_MISS_STUN = 1.5; // s you fumble after a parry that caught nothing: you can only walk
+export const PARRY_MISS_CD = 3; // s until the next parry after a miss
+export const PARRY_HIT_CD = 1; // s until the next parry after a success
 /** The three swings of a basic combo: quick, quick, then a slow heavy one that breaks a guard. */
 export const COMBO = [
   { wind: 0.16, rec: 0.24, dmg: 1.0, reach: 1.0, arc: 100, cost: 5 },

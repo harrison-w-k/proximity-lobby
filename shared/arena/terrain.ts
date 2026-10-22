@@ -373,6 +373,25 @@ export class Terrain {
     return null;
   }
 
+  /** Open water near (x, z): fish always start in a lake or river. Falls back to any water on the map. */
+  findWater(x: number, z: number, rnd: () => number): { x: number; z: number } | null {
+    const ok = (px: number, pz: number) => Math.hypot(px, pz) < MAP_RADIUS - 30 && this.depthAt(px, pz) > 0.8;
+    for (let r = 0; r <= 160; r += 6) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2 + r;
+        const px = x + Math.cos(a) * r;
+        const pz = z + Math.sin(a) * r;
+        if (ok(px, pz)) return { x: px, z: pz };
+      }
+    }
+    for (let i = 0; i < 600; i++) {
+      const a = rnd() * Math.PI * 2;
+      const r = Math.sqrt(rnd()) * (MAP_RADIUS - 40);
+      if (ok(Math.cos(a) * r, Math.sin(a) * r)) return { x: Math.cos(a) * r, z: Math.sin(a) * r };
+    }
+    return null;
+  }
+
   /** A random point on dry land inside `radius`. */
   randomLand(rnd: () => number, radius: number, minRadius = 0): { x: number; z: number } {
     for (let i = 0; i < 80; i++) {
