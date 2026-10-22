@@ -25,6 +25,7 @@ export const DT = 1 / TICK_HZ;
 export const PHASE_NAMES = ['Scatter', 'Farm', 'Clash', 'Cull', 'Final'];
 export const PHASE_AT = [0, 90, 240, 420, 600];
 export const MATCH_LEN = 720;
+export const PVP_DAMAGE = 0.6; // blows between players land at 60%: fights last longer
 export const DASH_COST = 22; // stamina
 export const DASH_COOLDOWN = 2.4; // s
 export const DASH_TIME = 0.26; // s
@@ -1015,6 +1016,7 @@ export class Match {
     let dr = Math.min(0.8, f.mods.dr + this.buffSum(f, 'dr'));
     if (o.lava) dr = this.time < f.mudUntil ? 0.6 : 0;
     let amount = raw * (1 - dr);
+    if (srcF && srcF !== f && (srcF.role === 'alive' || srcF.role === 'gulag') && !o.lava && !o.dot) amount *= PVP_DAMAGE;
     // a raised guard stops blows that come from the front
     if (o.blockable && src && f.guarding && !o.lava && !o.dot) {
       const front = Math.abs(angDiff(yawOf(src.x - f.x, src.z - f.z), f.yaw)) < 1.3;
@@ -1038,7 +1040,8 @@ export class Match {
           f.sta = Math.min(f.dv.maxSta, f.sta + 18);
           f.counterUntil = this.time + 1.6;
           f.guardCd = 0;
-          this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy }, f.x, f.z);
+          const stun = src.kind === 'f' ? (heavy ? 1.5 : 1.0) : (src as Mob).def.behavior === 'alpha' ? 1.7 : heavy ? 1.5 : 1.0;
+          this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy, mob: src.kind === 'm' ? (src as Mob).id : undefined, stun }, f.x, f.z);
           return 0;
         }
         if (o.heavy) {

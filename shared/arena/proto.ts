@@ -125,7 +125,7 @@ export type MatchEvent =
   | { k: 'strike'; id: string; s: string; x: number; z: number; yaw: number } // the skill lands
   | { k: 'swing'; id: string; c: number; w: number; h: boolean; r: number; a: number; x: number; z: number; yaw: number } // a basic attack winds up
   | { k: 'mswing'; id: number; x: number; z: number; yaw: number; w: number; r: number; big: boolean } // a boss winds up
-  | { k: 'parry'; id: string; by: string; x: number; z: number; heavy: boolean }
+  | { k: 'parry'; id: string; by: string; x: number; z: number; heavy: boolean; mob?: number; stun?: number }
   | { k: 'block'; id: string; x: number; z: number; broke: boolean }
   | { k: 'dodge'; id: string; x: number; z: number }
   | { k: 'pickup'; id: string; item: string; n: number }

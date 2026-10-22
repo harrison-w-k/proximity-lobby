@@ -50,6 +50,7 @@ export interface FighterView {
   lastJy?: number;
   lastState?: RigState;
   shield: THREE.Mesh;
+  stars?: THREE.Group;
 }
 
 interface MobView {
@@ -700,6 +701,8 @@ varying vec3 vWP;`)
           seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false, cue: null, guard: false, guardStart: -9, jy: 0, vy: 0, shield: this.makeShield(),
         };
         group.add(v.shield);
+        v.stars = this.makeStars(rig.height + 0.15);
+        group.add(v.stars);
         plate.position.y = rig.height + 0.3;
         group.visible = false;
         shadow.visible = false;
@@ -741,6 +744,31 @@ varying vec3 vWP;`)
         }
         return true;
       },
+    });
+  }
+
+  /** Three little stars circling a stunned animal's head. */
+  private makeStars(height: number): THREE.Group {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffe27a });
+    for (let i = 0; i < 3; i++) {
+      const s = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), mat);
+      s.userData.k = i;
+      g.add(s);
+    }
+    g.position.y = height;
+    g.visible = false;
+    return g;
+  }
+
+  private spinStars(g: THREE.Group, on: boolean, t: number, radius: number) {
+    g.visible = on;
+    if (!on) return;
+    g.children.forEach((c, i) => {
+      const a = t * 6 + (i * Math.PI * 2) / 3;
+      c.position.set(Math.cos(a) * radius, Math.sin(t * 9 + i) * 0.05, Math.sin(a) * radius);
+      c.rotation.y = t * 8;
+      c.rotation.x = t * 5;
     });
   }
 
@@ -954,6 +982,9 @@ varying vec3 vWP;`)
           id, def, rig, group, shadow, x, z, tx: x, tz: z, yaw, tyaw: yaw, seen: now, speedS: 0, lastX: x, lastZ: z, attack: 0, hurt: 0, flags,
           flee: false, aquatic: ['minnow', 'perch', 'pike', 'swarm_fish'].includes(defId), flies: ['sparrow', 'swarm_bird', 'swarm_fish'].includes(defId), hp: 100, barHp: 100, big, cue: null, warnUntil: 0,
         };
+        const mst = this.makeStars(rig.height + 0.15);
+        group.add(mst);
+        (group as unknown as { stars: THREE.Group }).stars = mst;
         if (big) {
           const bar = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false }));
           bar.scale.set(defId.startsWith('alpha') ? 3 : 1.4, 0.2, 1);
@@ -1273,6 +1304,7 @@ varying vec3 vWP;`)
       const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: v.jy, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0 };
       v.lastState = st;
       v.rig.update(dt, st);
+      if (v.stars) this.spinStars(v.stars, (v.flags & FL.stun) !== 0, now, Math.max(0.35, v.rig.radius * 0.7));
       v.rig.setTint((v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : null);
       // hide models in bushes/underwater from far away is the server's job; here just the plate
       const key = `${v.hp}|${v.level}|${v.flags & 1}|${v.role}|${v.tier}|${mineTeam}`;
@@ -1324,6 +1356,8 @@ varying vec3 vWP;`)
       if (now < v.warnUntil) mwarn = 0.5 + 0.5 * (1 - (v.warnUntil - now) / Math.max(0.1, v.cue?.wind ?? 0.5));
       if (v.flags & 128) mwarn = Math.max(mwarn, 0.9); // a swarm animal crouching to bite
       v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now, pose: mpose, warn: mwarn });
+      const mstars = (v.group as unknown as { stars?: THREE.Group }).stars;
+      if (mstars) this.spinStars(mstars, (v.flags & 32) !== 0, now, Math.max(0.4, v.rig.radius * 0.6));
       if (v.bar && Math.abs(v.hp - v.barHp) > 1) {
         v.barHp = v.hp;
         const old = (v.bar.material as THREE.SpriteMaterial).map;

@@ -194,6 +194,19 @@ const CSS = `
 .br-info .st em { font-style: normal; text-align: right; color: var(--cream); }
 .br-info .pk { border-top: 2px dashed rgba(255,255,255,.18); padding-top: 5px; font-size: 14px; }
 .br-info .pk .p { color: #a8e26a; } .br-info .pk .d { color: #ff9a82; }
+
+.br-dizzy { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,240,150,.0) 20%, rgba(255,215,90,.32) 100%); }
+.br-dizzy.go { animation: brdizzyov var(--dz, 1.2s) ease-out forwards; }
+.br-dizzy i { position: absolute; left: 50%; top: 44%; font-style: normal; font-size: 54px; text-shadow: 0 4px 0 rgba(0,0,0,.45); animation: brorbit 1s linear infinite; }
+@keyframes brdizzyov { 0% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes brorbit { from { transform: rotate(0deg) translateX(130px) rotate(0deg); } to { transform: rotate(360deg) translateX(130px) rotate(-360deg); } }
+.br-dizzy i:nth-child(2) { animation-delay: -.33s; } .br-dizzy i:nth-child(3) { animation-delay: -.66s; }
+#scene.br-dizzy-canvas { animation: brwobble var(--dz, 1.2s) ease-in-out; }
+@keyframes brwobble {
+  0% { transform: rotate(0) scale(1); filter: none; } 8% { transform: rotate(2.2deg) scale(1.05); filter: blur(3px) hue-rotate(20deg); }
+  25% { transform: rotate(-2deg) scale(1.04) translateX(10px); filter: blur(4px); } 45% { transform: rotate(1.6deg) scale(1.04) translateY(8px); filter: blur(3px) hue-rotate(-15deg); }
+  65% { transform: rotate(-1.2deg) scale(1.03); filter: blur(2px); } 85% { transform: rotate(.6deg) scale(1.01); filter: blur(1px); } 100% { transform: none; filter: none; }
+}
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = ''): T => {
@@ -260,6 +273,7 @@ export class Hud {
   private callouts = el('div', 'br-callout');
   private streakEl = el('div', 'br-streak', '<b></b><span></span>');
   private lowhp = el('div', 'br-lowhp');
+  private dizzyEl = el('div', 'br-dizzy', '<i>⭐</i><i>💫</i><i>⭐</i>');
   private cursor = el('div', 'br-cursor', 'Cursor free — click things, then press Left Alt to go back');
   private dashEl = { root: el('div', 'br-slot dash wood'), cd: el('div', 'cd'), cdt: el('div', 'cdt') };
   private help = el('div', 'br-help');
@@ -362,7 +376,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.streakEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -882,7 +896,24 @@ export class Hud {
     this.info.innerHTML =
       `<div class="hd"><span class="em">${EMOJI[def.id] ?? '🐾'}</span><div><b>${def.name}</b><small>${cls.icon} ${cls.name} · ${role === 2 ? `Tier ${you.swarm?.tier ?? 1}` : `Lv ${you.lvl}`}${form ? ` · ${form}` : ''}</small></div></div>` +
       `<div class="st">${rows}</div>` +
-      `<div class="pk">${cls.perks.map((p) => `<div class="p">+ ${p}</div>`).join('')}${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^[-−]\s?/, '')}</div>`).join('')}</div>`;
+      `<div class="pk">${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^[-−]\s?/, '')}</div>`).join('')}</div>`;
+  }
+
+  /** You were parried: the whole screen wobbles and blurs while your animal reels. */
+  dizzy(seconds: number) {
+    const e = this.dizzyEl;
+    e.style.setProperty('--dz', `${seconds}s`);
+    e.classList.remove('go');
+    void e.offsetWidth;
+    e.classList.add('go');
+    const c = document.getElementById('scene');
+    if (c) {
+      c.style.setProperty('--dz', `${seconds}s`);
+      c.classList.remove('br-dizzy-canvas');
+      void c.offsetWidth;
+      c.classList.add('br-dizzy-canvas');
+      window.setTimeout(() => c.classList.remove('br-dizzy-canvas'), seconds * 1000 + 100);
+    }
   }
 
   setLowHp(on: boolean) {

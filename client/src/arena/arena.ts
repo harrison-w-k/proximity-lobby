@@ -475,6 +475,11 @@ export class Arena {
         sc.ringFx(e.x, e.z, e.heavy ? 4.2 : 3, 0xffe27a, 0.45);
         sc.burst(e.x, gy + 1.1, e.z, 0xfff2b0, 22, 6, 0.5);
         sc.floater(e.x, gy + 2.6, e.z, 'PARRY!', '#ffe27a', 1.5);
+        // the attacker reels: if that is you, the whole screen goes dizzy
+        if (e.by === this.myId) {
+          this.hud.dizzy(e.stun ?? 1);
+          this.hud.callout('PARRIED!', '#ff9a82');
+        }
         const mine = e.id === this.myId || e.by === this.myId;
         if (mine) {
           this.hitstop = 0.11;
