@@ -141,6 +141,13 @@ const CSS = `
 .br-lowhp.on { animation: brheart 0.9s ease-in-out infinite; }
 @keyframes brheart { 0%, 100% { opacity: .25; } 18% { opacity: .85; } 34% { opacity: .35; } 50% { opacity: .7; } }
 .br-bar.sta.empty > i { background: linear-gradient(#ff8a6a, #d2432c); }
+
+.br-streak { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; pointer-events: none; opacity: 0; }
+.br-streak.pop { animation: brstreak 2.4s ease-out forwards; }
+.br-streak b { display: block; font-size: 64px; font-weight: 700; letter-spacing: .08em; color: #ffb23a; -webkit-text-stroke: 8px var(--ink); paint-order: stroke fill; text-shadow: 0 7px 0 rgba(0,0,0,.45), 0 0 30px rgba(255,120,20,.7); }
+.br-streak span { display: block; margin-top: 4px; font-size: 26px; font-weight: 600; color: var(--cream); text-shadow: 0 3px 0 var(--ink); letter-spacing: .2em; }
+.br-streak.hot b { color: #ff5a3a; font-size: 78px; }
+@keyframes brstreak { 0% { opacity: 0; transform: translateX(-50%) scale(.4) rotate(-4deg); } 10% { opacity: 1; transform: translateX(-50%) scale(1.3) rotate(2deg); } 22% { transform: translateX(-50%) scale(1) rotate(0); } 78% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(1); } }
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = ''): T => {
@@ -204,6 +211,7 @@ export class Hud {
   private leader = el('div', 'br-leader wood');
   private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
   private callouts = el('div', 'br-callout');
+  private streakEl = el('div', 'br-streak', '<b></b><span></span>');
   private lowhp = el('div', 'br-lowhp');
   private cursor = el('div', 'br-cursor', 'Cursor free — click things, then press Left Alt to go back');
   private dashEl = { root: el('div', 'br-slot dash wood'), cd: el('div', 'cd'), cdt: el('div', 'cdt') };
@@ -297,7 +305,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.blind, this.reticle, this.callouts, this.streakEl, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -738,6 +746,17 @@ export class Hud {
     c.classList.remove('pop');
     void c.offsetWidth; // restart the animation
     c.classList.add('pop');
+  }
+
+  /** A kill streak banner: DOUBLE KILL, TRIPLE KILL, RAMPAGE... */
+  streak(label: string, n: number) {
+    const e = this.streakEl;
+    (e.querySelector('b') as HTMLElement).textContent = label;
+    (e.querySelector('span') as HTMLElement).textContent = `${n} KILLS IN A ROW`;
+    e.classList.toggle('hot', n >= 4);
+    e.classList.remove('pop');
+    void e.offsetWidth;
+    e.classList.add('pop');
   }
 
   setLowHp(on: boolean) {

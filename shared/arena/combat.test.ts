@@ -150,5 +150,18 @@ const ticks = (m: Match, n: number) => {
   assert.ok(hopped.dz < 0.25, `straight over it (${hopped.dz.toFixed(2)})`);
   assert.ok(walked.dz > 0.25 || walked.x < stone!.x, 'without a jump the stone is in the way');
 }
+// 9. kills in a row build a streak; falling resets it
+{
+  const { m, a, b } = fresh();
+  const c = m.byId.get('c')!;
+  c.x = a.x + 2;
+  c.z = a.z;
+  m.hurt(b, 9999, a, { kind: 'bite' });
+  assert.equal(a.streak, 1);
+  m.hurt(c, 9999, a, { kind: 'bite' });
+  assert.equal(a.streak, 2, 'a second quick kill makes a double');
+  m.hurt(a, 9999, c, { kind: 'bite' });
+  assert.equal(a.streak, 0, 'dying ends the streak');
+}
 void ({} as Fighter);
 console.log('combat tests passed');

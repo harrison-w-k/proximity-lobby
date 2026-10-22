@@ -128,6 +128,7 @@ export type MatchEvent =
   | { k: 'block'; id: string; x: number; z: number; broke: boolean }
   | { k: 'dodge'; id: string; x: number; z: number }
   | { k: 'pickup'; id: string; item: string; n: number }
+  | { k: 'streak'; id: string; n: number } // kills in a row without falling
   | { k: 'kill'; killer: string; victim: string; how: string }
   | { k: 'level'; id: string; lvl: number }
   | { k: 'phase'; n: number; name: string }

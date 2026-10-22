@@ -492,6 +492,17 @@ export class Arena {
         if (e.id === this.myId) this.hud.callout('DODGED', '#d8f0ff');
         break;
       }
+      case 'streak': {
+        const names = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'RAMPAGE', 'UNSTOPPABLE'];
+        const label = names[Math.min(e.n, 5)] + (e.n > 5 ? ` x${e.n}` : '');
+        if (e.id === this.myId) {
+          this.hud.streak(label, e.n);
+          this.d.sfx.levelUp();
+          this.addShake(0.35);
+          sc.burst(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 1.2, this.pos.z, 0xff9a3a, 24, 6, 0.9);
+        } else this.hud.feedLine(`🔥 ${this.who(e.id)}: ${label}`);
+        break;
+      }
       case 'pickup': {
         if (e.id !== this.myId) break;
         sc.floater(this.pos.x, sc.groundY(this.pos.x, this.pos.z) + 2.3, this.pos.z, `+${e.n} ${itemLabel(e.item)}`, '#ffb38a', 1.1);
@@ -802,6 +813,7 @@ export class Arena {
         let flags = 0;
         if (g.top.some(([id]) => id === this.myId)) flags |= FL.hunted;
         if (you.buffs.includes('stunned')) flags |= FL.stun;
+        if (you.dash > you.dashMax - 0.3) flags |= FL.dash;
         if (this.guardHeld || you.guard) flags |= FL.guard;
         if (you.wind) flags |= FL.wind;
         if (you.counter > 0) flags |= FL.counter;

@@ -135,6 +135,8 @@ export interface Fighter extends Body {
   input: Input;
   cdAt: number[];
   dashAt: number;
+  streak: number;
+  streakAt: number;
   combo: number;
   comboAt: number;
   swing: Swing | null;
@@ -381,7 +383,7 @@ export class Match {
       alloc: emptyStats(), picks: [...NO_PICKS], mods: sumMods([def.innate]), dv: derive(def, emptyStats(), sumMods([def.innate])),
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
-      cdAt: [0, 0, 0, 0], dashAt: 0, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
+      cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
       speedUntil: 0, glideUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, waitSince: 0, deathX: 0, deathZ: 0,
@@ -1156,8 +1158,10 @@ export class Match {
     const items = f.inv.filter((i): i is InvItem => !!i && (i.k !== 'water' || i.n > 0));
     f.inv.fill(null);
     if (items.length) this.addDrop(f.x, f.z, items, 180, true);
+    f.streak = 0; // falling ends your streak
     if (killer && killer.role === 'alive' && killer !== f) {
       killer.kills++;
+      this.creditStreak(killer);
       this.gainXp(killer, killXp(f.totalXp, f.level, killer.level));
       for (const tm of this.fighters) {
         if (tm !== killer && tm.team === killer.team && tm.role === 'alive' && dist(tm, killer) < 70) this.gainXp(tm, killXp(f.totalXp, f.level, tm.level) * 0.25);
@@ -1173,6 +1177,7 @@ export class Match {
         const k = this.byId.get(recent[0]);
         if (k && k.role === 'alive' && k !== f) {
           k.kills++;
+          this.creditStreak(k);
           this.gainXp(k, killXp(f.totalXp, f.level, k.level) * 0.7);
         }
       }
@@ -1209,6 +1214,13 @@ export class Match {
     }
     this.rosterDirty = true;
     this.emit({ k: 'toast', to: f.id, text: 'You were eliminated. Survive the Gulag to return as a Horde Leader.' });
+  }
+
+  /** Kills in quick succession build a streak that the whole match gets to see. */
+  private creditStreak(k: Fighter) {
+    k.streak = this.time - k.streakAt < 25 ? k.streak + 1 : 1;
+    k.streakAt = this.time;
+    if (k.streak >= 2) this.emit({ k: 'streak', id: k.id, n: k.streak });
   }
 
   private penSpot() {

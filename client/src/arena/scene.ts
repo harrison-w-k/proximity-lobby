@@ -107,6 +107,7 @@ export class ArenaScene {
   private drops = new Map<number, { g: THREE.Group; kind: string; seen: number; y0: number }>();
   private hidden = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 }[]>();
   private fxList: { update(dt: number): boolean }[] = [];
+  private trailAt = new Map<string, number>();
   private decals: { g: THREE.Group; mats: THREE.MeshBasicMaterial[]; t: number; wind: number; hostile: boolean; heavy: boolean }[] = [];
   private floaters: { s: THREE.Sprite; vy: number; life: number; max: number }[] = [];
   private projs = new Map<number, { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number }>();
@@ -707,6 +708,38 @@ varying vec3 vWP;`)
     }
   }
 
+  /** One afterimage of a dash: a stretched, glowing streak that fades behind the animal. */
+  private dashTrail(x: number, y: number, z: number, yaw: number, radius: number, team: number) {
+    const color = team === this.fighters.get(this.selfId)?.team ? 0xcfeeff : 0xffd9a8;
+    const m = new THREE.Mesh(
+      new THREE.ConeGeometry(0.5, 1, 5),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    m.rotation.x = -Math.PI / 2; // lie along the direction of travel, tip trailing behind
+    m.rotation.order = 'YXZ';
+    m.rotation.y = yaw;
+    m.scale.set(radius * 1.1, 2.6 + radius, radius * 0.7);
+    m.position.set(x - Math.sin(yaw) * (1.1 + radius * 0.6), y + 0.55 + radius * 0.3, z - Math.cos(yaw) * (1.1 + radius * 0.6));
+    this.scene.add(m);
+    let t = 0;
+    this.fxList.push({
+      update: (dt) => {
+        t += dt;
+        const k = t / 0.32;
+        (m.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k);
+        m.scale.x *= 1 - dt * 2.5;
+        m.scale.z *= 1 - dt * 2.5;
+        if (k >= 1) {
+          this.scene.remove(m);
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
+          return false;
+        }
+        return true;
+      },
+    });
+  }
+
   private makeShield(): THREE.Mesh {
     const m = new THREE.Mesh(
       new THREE.SphereGeometry(1.25, 16, 10, Math.PI / 2 - 0.95, 1.9, 0.3, 1.5),
@@ -1243,6 +1276,14 @@ varying vec3 vWP;`)
         this.scene.remove(p.m);
         this.projs.delete(id);
       }
+    }
+    // a streak of light behind anyone who is dashing
+    for (const v of this.fighters.values()) {
+      if (!v.group.visible || !(v.flags & FL.dash)) continue;
+      const last = this.trailAt.get(v.id) ?? -1;
+      if (this.clock - last < 0.025) continue;
+      this.trailAt.set(v.id, this.clock);
+      this.dashTrail(v.x, this.groundY(v.x, v.z) + v.jy, v.z, v.yaw, v.rig.radius, v.team);
     }
     this.fxList = this.fxList.filter((f) => f.update(dt));
     this.decals = this.decals.filter((d) => {
