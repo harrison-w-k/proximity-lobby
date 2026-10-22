@@ -9,6 +9,7 @@ import { REACH, throughHoop, throwPath, type Flight, type ItemKind, type ItemSta
 import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
 import * as T from './textures';
+import { makePlayerRig, type Rig } from './arena/models';
 
 export const EYE_HEIGHT = EYE_STAND;
 
@@ -1102,6 +1103,7 @@ class Avatar {
   private label: THREE.Sprite;
   private body: THREE.MeshLambertMaterial;
   private character: Character;
+  private rig: Rig | null = null;
   private nameHeight = NAME_HEIGHT;
   private tx: number;
   private tz: number;
@@ -1146,6 +1148,7 @@ class Avatar {
     this.lastY = p.y ?? 0;
     this.lastZ = p.z;
     this.crouch = p.crouch ?? false;
+    if (p.animal) this.setAnimal(p.animal);
     const s = this.crouch ? CROUCH_SCALE : 1;
     this.shell.scale.y = s;
     this.label.position.y = this.nameHeight * s;
@@ -1161,6 +1164,20 @@ class Avatar {
 
   setSpeaking(on: boolean) {
     this.body.emissiveIntensity = on ? 0.9 : 0;
+  }
+
+  /** Appear as an animal instead of the clay figure (or back again with `undefined`). */
+  setAnimal(id: string | undefined) {
+    if (this.rig) this.shell.remove(this.rig.root);
+    this.rig = null;
+    this.character.group.visible = !id;
+    this.nameHeight = this.character.height + 0.3;
+    if (id) {
+      this.rig = makePlayerRig(id);
+      this.rig.root.rotation.y = Math.PI; // the lobby's characters face -Z
+      this.shell.add(this.rig.root);
+      this.nameHeight = this.rig.height + 0.35;
+    }
   }
 
   setAvatar(url: string | null) {
@@ -1224,6 +1241,11 @@ class Avatar {
       dt,
       t,
     );
+    if (this.rig) {
+      const rd = ragdollAmount(this.ragdollLeft, this.ragdollDur);
+      this.rig.root.rotation.z = rd * this.ragFall * 1.5;
+      this.rig.update(dt, { speed: this.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t, air: airborne ? 0.5 : 0, vy: this.vy });
+    }
     this.ragdollLeft = Math.max(0, this.ragdollLeft - dt);
   }
 
@@ -1284,6 +1306,8 @@ export class World {
   private selfThird = new THREE.Group(); // our full character, shown while the camera is pulled back
   private selfBody = new THREE.Group(); // the same character, minus head, seen when looking down
   private selfChars: Character[] = [];
+  private selfRig: Rig | null = null;
+  private selfAnimal = '';
   private selfAvatar: string | null = null;
   private ray = new THREE.Raycaster();
   private centre = new THREE.Vector2(0, 0);
@@ -1602,6 +1626,27 @@ export class World {
       c.setFace(this.selfAvatar);
       c.setLook(this.selfLook);
     }
+    this.applySelfAnimal();
+  }
+
+  /** Show our own animal in place of the clay figure. */
+  setSelfAnimal(id: string) {
+    this.selfAnimal = id;
+    this.applySelfAnimal();
+  }
+
+  private applySelfAnimal() {
+    if (this.selfRig) this.selfThird.remove(this.selfRig.root);
+    this.selfRig = null;
+    for (const c of this.selfChars) c.group.visible = !this.selfAnimal;
+    if (!this.selfAnimal) return;
+    this.selfRig = makePlayerRig(this.selfAnimal);
+    this.selfRig.root.rotation.y = Math.PI;
+    this.selfThird.add(this.selfRig.root);
+  }
+
+  setPlayerAnimal(id: string, animal: string | undefined) {
+    this.avatars.get(id)?.setAnimal(animal);
   }
 
   setSelfLook(look: Look | null) {
@@ -2203,6 +2248,11 @@ export class World {
     this.ragdollT = Math.max(0, this.ragdollT - dt);
     if (this.ragdollT <= 0 && sim.ragdoll) sim.ragdoll = false;
     for (const c of this.selfChars) c.animate(state, dt, this.clock);
+    if (this.selfRig) {
+      const rd = state.ragdoll ?? 0;
+      this.selfRig.root.rotation.z = rd * (state.ragFall ?? 1) * 1.5;
+      this.selfRig.update(dt, { speed: state.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t: this.clock, air: state.grounded ? 0 : 0.5, vy: state.vy, guard: false });
+    }
 
     this.pos.y = this.feetY + sim.eye;
     const ease = 1 - Math.exp(-7 * dt);
@@ -2278,7 +2328,7 @@ export class World {
 
     // The headless first-person body only while the camera is at the head; the full character
     // takes over as the camera pulls back.
-    this.selfBody.visible = !this.orbit && this.tpBlend < 0.02;
+    this.selfBody.visible = !this.orbit && this.tpBlend < 0.02 && !this.selfAnimal;
     this.selfThird.visible = !this.orbit && this.tpBlend >= 0.02;
     const squash = 0.7 + 0.3 * Math.min(1, Math.max(0, (sim.eye - EYE_CROUCH) / (EYE_HEIGHT - EYE_CROUCH)));
     this.selfThird.position.set(this.pos.x, this.feetY, this.pos.z);

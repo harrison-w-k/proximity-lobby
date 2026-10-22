@@ -294,6 +294,17 @@ export class Sfx {
     this.burst('bandpass', 1800, 900, 0.07, 0.1, 1.4);
   }
 
+  /** A soft tick when an animal is brought into focus on the select screen. */
+  hoverTick() {
+    this.tone(this.jitter(1240, 0.04), 1500, 0.05, 0.04, 'triangle');
+  }
+
+  /** The select screen's rising whoosh and chime when you choose an animal. */
+  choose() {
+    this.burst('bandpass', 300, 2600, 0.28, 0.09, 0.8);
+    [523, 659, 880].forEach((f, i) => this.tone(f, f, 0.2, 0.08, 'triangle', 0.06 + i * 0.07));
+  }
+
   // ---------- interface ----------
   click() {
     this.tone(this.jitter(880, 0.03), 700, 0.045, 0.07, 'square');

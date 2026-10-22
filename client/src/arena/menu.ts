@@ -3,6 +3,7 @@
 import { ANIMALS, ANIMAL_BY_ID, CLASSES, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, type AnimalDef } from '../../../shared/arena/animals';
 import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
+import type { Sfx } from '../sfx';
 import { Showcase } from './showcase';
 
 const CSS = `
@@ -60,8 +61,27 @@ const CSS = `
 #br-menu .status { font-size: 22px; font-weight: 600; color: var(--leaf); min-height: 28px; }
 #br-open { pointer-events: auto; cursor: pointer; font-family: 'Fredoka', 'Trebuchet MS', sans-serif; font-weight: 700; }
 @media (max-width: 960px) { #br-menu .stage { grid-template-columns: 1fr; } #br-menu .roster { grid-template-columns: repeat(4, 1fr); } }
+
+#br-menu .show { --acc: #e8a23a; }
+#br-menu .show::after { content: ''; position: absolute; inset: 0; border-radius: 14px; pointer-events: none; box-shadow: inset 0 0 60px color-mix(in srgb, var(--acc) 40%, transparent); }
+#br-menu .show .name span { background: linear-gradient(color-mix(in srgb, var(--acc) 70%, white), var(--acc)); }
+#br-menu .show .pick { position: absolute; right: 14px; top: 12px; padding: 2px 12px; border-radius: 999px; border: 3px solid var(--ink); font-weight: 700; font-size: 16px; letter-spacing: .06em; background: rgba(18,12,7,.8); color: var(--cream); pointer-events: none; transition: transform .15s; }
+#br-menu .show .pick.yes { background: linear-gradient(#cdf08e, #8fc653); color: #17210c; animation: brpickpop .35s ease-out; }
+@keyframes brpickpop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
+#br-menu .show .hint { position: absolute; right: 14px; bottom: 10px; font-size: 14px; color: rgba(255,255,255,.55); pointer-events: none; }
+#br-menu .detail > * { animation: brslideup .4s ease-out both; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes brslideup { from { opacity: 0; transform: translateY(18px); } }
+#br-menu .skills div { transition: transform .12s, background .12s; }
+#br-menu .skills div:hover { transform: translateX(5px); background: rgba(255,255,255,.1); }
+#br-menu .tile.sel { box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 0 0 4px var(--tacc, var(--amber)), 0 0 24px var(--tacc, rgba(255,200,80,.8)), 0 5px 0 rgba(0,0,0,.45); }
+#br-menu .tile::after { content: ''; position: absolute; left: 12%; right: 12%; bottom: 3px; height: 4px; border-radius: 999px; background: var(--tacc); opacity: .85; }
+#br-menu .tile .tick { position: absolute; right: -6px; top: -8px; width: 24px; height: 24px; border-radius: 50%; background: #8fc653; border: 3px solid var(--ink); color: #17210c; font-weight: 700; font-size: 14px; line-height: 18px; display: none; }
+#br-menu .tile.sel .tick { display: block; animation: brpickpop .35s ease-out; }
+#br-menu .dice { font-size: 22px; }
+#br-menu .kb { font-size: 14px; color: rgba(236,220,178,.7); }
 `;
 
+const ACCENT: Record<string, string> = { hunter: '#e8a23a', titan: '#6b9cff', ambusher: '#6fcf5a', brawler: '#ff6a5a', skirmisher: '#c78bff', guardian: '#4fd0d0' };
 const EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
 
 export class BrMenu {
@@ -77,15 +97,23 @@ export class BrMenu {
   private showcase = new Showcase();
   private nameEl = document.createElement('div');
   private flashEl = document.createElement('div');
+  private pickEl = document.createElement('div');
+  private hintEl = document.createElement('div');
+  private show!: HTMLElement;
   private detail = document.createElement('div');
   private hoverTimer = 0;
   isOpen = false;
   onClose: () => void = () => {};
   onOpen: () => void = () => {};
+  /** You picked an animal (so the lobby can show it). */
+  onChoose: (id: string) => void = () => {};
   private tick = 0;
   private qAt = 0;
 
-  constructor(private net: Net) {
+  constructor(
+    private net: Net,
+    private sfx?: Sfx,
+  ) {
     const st = document.createElement('style');
     st.textContent = CSS;
     document.head.append(st);
@@ -109,7 +137,11 @@ export class BrMenu {
     show.className = 'show';
     this.nameEl.className = 'name';
     this.flashEl.className = 'flash';
-    show.append(this.showcase.canvas, this.flashEl, this.nameEl);
+    this.pickEl.className = 'pick';
+    this.hintEl.className = 'hint';
+    this.hintEl.textContent = 'Drag to turn it · click to make it move';
+    this.show = show;
+    show.append(this.showcase.canvas, this.flashEl, this.nameEl, this.pickEl, this.hintEl);
     this.detail.className = 'detail';
     stage.append(show, this.detail);
     panel.append(stage);
@@ -158,18 +190,26 @@ export class BrMenu {
     const close = document.createElement('button');
     close.className = 'br-btn red';
     close.textContent = 'Back to the lobby';
-    row.append(this.team, this.queueBtn, this.leaveBtn, close);
+    const dice = document.createElement('button');
+    dice.className = 'br-btn amber dice';
+    dice.textContent = '🎲 Surprise me';
+    dice.addEventListener('click', () => {
+      const ids = ANIMALS.map((x) => x.id);
+      this.choose(ids[Math.floor(Math.random() * ids.length)]);
+    });
+    row.append(this.team, dice, this.queueBtn, this.leaveBtn, close);
     this.status.className = 'status';
     panel.append(row, this.status);
     const help = document.createElement('div');
     help.className = 'sub';
     help.style.fontSize = '16px';
-    help.innerHTML = 'Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack · hold <b>RMB</b> guard (raise it just before a hit to parry) · <b>Q E R F</b> skills · <b>Tab</b> upgrades · <b>Left Alt</b> cursor.';
+    help.innerHTML = '<span class="kb">Arrow keys move the spotlight · Enter picks</span><br>Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack · hold <b>RMB</b> guard (raise it just before a hit to parry) · <b>Q E R F</b> skills · <b>Tab</b> upgrades · <b>Left Alt</b> cursor.';
     panel.append(help);
     this.root.append(panel);
     document.body.append(this.root);
 
     this.queueBtn.addEventListener('click', () => {
+      this.net.send({ t: 'animal', a: this.sel });
       try {
         localStorage.setItem('br-animal', this.sel);
         localStorage.setItem('br-team', this.team.value);
@@ -182,6 +222,17 @@ export class BrMenu {
     close.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', (e) => {
       if (e.code === 'Escape') this.close();
+      const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT';
+      if (!typing) {
+        if (e.code === 'ArrowRight') this.step(1, 0);
+        else if (e.code === 'ArrowLeft') this.step(-1, 0);
+        else if (e.code === 'ArrowDown') this.step(0, 1);
+        else if (e.code === 'ArrowUp') this.step(0, -1);
+        else if (e.code === 'Enter' || e.code === 'Space') {
+          this.choose(this.focus);
+          e.preventDefault();
+        }
+      }
       e.stopPropagation(); // typing a squad code must not move the animal
     });
     window.addEventListener('resize', () => this.isOpen && this.showcase.resize());
@@ -194,7 +245,8 @@ export class BrMenu {
     t.tabIndex = 0;
     t.style.animationDelay = `${0.04 * i + 0.15}s`;
     const cls = CLASS_BY_ID.get(a.cls)!;
-    t.innerHTML = `<div class="em">${EMOJI[a.id] ?? '🐾'}</div><b>${a.name}</b><small>${cls.icon} ${cls.name}</small>`;
+    t.style.setProperty('--tacc', ACCENT[a.cls] ?? '#e8a23a');
+    t.innerHTML = `<div class="em">${EMOJI[a.id] ?? '🐾'}</div><b>${a.name}</b><small>${cls.icon} ${cls.name}</small><span class="tick">✓</span>`;
     // hovering brings an animal up into focus; leaving returns to your choice
     t.addEventListener('mouseenter', () => {
       clearTimeout(this.hoverTimer);
@@ -205,15 +257,38 @@ export class BrMenu {
       clearTimeout(this.hoverTimer);
       this.hoverTimer = window.setTimeout(() => this.bringUp(this.sel), 450);
     });
-    t.addEventListener('click', () => {
-      this.sel = a.id;
-      this.bringUp(a.id);
-      this.refreshSel();
-    });
+    t.addEventListener('click', () => this.choose(a.id));
     return t;
   }
 
+  private choose(id: string) {
+    const changed = this.sel !== id;
+    this.sel = id;
+    this.bringUp(id);
+    this.refreshSel();
+    if (changed) {
+      this.sfx?.choose();
+      this.net.send({ t: 'animal', a: id }); // the lobby shows you as this animal right away
+      this.onChoose(id);
+    }
+  }
+
+  /** Arrow keys move the spotlight; Enter picks. */
+  private step(dx: number, dy: number) {
+    const vis = [...this.tiles.entries()].filter(([, t]) => !t.hidden).map(([id]) => id);
+    if (!vis.length) return;
+    const i = Math.max(0, vis.indexOf(this.focus));
+    const cols = window.innerWidth <= 960 ? 4 : 8;
+    const n = Math.max(0, Math.min(vis.length - 1, i + dx + dy * cols));
+    this.bringUp(vis[n]);
+  }
+
   private refreshSel() {
+    const k = this.focus === this.sel;
+    this.pickEl.textContent = k ? '✓ YOUR PICK' : 'CLICK TO CHOOSE';
+    this.pickEl.classList.toggle('yes', k);
+    const cls = ANIMAL_BY_ID.get(this.focus)?.cls;
+    if (cls) this.show.style.setProperty('--acc', ACCENT[cls] ?? '#e8a23a');
     for (const [id, t] of this.tiles) {
       t.classList.toggle('sel', id === this.sel);
       t.classList.toggle('focus', id === this.focus);
@@ -227,6 +302,8 @@ export class BrMenu {
     const a = ANIMAL_BY_ID.get(id);
     if (!a) return;
     this.showcase.setAnimal(id);
+    this.showcase.setAccent(parseInt((ACCENT[a.cls] ?? '#e8a23a').slice(1), 16));
+    this.sfx?.hoverTick();
     const cls = CLASS_BY_ID.get(a.cls)!;
     this.nameEl.innerHTML = `<b>${a.name}</b><span>${cls.icon} ${cls.name}</span>`;
     this.nameEl.classList.remove('in');
@@ -242,6 +319,7 @@ export class BrMenu {
       `<div class="bars">${rows}</div>` +
       `<div class="skills"><div><b>${a.sig[0].name}</b> (Q): ${a.sig[0].desc}</div><div><b>${a.sig[1].name}</b> (E): ${a.sig[1].desc}</div><div class="inn"><b>${a.innate.name}</b> (passive): ${a.innate.desc}</div></div>` +
       `<div class="perks"><div><h4>${cls.icon} ${cls.name} gives</h4>${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}</div><div><h4>and costs</h4>${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^-\s?/, '')}</div>`).join('')}<div class="d">− ${a.weakness}</div></div></div>`;
+    this.detail.querySelectorAll<HTMLElement>(':scope > *').forEach((el, i) => el.style.setProperty('--i', String(i)));
     // let the stat bars grow into place
     requestAnimationFrame(() =>
       requestAnimationFrame(() =>

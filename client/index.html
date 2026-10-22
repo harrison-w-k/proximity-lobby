@@ -427,6 +427,125 @@
     .swatch:hover { border-color: #f8b330; }
     .swatch.on { border-color: #0831d9; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0831d9; }
     .hatlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+    /* ================= Forest theme =================
+       Carved-wood panels and leaf-green buttons, the same look as the match HUD. Placed last so it
+       overrides the XP theme above. */
+    :root {
+      --ink: #120c07; --bark: #241810; --bark2: #3a271a; --moss: #4f8a3a; --leaf: #9bd15a; --amber: #f3b43c; --cream: #f7edd3; --blood: #d9503a; --river: #3fa5cf;
+      --blue: #3a271a; --blue-dark: #241810; --blue-light: #5a3d24; --yellow: #f3b43c; --green: #6faa3a; --red: #d9503a;
+      --xp-body: #3a271a; --xp-edge: #120c07;
+      --font-body: 'Fredoka', 'Trebuchet MS', 'Segoe UI', sans-serif; --font-pixel: 'Fredoka', 'Trebuchet MS', 'Segoe UI', sans-serif;
+    }
+    html, body { font-family: var(--font-body); font-size: 17px; line-height: 1.25; }
+    .box, .panel { background: repeating-linear-gradient(92deg, rgba(255,255,255,.025) 0 3px, rgba(0,0,0,.05) 3px 7px), linear-gradient(#3d2a1c, #271910);
+      color: var(--cream); border: 3px solid var(--ink); border-radius: 16px; outline: none;
+      box-shadow: inset 0 0 0 2px #6e4c2d, inset 0 3px 0 rgba(255,255,255,.14), 0 6px 0 rgba(0,0,0,.45); }
+    .card.box { padding-top: 20px; }
+    .card.box::before, .card.box::after { content: none; }
+    .card h2 { font-size: 26px; color: var(--amber); text-shadow: 0 3px 0 var(--ink); }
+    .card p { color: #ecdcb2; font-size: 16px; }
+    .card #who { color: #17210c; font-size: 17px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(#b7e46f, #6faa3a); padding: 4px 14px; }
+    #status { font-size: 16px; color: #ff9a82; text-shadow: 0 2px 0 var(--ink); }
+    #status.ok { color: var(--leaf); }
+    .panel-head { background: linear-gradient(#5a3d24, #3d2a1c); border-bottom: 3px solid var(--ink); border-radius: 12px 12px 0 0; }
+    .panel-head h1 { color: var(--amber); font-size: 20px; text-shadow: 0 2px 0 var(--ink); letter-spacing: .04em; }
+    .esc-hint { color: #e8d7ad; text-shadow: 0 2px 0 var(--ink); font-size: 15px; }
+    .panel-foot { background: rgba(0,0,0,.25); border-top: 3px solid var(--ink); }
+
+    .btn { min-height: 38px; padding: 4px 20px; border: 3px solid var(--ink); border-radius: 999px; color: #2a1b0c; font-family: var(--font-body); font-size: 17px; font-weight: 700;
+      background: linear-gradient(#fff3c8, #e0c37a); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.4); }
+    .btn:hover:not(:disabled) { filter: brightness(1.08); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); background: linear-gradient(#fff3c8, #e0c37a); }
+    .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 1px 0 var(--ink); background: linear-gradient(#e0c37a, #fff3c8); }
+    .btn.primary { color: #17210c; border-color: var(--ink); background: linear-gradient(#b7e46f, #6faa3a); text-shadow: 0 1px 0 rgba(255,255,255,.4); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); }
+    .btn.primary:hover:not(:disabled) { background: linear-gradient(#c6f283, #7fc046); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 var(--ink); }
+    .btn.primary:active:not(:disabled) { background: linear-gradient(#6faa3a, #b7e46f); }
+    .btn.glass { color: var(--cream); background: linear-gradient(#7a5a3a, #52381f); text-shadow: 0 1px 0 rgba(0,0,0,.5); }
+    .btn.glass.active { color: #2a1b0c; background: linear-gradient(#ffd77a, #e09a1f); border-color: var(--ink); }
+    .btn.danger { color: #fff; border-color: var(--ink); background: linear-gradient(#ff9c86, #d4412a); text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+    .btn.small { min-height: 30px; padding: 2px 14px; font-size: 15px; }
+    .btn.block { font-size: 17px; }
+    .linkbtn { color: var(--amber); font-family: var(--font-body); font-size: 16px; }
+    .linkbtn:hover { color: var(--cream); }
+
+    input[type=text], input[type=email], input[type=password], select { height: 40px; padding: 0 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f7edd3; color: #2a1b0c;
+      font-family: var(--font-body); font-size: 18px; box-shadow: inset 0 3px 0 rgba(0,0,0,.15); }
+    select { padding-right: 34px; }
+    input::placeholder { color: #9a8a68; }
+    input[type=text]:focus, input[type=email]:focus, input[type=password]:focus, select:focus { border-color: var(--ink); box-shadow: inset 0 3px 0 rgba(0,0,0,.15), 0 0 0 3px var(--leaf); }
+    input[type=range] { height: 12px; margin: 12px 0 8px; border: 3px solid var(--ink); border-radius: 999px; background-color: #1a110a; background-image: linear-gradient(#b7e46f, #6faa3a); box-shadow: inset 0 2px 0 rgba(0,0,0,.4); }
+    input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--ink); background: linear-gradient(#fff3c8, #e0c37a); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+    input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--ink); background: #f7edd3; }
+    input[type=range]:focus-visible { box-shadow: 0 0 0 3px var(--leaf); }
+    .key { min-width: 28px; height: 26px; padding: 0 9px; border: 2px solid var(--ink); border-radius: 999px; color: #17210c; font-family: var(--font-body); font-size: 14px; font-weight: 700; background: var(--leaf); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+    .eyebrow { color: var(--amber); font-family: var(--font-body); }
+
+    #join { background: radial-gradient(ellipse at 50% 100%, rgba(70,120,40,.5) 0, rgba(0,0,0,0) 60%), linear-gradient(180deg, rgba(10,24,8,.5), rgba(14,30,10,.25) 60%, rgba(10,24,8,.55)); }
+    .hero h1 { font-family: var(--font-body); font-weight: 700; font-style: normal; text-transform: uppercase; letter-spacing: .04em; color: var(--cream);
+      -webkit-text-stroke: 8px var(--ink); paint-order: stroke fill; text-shadow: 0 8px 0 rgba(0,0,0,.4); }
+    .hero h1 .l2 { color: var(--amber); }
+    .tagline { font-size: 21px; color: var(--cream); text-shadow: 0 3px 0 var(--ink); }
+    .features li { font-size: 20px; color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
+    .features .ico { border: 3px solid var(--ink); border-radius: 50%; background: linear-gradient(#b7e46f, #6faa3a); box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+    .features li:nth-child(2) .ico { background: linear-gradient(#ffd77a, #e09a1f); }
+    .features li:nth-child(3) .ico { background: linear-gradient(#9fe0ff, #3fa5cf); }
+    .features b { color: var(--amber); }
+    .version { color: #e8d7ad; font-family: var(--font-body); text-shadow: 0 2px 0 var(--ink); }
+
+    .chip { padding: 2px 14px; border: 3px solid var(--ink); border-radius: 999px; font-size: 17px; font-weight: 600; color: var(--cream);
+      background: linear-gradient(#5a3d24, #3d2a1c); backdrop-filter: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.18), 0 3px 0 rgba(0,0,0,.4); text-shadow: 0 2px 0 var(--ink); }
+    #mic.speaking { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; text-shadow: none; box-shadow: inset 0 2px 0 rgba(255,255,255,.5), 0 3px 0 rgba(0,0,0,.4); }
+    #mic.off { background: linear-gradient(#ff9c86, #d4412a); }
+    #animal-chip { pointer-events: auto; cursor: pointer; font-family: var(--font-body); }
+    #animal-chip:hover { filter: brightness(1.15); }
+    #crosshair { width: 9px; height: 9px; margin: -4px; border: 2px solid var(--ink); border-radius: 50%; background: var(--cream); }
+    #pickup-hint, #target { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.85); font-family: var(--font-body); font-size: 18px; color: var(--cream); text-transform: none; text-shadow: 0 2px 0 var(--ink); }
+    #target small { color: var(--amber); font-size: 15px; }
+    #throw-bar { border: 3px solid var(--ink); border-radius: 999px; background: #1a110a; }
+    #throw-fill { border-radius: 999px; background: linear-gradient(#b7e46f, #6faa3a); }
+    #paused { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.9); color: var(--cream); font-family: var(--font-body); font-size: 20px; padding: 8px 26px; text-transform: none; box-shadow: 0 5px 0 rgba(0,0,0,.4); }
+
+    #chat-log { font-size: 17px; gap: 4px; }
+    .line { padding: 2px 14px; border: 2px solid #6e4c2d; border-radius: 999px; background: rgba(18,12,7,.78); color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
+    .line b { color: var(--amber); }
+    .line.dm { border-color: var(--river); background: rgba(10,30,40,.82); }
+    .line.dm b { color: #9fe0ff; }
+    #chat-input { height: 36px; margin-top: 6px; }
+
+    #settings, #dead { background: rgba(12, 8, 5, .62); }
+    .panel-body { background: transparent; }
+    .tabs { gap: 5px; padding: 12px 10px; border-right: 3px solid var(--ink); background: rgba(0,0,0,.3); }
+    .tab { padding: 6px 14px; border: 3px solid transparent; border-radius: 999px; background: transparent; color: var(--cream); font-family: var(--font-body); font-size: 17px; font-weight: 600; text-shadow: 0 2px 0 var(--ink); }
+    .tab:hover { background: rgba(255,255,255,.1); color: var(--cream); }
+    .tab.active { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; border-color: var(--ink); text-shadow: none; }
+    .pane { color: var(--cream); }
+    .group-title { font-family: var(--font-body); font-size: 18px; color: var(--amber); border-bottom: 3px solid rgba(0,0,0,.35); text-shadow: 0 2px 0 var(--ink); letter-spacing: .05em; text-transform: uppercase; }
+    .setting, .pl-row, .bind { border: 2px solid #5a3d24; border-radius: 14px; background: rgba(0,0,0,.28); color: var(--cream); }
+    .setting-title { color: var(--cream); font-size: 18px; text-shadow: 0 2px 0 var(--ink); }
+    .setting-desc, .note, #players-note { color: #e8d7ad; font-size: 15px; }
+    .setting-val, .pl-val { color: var(--amber); font-size: 16px; text-shadow: 0 2px 0 var(--ink); }
+    .field > label { color: var(--cream); font-size: 16px; }
+    .meter { height: 18px; border: 3px solid var(--ink); border-radius: 999px; background: #1a110a; overflow: hidden; }
+    #players-list:empty::before { border: 2px dashed #6e4c2d; border-radius: 14px; color: #e8d7ad; }
+    .bind code { color: var(--amber); }
+    #avatar-preview { border: 3px solid var(--ink); border-radius: 14px; background: #1a110a; }
+    .swatch { border: 3px solid var(--ink); border-radius: 12px; color: #2a1b0c; }
+    .swatch.on { border-color: var(--ink); box-shadow: 0 0 0 3px var(--leaf); }
+    .swatch:hover { border-color: var(--amber); }
+    #t-stick { border: 3px solid var(--ink); background: radial-gradient(circle, rgba(90,61,36,.55), rgba(18,12,7,.55)); }
+    #t-knob { border: 3px solid var(--ink); background: linear-gradient(#fff3c8, #e0c37a); }
+    .tb { border: 3px solid var(--ink); font-family: var(--font-body); color: var(--cream); background: linear-gradient(#5a3d24, #3d2a1c); text-shadow: 0 2px 0 var(--ink); }
+    .tb.down { background: linear-gradient(#b7e46f, #6faa3a); color: #17210c; }
+
+    /* the animal picker on the join card */
+    .animal-pick { display: flex; flex-direction: column; gap: 6px; }
+    .animal-pick .setting-title { font-size: 17px; color: var(--amber); }
+    #join-animals { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+    #join-animals .an { padding: 2px 0; font-size: 24px; line-height: 1.25; border: 3px solid var(--ink); border-radius: 12px; cursor: pointer; background: linear-gradient(#f7edd3, #dcc995);
+      box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
+    #join-animals .an:hover { transform: translateY(-3px) scale(1.1); }
+    #join-animals .an.on { background: linear-gradient(#cdf08e, #8fc653); transform: translateY(-4px) scale(1.12); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px var(--amber), 0 3px 0 rgba(0,0,0,.45); }
+    #join-animal-name { color: #ecdcb2; font-size: 15px; min-height: 18px; }
   </style>
 </head>
 <body>
@@ -460,6 +579,7 @@
       <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" minlength="6" hidden />
       <input id="auth-password2" type="password" placeholder="Repeat new password" autocomplete="new-password" minlength="6" hidden />
       <input id="auth-code" type="text" inputmode="numeric" placeholder="Code from the email" autocomplete="one-time-code" hidden />
+      <div class="animal-pick"><div class="setting-title">Choose your animal</div><div id="join-animals"></div><small id="join-animal-name"></small></div>
       <button id="join-btn" class="btn primary" type="submit">Join</button>
       <div class="links">
         <button id="resend-btn" class="linkbtn" type="button" hidden>Resend the email</button>
@@ -475,6 +595,7 @@
   <div id="hud" hidden>
     <div id="players" class="chip"></div>
     <div id="mic" class="chip"></div>
+    <button id="animal-chip" class="chip" type="button" title="Choose your animal"></button>
     <button id="br-open" class="btn small primary" type="button">🐾 Battle Royale [B]</button>
   </div>
 

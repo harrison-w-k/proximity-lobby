@@ -14,6 +14,7 @@ import {
 import { clampToArena } from './map';
 import { validAvatar } from './avatar';
 import { validLook, type Look } from './look';
+import { ANIMAL_BY_ID } from './arena/animals';
 import { Director } from './arena/director';
 import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, bounceFor, throwPath, type ItemState } from './items';
 
@@ -53,6 +54,7 @@ const publicState = (c: Session): PlayerState => ({
   crouch: c.crouch,
   avatar: c.avatar,
   look: c.look,
+  animal: c.animal,
 });
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -151,7 +153,7 @@ export class Lobby {
   }
 
   save(c: Session): Saved {
-    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined, look: c.look };
+    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined, look: c.look, animal: c.animal };
   }
 
   /**
@@ -288,6 +290,12 @@ export class Lobby {
         c.ptsTimes.push(now);
         c.score = (c.score ?? 0) + msg.n;
         this.broadcastScores();
+        break;
+      }
+      case 'animal': {
+        if (!c.joined || typeof msg.a !== 'string' || !ANIMAL_BY_ID.has(msg.a) || !this.allowChat(c)) return;
+        c.animal = msg.a;
+        this.broadcast({ t: 'animal', id: c.id, a: msg.a }, c.id);
         break;
       }
       case 'look': {

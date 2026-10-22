@@ -23,6 +23,7 @@ export interface PlayerState {
   crouch: boolean;
   avatar?: string; // profile photo as a small data URL, drawn on the face
   look?: Look; // chosen clay colour and hat
+  animal?: string; // the animal you play as (shown instead of the clay figure)
 }
 
 export type ClientMsg =
@@ -34,6 +35,7 @@ export type ClientMsg =
   | { t: 'dm'; to: string; text: string } // private message to a player id
   | { t: 'avatar'; img: string | null } // set (or clear) your profile photo
   | { t: 'look'; c: number; h: number } // set your colour and hat
+  | { t: 'animal'; a: string } // choose the animal you appear as
   | { t: 'hit'; vx: number; vz: number; sev: number } // a hard throw hit you (sev 0..1): everyone ragdolls you
   | { t: 'emote'; e: number } // start an emote (0 stops it)
   | { t: 'pts'; n: number } // you scored points (coin, target, basket)
@@ -64,6 +66,7 @@ export type ServerMsg =
   | { t: 'notice'; text: string }
   | { t: 'avatar'; id: string; img: string | null }
   | { t: 'look'; id: string; c: number; h: number }
+  | { t: 'animal'; id: string; a: string }
   | { t: 'emote'; id: string; e: number }
   | { t: 'scores'; s: [id: string, name: string, pts: number][] }
   | { t: 'ragdoll'; id: string; vx: number; vz: number; sev: number }

@@ -31,6 +31,11 @@ export class Showcase {
   private steps: Step[] = [];
   private radius = 1;
   private center = new THREE.Vector3();
+  private dragYaw = 0;
+  private dragging = false;
+  private lastDrag = -9;
+  private moved = 0;
+  private rim!: THREE.DirectionalLight;
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
@@ -39,21 +44,44 @@ export class Showcase {
     const key = new THREE.DirectionalLight(0xfff0d0, 1.9);
     key.position.set(3, 5, 4);
     this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0x9fd8ff, 1.1);
-    rim.position.set(-4, 3, -3);
-    this.scene.add(rim);
+    this.rim = new THREE.DirectionalLight(0x9fd8ff, 1.1);
+    this.rim.position.set(-4, 3, -3);
+    this.scene.add(this.rim);
+    // drag to turn the animal around; a click makes it perform
+    const c = this.canvas;
+    c.style.cursor = 'grab';
+    c.addEventListener('pointerdown', (e) => {
+      this.dragging = true;
+      this.moved = 0;
+      c.setPointerCapture(e.pointerId);
+      c.style.cursor = 'grabbing';
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!this.dragging) return;
+      this.dragYaw += e.movementX * 0.012;
+      this.moved += Math.abs(e.movementX) + Math.abs(e.movementY);
+      this.lastDrag = performance.now() / 1000;
+    });
+    const up = () => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      c.style.cursor = 'grab';
+      if (this.moved < 5) this.perform();
+    };
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
 
     // a soft pool of light on the ground
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d')!;
+    const glow = document.createElement('canvas');
+    glow.width = glow.height = 128;
+    const g = glow.getContext('2d')!;
     const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
     grad.addColorStop(0, 'rgba(255,240,190,0.95)');
     grad.addColorStop(0.55, 'rgba(255,200,110,0.35)');
     grad.addColorStop(1, 'rgba(255,200,110,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 128, 128);
-    this.floor = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    this.floor = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(glow), transparent: true, depthWrite: false }));
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.position.y = 0.01;
     this.scene.add(this.floor);
@@ -78,6 +106,18 @@ export class Showcase {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.dust = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xfff2c0, size: 0.04, transparent: true, opacity: 0.7, depthWrite: false }));
     this.scene.add(this.dust);
+  }
+
+  /** Tint the rim light and shockwave with the animal's class colour. */
+  setAccent(hex: number) {
+    this.rim.color.setHex(hex);
+    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(hex);
+  }
+
+  /** Play the next move in the reel right now (clicking the animal). */
+  perform() {
+    if (!this.rig || this.enter < 1) return;
+    this.stepAt = 0; // the next frame starts the next step
   }
 
   /** Bring an animal up into focus. */
@@ -185,7 +225,10 @@ export class Showcase {
     // the floor glow breathes
     (this.floor.material as THREE.MeshBasicMaterial).opacity = 0.75 + Math.sin(this.t * 1.6) * 0.15;
     // slow turntable, easing around to show off the front for each move
-    rig.root.rotation.y = 2.5 + Math.sin(this.t * 0.45) * 0.75 + this.t * 0.08;
+    // after you let go the animal drifts back to its slow turn
+    const idle = this.dragging || now - this.lastDrag < 2.5;
+    rig.root.rotation.y = 2.5 + this.dragYaw + (idle ? 0 : Math.sin(this.t * 0.45) * 0.75 + this.t * 0.08);
+    if (!idle && Math.abs(this.dragYaw) > 0.001) this.dragYaw *= 1 - Math.min(1, dt * 1.2);
     // motes drift upward
     const p = this.dust.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < p.count; i++) {

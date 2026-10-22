@@ -7,6 +7,7 @@ import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
 import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
+import { ANIMALS, ANIMAL_BY_ID } from '../../shared/arena/animals';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
@@ -34,7 +35,56 @@ if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = wo
 if (import.meta.env.DEV) setTimeout(() => ((window as unknown as { __arena?: unknown }).__arena = arena), 0);
 let voice: Voice | null = null;
 let joined = false;
-const brMenu = new BrMenu(net);
+const ANIMAL_EMOJI: Record<string, string> = { wolf: '🐺', bear: '🐻', cheetah: '🐆', badger: '🦡', croc: '🐊', boar: '🐗', otter: '🦦', porcupine: '🦔', lion: '🦁', hippo: '🦛', redfox: '🦊', leopard: '🐈', gorilla: '🦍', turtle: '🐢', kangaroo: '🦘', skunk: '🦨' };
+let myAnimal = 'wolf';
+try {
+  const saved = localStorage.getItem('br-animal');
+  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = saved;
+} catch {
+  /* storage unavailable */
+}
+function refreshAnimalUi() {
+  const a = ANIMAL_BY_ID.get(myAnimal);
+  const chip = document.getElementById('animal-chip');
+  if (chip && a) chip.textContent = `${ANIMAL_EMOJI[a.id] ?? '🐾'} ${a.name} · change`;
+  const label = document.getElementById('join-animal-name');
+  if (label && a) label.textContent = `${a.name}: ${a.role}. ${a.blurb}`;
+  document.querySelectorAll<HTMLElement>('#join-animals .an').forEach((b) => b.classList.toggle('on', b.dataset.id === myAnimal));
+}
+function chooseAnimal(id: string) {
+  if (!ANIMAL_BY_ID.has(id)) return;
+  myAnimal = id;
+  try {
+    localStorage.setItem('br-animal', id);
+  } catch {
+    /* storage unavailable */
+  }
+  refreshAnimalUi();
+  if (joined) {
+    world.setSelfAnimal(id);
+    net.send({ t: 'animal', a: id });
+  }
+}
+{
+  // the picker on the join card
+  const box = document.getElementById('join-animals');
+  for (const a of ANIMALS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'an';
+    b.dataset.id = a.id;
+    b.title = a.name;
+    b.textContent = ANIMAL_EMOJI[a.id] ?? '🐾';
+    b.addEventListener('click', () => chooseAnimal(a.id));
+    box?.append(b);
+  }
+  refreshAnimalUi();
+}
+const brMenu = new BrMenu(net, sfx);
+brMenu.onChoose = (id) => chooseAnimal(id);
+document.getElementById('animal-chip')?.addEventListener('click', () => {
+  if (!arena.active) brMenu.open();
+});
 const arena = new Arena({
   world,
   net,
@@ -858,6 +908,8 @@ net.onMessage = (m: ServerMsg) => {
       world.orbit = false;
       world.setSelfId(m.id);
       world.setSelfLook(myLook);
+      world.setSelfAnimal(myAnimal);
+      net.send({ t: 'animal', a: myAnimal });
       net.send({ t: 'look', c: myLook.c, h: myLook.h });
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
@@ -913,6 +965,9 @@ net.onMessage = (m: ServerMsg) => {
       break;
     case 'look':
       world.setPlayerLook(m.id, { c: m.c, h: m.h });
+      break;
+    case 'animal':
+      world.setPlayerAnimal(m.id, m.a);
       break;
     case 'ragdoll':
       world.ragdollPlayer(m.id, m.vx, m.vz, m.sev);
