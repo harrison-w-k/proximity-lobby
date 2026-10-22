@@ -5,6 +5,8 @@ import { DEFAULT_FOV, DEFAULT_RENDER_HEIGHT, EYE_HEIGHT, World } from './world';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
+import { Arena } from './arena/arena';
+import { BrMenu } from './arena/menu';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
@@ -29,8 +31,47 @@ document.addEventListener(
 );
 // Dev server only (stripped from production builds): lets automated checks pose the scene.
 if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = world;
+if (import.meta.env.DEV) setTimeout(() => ((window as unknown as { __arena?: unknown }).__arena = arena), 0);
 let voice: Voice | null = null;
 let joined = false;
+const brMenu = new BrMenu(net);
+const arena = new Arena({
+  world,
+  net,
+  canvas,
+  sfx,
+  getVoice: () => voice,
+  isBlocked: () => typing || menuOpen || brMenu.isOpen,
+  openSettings: () => openMenu(),
+  onStart: () => updatePaused(),
+  onExit: () => {
+    $('hud').hidden = false;
+    world.lock();
+    updatePaused();
+  },
+});
+arena.onQueue = (q) => {
+  brMenu.setQueue(q);
+  refreshBrButton();
+};
+brMenu.onOpen = () => {
+  world.inputEnabled = false;
+  world.clearKeys();
+  updatePaused();
+};
+brMenu.onClose = () => {
+  world.inputEnabled = true;
+  if (!arena.active) world.lock();
+  updatePaused();
+};
+function refreshBrButton() {
+  const b = document.getElementById('br-open');
+  if (b) {
+    b.textContent = brMenu.summary();
+    b.hidden = arena.active;
+  }
+}
+setInterval(refreshBrButton, 500);
 let typing = false;
 let myId = '';
 let lastDmPeer = ''; // who last whispered to us, for /r
@@ -54,12 +95,15 @@ const touch = isTouchDevice();
 const hasControl = () => touch || document.pointerLockElement === canvas;
 
 function updatePaused() {
-  $('paused').hidden = !joined || typing || menuOpen || hasControl();
+  $('paused').hidden = !joined || typing || menuOpen || hasControl() || arena.active || brMenu.isOpen;
 }
 // Losing the mouse (Esc, alt-tab) opens settings so the mouse can be used. Opening chat also
 // releases it, but that sets `typing` first so the menu stays closed.
 document.addEventListener('pointerlockchange', () => {
-  if (!touch && document.pointerLockElement !== canvas) openMenu();
+  if (!touch && document.pointerLockElement !== canvas && !brMenu.isOpen) {
+    if (arena.active) arena.onPointerLockLost();
+    else openMenu();
+  }
   updatePaused();
 });
 canvas.addEventListener('click', () => joined && !typing && world.lock());
@@ -673,6 +717,10 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
+  } else if (e.code === 'KeyB' && !typing && !menuOpen && !arena.active && !brMenu.isOpen && !e.ctrlKey && !e.metaKey) {
+    brMenu.open();
+  } else if (arena.active || brMenu.isOpen) {
+    // the match (or its menu) owns the keyboard
   } else if ((e.code === 'KeyF' || e.code === 'KeyR') && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
     // F picks up the nearest item or sets down what you carry; R aims a throw (hold click to charge)
     const held = world.holding;
@@ -788,6 +836,7 @@ net.onClose = () => {
 };
 
 net.onMessage = (m: ServerMsg) => {
+  if (arena.handle(m)) return;
   switch (m.t) {
     case 'welcome':
       joined = true;

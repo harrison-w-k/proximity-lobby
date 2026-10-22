@@ -35,3 +35,19 @@ Players are solid circles (0.4 m radius). Collision is client-side (`client/src/
 ## Deploy on Railway
 `railway.json` + `Dockerfile` are all it needs. New Project -> Deploy from GitHub repo -> pick this repo, then
 Settings -> Networking -> Generate Domain. Railway sets `PORT` automatically; HTTPS and WebSockets work out of the box.
+
+## Animal Battle Royale
+The lobby is the front door to the game in `animal-battle-royale-gdd.md`. Press **B** (or the paw button) to pick one of eight
+animals and queue; 25 s after the first player queues the match starts and AI animals fill the 20 slots.
+
+- **Sim** (`shared/arena/`): `terrain.ts` (seeded 700 m map, biomes, lakes, Poisson-placed resources), `animals.ts` (8 animals, stats, 80+ skills),
+  `mobs.ts` (4 horde tiers, swarms), `match.ts` (authoritative 30 Hz match: phases, lava rings, XP, combat, items, hunted mark, Gulag, Horde Leaders),
+  `bots.ts`, `director.ts` (queue + match lifecycle). The server owns everything; the client only predicts its own steps (`move.ts`).
+- **Client** (`client/src/arena/`): `scene.ts` (terrain, lava shader, instanced forests, animals, effects), `models.ts` (procedural animals),
+  `hud.ts`, `arena.ts` (input, prediction, camera, proximity-voice rules), `menu.ts`.
+- **Controls**: WASD move, Shift sprint, C sneak (halves voice range), LMB attack, Q E R F skills, X harvest, G pick up / eat (leaders), V fill pouch,
+  1-6 use item, Tab upgrade panel (1-5 spend, Z / X pick a skill). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
+- **Squads**: friends who type the same squad code on the menu share a team (max 4): no friendly fire, shared win.
+- **Voice**: 10 m full / 40 m silent, 15 m for leaders, whisper when sneaking, muffled behind rocks/trees and underwater, separate Gulag channel.
+- Matches run on the Node server only (`enableMatches()`); the Cloudflare Worker host does not start a match. `MATCH_COUNTDOWN_MS` and `MATCH_BOTS=0` tune the queue.
+- Tests: `npm test` runs a full 20-bot match headlessly (`shared/arena/match.test.ts [seed]`).

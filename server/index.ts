@@ -69,6 +69,7 @@ const verify = supabaseUrl && supabaseKey ? supabaseAuth({ url: supabaseUrl, ano
 console.log(verify ? 'auth: Supabase login required to join' : 'auth: off (names are not verified)');
 
 const lobby = new Lobby(iceServers, verify);
+lobby.enableMatches({ countdownMs: Number(process.env.MATCH_COUNTDOWN_MS ?? 25000), fillWithBots: process.env.MATCH_BOTS !== '0' });
 const alive = new WeakMap<WebSocket, boolean>();
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
@@ -88,6 +89,7 @@ wss.on('connection', (ws) => {
 
 // Broadcast changed positions to everyone except their owner.
 setInterval(() => lobby.flush(), TICK_MS);
+setInterval(() => lobby.tickMatch(), 15);
 
 // Drop dead connections.
 setInterval(() => {

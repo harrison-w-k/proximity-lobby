@@ -26,7 +26,10 @@ export type SoundEvent =
   | { kind: 'drop' }
   | { kind: 'throw'; power: number }
   | { kind: 'hit' }
-  | { kind: 'score' };
+  | { kind: 'score' }
+  | { kind: 'coin' }
+  | { kind: 'boing' }
+  | { kind: 'target' };
 
 export const DEFAULT_FOV = 75;
 export const DEFAULT_RENDER_HEIGHT = 480;
@@ -1260,6 +1263,8 @@ export class World {
   touchSprint = false;
   lookSensitivity = 1; // multiplier on mouse look; 1 = the original feel
   onFrame?: (dt: number) => void;
+  /** A different scene (the battle royale arena) that draws instead of the lobby while set. */
+  external?: { update(dt: number): void; render(renderer: THREE.WebGLRenderer): void };
   onShove?: (id: number, vx: number, vz: number) => void; // you ran into a loose item
   private shoveAt = new Map<number, number>();
   onSentHome?: () => void; // fired when you drift past the swim limit and are returned to the centre
@@ -1418,6 +1423,10 @@ export class World {
   }
 
   /** Internal resolution (pixels tall). The picture is scaled to the window with hard pixels; 1080+ is native. */
+  get resolution() {
+    return this.renderHeight;
+  }
+
   setRenderHeight(h: number) {
     this.renderHeight = h;
     this.resize();
@@ -2111,6 +2120,12 @@ export class World {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.clock += dt;
+    const ext = this.external;
+    if (ext) {
+      this.safe('arena', () => ext.update(dt));
+      this.safe('arena render', () => ext.render(this.renderer));
+      return;
+    }
     this.safe('update', () => this.update(dt));
     this.safe('render', () => this.renderer.render(this.scene, this.camera));
     this.safe('frame', () => this.onFrame?.(dt));

@@ -1,6 +1,8 @@
 import { VOICE_MAX, VOICE_REF } from '../../shared/protocol';
 
 interface Peer {
+  filter?: BiquadFilterNode; // muffles the voice behind rocks and underwater
+  gate?: GainNode; // closed when the speaker is on another channel
   pc: RTCPeerConnection;
   pending: RTCIceCandidateInit[];
   nodes: AudioNode[];
@@ -41,6 +43,8 @@ export class Voice {
   private volumes = new Map<string, number>(); // peer id -> volume multiplier (1 = normal)
   private ice: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
   private buf = new Uint8Array(512);
+  private refDist = VOICE_REF;
+  private maxDist = VOICE_MAX;
 
   constructor(private signal: (to: string, data: unknown) => void) {
     const l = this.ctx.listener;
@@ -231,6 +235,41 @@ export class Voice {
     if (g) g.gain.value = v;
   }
 
+  /** Default hearing range for everyone: full volume within `ref` metres, silent beyond `max`. */
+  setRange(ref: number, max: number) {
+    this.refDist = ref;
+    this.maxDist = max;
+    for (const p of this.peers.values()) {
+      if (!p.panner) continue;
+      p.panner.refDistance = ref;
+      p.panner.maxDistance = max;
+    }
+  }
+
+  /** Range for one speaker (whispering, a leader's short voice). */
+  setPeerRange(id: string, ref: number, max: number) {
+    const p = this.peers.get(id)?.panner;
+    if (!p) return;
+    if (p.refDistance !== ref) p.refDistance = ref;
+    if (p.maxDistance !== max) p.maxDistance = max;
+  }
+
+  /** 0 = clear, 1 = heavily muffled (behind a rock, or underwater). */
+  setPeerMuffle(id: string, amount: number) {
+    const f = this.peers.get(id)?.filter;
+    if (!f) return;
+    const target = 22000 * Math.pow(0.02, amount);
+    if (Math.abs(f.frequency.value - target) > 50) f.frequency.setTargetAtTime(target, this.ctx.currentTime, 0.05);
+  }
+
+  /** Close the channel to one speaker (the Gulag is its own channel). */
+  setPeerGate(id: string, open: boolean) {
+    const g = this.peers.get(id)?.gate;
+    if (!g) return;
+    const v = open ? 1 : 0;
+    if (g.gain.value !== v) g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.04);
+  }
+
   setPeerPosition(id: string, x: number, y: number, z: number) {
     const p = this.peers.get(id)?.panner;
     if (!p) return;
@@ -293,17 +332,25 @@ export class Voice {
     const panner = this.ctx.createPanner();
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'linear';
-    panner.refDistance = VOICE_REF;
-    panner.maxDistance = VOICE_MAX;
+    panner.refDistance = this.refDist;
+    panner.maxDistance = this.maxDist;
     panner.rolloffFactor = 1;
     panner.positionX.value = 1e5; // silent until the first position update
     const gain = this.ctx.createGain();
     gain.gain.value = this.volumes.get(id) ?? 1;
     src.connect(analyser); // analyser taps the raw voice, so the speaking glow ignores your volume setting
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 22000;
+    const gate = this.ctx.createGain();
     src.connect(panner);
-    panner.connect(gain);
-    gain.connect(this.master);
-    peer.nodes = [src, analyser, panner, gain];
+    panner.connect(filter);
+    filter.connect(gain);
+    gain.connect(gate);
+    gate.connect(this.master);
+    peer.nodes = [src, analyser, panner, filter, gain, gate];
+    peer.filter = filter;
+    peer.gate = gate;
     peer.panner = panner;
     peer.gain = gain;
     peer.analyser = analyser;

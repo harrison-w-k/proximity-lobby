@@ -7,6 +7,6 @@ export default defineConfig({
   server: {
     port: 5173,
     fs: { allow: ['..'] },
-    proxy: { '/ws': { target: 'ws://localhost:3000', ws: true } },
+    proxy: { '/ws': { target: process.env.WS_TARGET ?? 'ws://localhost:3000', ws: true } },
   },
 });

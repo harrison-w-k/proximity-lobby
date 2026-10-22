@@ -14,7 +14,8 @@ import {
 import { clampToArena } from './map';
 import { validAvatar } from './avatar';
 import { validLook, type Look } from './look';
-import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, throwPath, type ItemState } from './items';
+import { Director } from './arena/director';
+import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, bounceFor, throwPath, type ItemState } from './items';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
 
@@ -34,6 +35,8 @@ export interface Session extends Saved {
   verifying?: boolean; // a join is waiting on the auth check
   closed?: boolean;
   hitAt?: number;
+  score?: number;
+  ptsTimes?: number[];
   avatar?: string; // not part of Saved: too big for a socket attachment, hosts persist it separately
 }
 
@@ -58,6 +61,8 @@ export class Lobby {
   private dirty = new Set<string>();
   private shoved = new Map<number, number>(); // item id -> last time it was shoved (ms)
   private items = new Map<number, ItemState>(ITEM_SPAWNS.map((i) => [i.id, { ...i, holder: null }]));
+  /** The Animal Battle Royale queue and match. Only hosts with a steady timer (the Node server) turn it on. */
+  director?: Director;
   /** Hosts that outlive a restart (the Durable Object) persist photos here: null = removed. */
   onAvatar?: (id: string, img: string | null) => void;
   /** Hosts that can be evicted from memory (the Durable Object) persist the items here. */
@@ -68,6 +73,25 @@ export class Lobby {
     private verify?: Verifier,
   ) {}
 
+  /** Turn on the Animal Battle Royale queue. The host must then call `tickMatch()` about every 30 ms. */
+  enableMatches(opts: { fillWithBots?: boolean; countdownMs?: number } = {}): Director {
+    const d = new Director({
+      send: (id, msg) => {
+        const c = this.conns.get(id);
+        if (c?.joined) this.send(c, msg);
+      },
+      players: () => [...this.conns.values()].filter((c) => c.joined).map((c) => ({ id: c.id, name: c.name })),
+    });
+    if (opts.fillWithBots !== undefined) d.fillWithBots = opts.fillWithBots;
+    if (opts.countdownMs !== undefined) d.countdownMs = opts.countdownMs;
+    this.director = d;
+    return d;
+  }
+
+  tickMatch(now = Date.now()) {
+    this.director?.tick(now);
+  }
+
   /** Put the items back after a restart. Anything held by a player who is no longer here is set down. */
   restoreItems(list: ItemState[]) {
     for (const it of list) {
@@ -75,6 +99,15 @@ export class Lobby {
       const held = it.holder !== null && this.conns.has(it.holder);
       this.items.set(it.id, { ...it, holder: held ? it.holder : null });
     }
+  }
+
+  private broadcastScores() {
+    const s: [string, string, number][] = [...this.conns.values()]
+      .filter((o) => o.joined)
+      .map((o): [string, string, number] => [o.id, o.name, o.score ?? 0])
+      .sort((a, b) => b[2] - a[2])
+      .slice(0, 10);
+    this.broadcast({ t: 'scores', s });
   }
 
   private itemsChanged() {
@@ -192,6 +225,7 @@ export class Lobby {
         this.conns.set(c.id, c);
         this.send(c, { t: 'welcome', id: c.id, spawn: { x: c.x, z: c.z }, players: others, items: [...this.items.values()], iceServers: this.iceServers });
         this.broadcast({ t: 'joined', player: publicState(c) }, c.id);
+        this.broadcastScores();
         break;
       }
       case 'pos': {
@@ -233,6 +267,22 @@ export class Lobby {
         c.avatar = img ?? undefined;
         this.onAvatar?.(c.id, img);
         this.broadcast({ t: 'avatar', id: c.id, img }, c.id);
+        break;
+      }
+      case 'emote': {
+        if (!c.joined || typeof msg.e !== 'number' || !Number.isInteger(msg.e) || msg.e < 0 || msg.e > 4) return;
+        if (!this.allowChat(c)) return;
+        this.broadcast({ t: 'emote', id: c.id, e: msg.e }, c.id);
+        break;
+      }
+      case 'pts': {
+        if (!c.joined || typeof msg.n !== 'number' || !Number.isInteger(msg.n) || msg.n < 1 || msg.n > 10) return;
+        const now = Date.now();
+        c.ptsTimes = (c.ptsTimes ?? []).filter((t) => now - t < 5000);
+        if (c.ptsTimes.length >= 12) return; // no more than a dozen scoring events per 5 s
+        c.ptsTimes.push(now);
+        c.score = (c.score ?? 0) + msg.n;
+        this.broadcastScores();
         break;
       }
       case 'look': {
@@ -294,7 +344,7 @@ export class Lobby {
         const v = Math.hypot(f[3], f[4], f[5]);
         const k = v > THROW_MAX_SPEED ? THROW_MAX_SPEED / v : 1;
         const launch: [number, number, number, number, number, number] = [f[0], f[1], f[2], f[3] * k, f[4] * k, f[5] * k];
-        const path = throwPath(launch);
+        const path = throwPath(launch, bounceFor(it.kind));
         const end = path[path.length - 1];
         const at = clampToArena(end[0], end[2], SWIM_LIMIT);
         it.x = at.x;
@@ -315,13 +365,32 @@ export class Lobby {
         const sp = Math.hypot(msg.vx, msg.vz);
         const k = sp > 8 ? 8 / sp : 1;
         const launch: [number, number, number, number, number, number] = [it.x, it.y + 0.02, it.z, msg.vx * k, 1.2, msg.vz * k];
-        const end = throwPath(launch).at(-1)!;
+        const end = throwPath(launch, bounceFor(it.kind)).at(-1)!;
         const at = clampToArena(end[0], end[2], SWIM_LIMIT);
         it.x = at.x;
         it.y = Math.max(WATER_MIN_Y, Math.min(JUMP_MAX_Y, end[1]));
         it.z = at.z;
         this.itemsChanged();
         this.broadcast({ t: 'item', item: it, fly: launch });
+        break;
+      }
+      case 'mq':
+      case 'mqx':
+      case 'min':
+      case 'mskill':
+      case 'mstat':
+      case 'mpick':
+      case 'muse':
+      case 'mact':
+      case 'mcmd':
+      case 'mswarm':
+      case 'mleave': {
+        if (!c.joined) return;
+        if (!this.director) {
+          if (msg.t === 'mq') this.send(c, { t: 'notice', text: 'Matches are not available on this server.' });
+          return;
+        }
+        this.director.handle(c.id, msg);
         break;
       }
       case 'signal': {
@@ -337,6 +406,7 @@ export class Lobby {
   close(c: Session) {
     c.closed = true;
     if (!this.conns.delete(c.id)) return;
+    this.director?.leave(c.id);
     if (c.avatar) this.onAvatar?.(c.id, null);
     for (const it of this.items.values()) {
       if (it.holder !== c.id) continue; // whatever they carried is left where they stood
@@ -348,7 +418,10 @@ export class Lobby {
       this.broadcast({ t: 'item', item: it });
     }
     this.dirty.delete(c.id);
-    if (c.joined) this.broadcast({ t: 'left', id: c.id });
+    if (c.joined) {
+      this.broadcast({ t: 'left', id: c.id });
+      this.broadcastScores();
+    }
   }
 
   /** Send changed positions to everyone except their owner. Returns false if nothing was pending. */

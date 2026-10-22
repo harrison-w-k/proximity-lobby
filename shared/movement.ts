@@ -2,6 +2,7 @@
 // ledge grabbing, mantling and vaulting. The client steps it every frame; the tests step it in
 // Node, so every mechanic (and the parkour course itself) is verified without a browser.
 import { OBSTACLES, blockTop, closestPoint, footprintDistance, type Block } from './obstacles';
+import { PAD_SPEED, padAt } from './game';
 import { WADE_DEPTH, waterDepth } from './map';
 import { SWIM_LIMIT } from './protocol';
 
@@ -89,6 +90,7 @@ export interface Sim {
   coyote: number; // seconds of "still counts as grounded" left
   jumpBuffer: number; // seconds a pressed jump stays queued
   jumpCut: boolean;
+  padKick: boolean; // set when a bounce pad launched you; the reader clears it
   ragdoll: boolean; // knocked down: no control, and it slides and tumbles with little friction
   landImpact: number; // downward speed of the last hard landing, for the camera and sound; the reader resets it
 }
@@ -149,6 +151,7 @@ export function newSim(x = 0, z = 0): Sim {
     coyote: 0,
     jumpBuffer: 0,
     jumpCut: false,
+    padKick: false,
     ragdoll: false,
     landImpact: 0,
   };
@@ -452,6 +455,16 @@ export function stepPlayer(p: Sim, inp: Input, dt: number, blocks: Block[] = OBS
         return { sentHome: false };
       }
     }
+  }
+
+  // ---- bounce pads: step on one and you are thrown high ----
+  if (grounded && !p.ragdoll && padAt(p.x, p.z)) {
+    p.vy = PAD_SPEED;
+    p.coyote = 0;
+    p.jumpBuffer = 0;
+    p.jumpCut = true; // letting go of jump must not trim a pad bounce
+    p.padKick = true;
+    p.sliding = false;
   }
 
   // ---- jump: buffered, with coyote time, variable height ----

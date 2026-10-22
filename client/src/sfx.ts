@@ -195,10 +195,79 @@ export class Sfx {
     this.tone(330, 520, 0.18, 0.06, 'triangle', 0.08);
   }
 
+  coin() {
+    this.tone(988, 988, 0.07, 0.07, 'square');
+    this.tone(1319, 1319, 0.16, 0.07, 'square', 0.07);
+  }
+
+  boing() {
+    this.tone(180, 520, 0.22, 0.14, 'sine');
+    this.tone(260, 700, 0.18, 0.05, 'triangle', 0.04);
+  }
+
+  target() {
+    this.burst('bandpass', 1500, 900, 0.1, 0.16, 1.5);
+    this.tone(660, 990, 0.18, 0.1, 'triangle');
+    this.tone(880, 1320, 0.22, 0.08, 'triangle', 0.1);
+  }
+
   /** A basket: a net swish and a rising chime. */
   score() {
     this.burst('bandpass', 3200, 1800, 0.22, 0.12, 0.7);
     [523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, 0.2, 0.09, 'triangle', 0.08 + i * 0.07));
+  }
+
+  // ---------- animal battle royale ----------
+  bite(heavy = false) {
+    this.burst('bandpass', 2400, 600, 0.09, heavy ? 0.22 : 0.14, 1.2);
+    this.tone(heavy ? 150 : 220, 80, 0.12, heavy ? 0.16 : 0.1, 'sawtooth');
+  }
+
+  swing() {
+    this.burst('highpass', 900, 3000, 0.12, 0.08, 0.6);
+  }
+
+  roar() {
+    this.tone(150, 70, 0.7, 0.2, 'sawtooth');
+    this.tone(210, 90, 0.6, 0.1, 'square', 0.05);
+    this.burst('lowpass', 1200, 200, 0.7, 0.2, 0.8);
+  }
+
+  howl() {
+    this.tone(330, 520, 0.5, 0.12, 'sine');
+    this.tone(520, 420, 0.7, 0.1, 'sine', 0.45);
+  }
+
+  whoosh() {
+    this.burst('bandpass', 400, 2600, 0.25, 0.14, 0.8);
+  }
+
+  levelUp() {
+    [392, 523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, 0.18, 0.09, 'triangle', i * 0.07));
+  }
+
+  munch() {
+    for (let i = 0; i < 3; i++) this.burst('bandpass', 1800, 900, 0.07, 0.1, 1.5, i * 0.14);
+  }
+
+  siren() {
+    for (let i = 0; i < 3; i++) {
+      this.tone(520, 740, 0.35, 0.1, 'sawtooth', i * 0.7);
+      this.tone(740, 520, 0.35, 0.1, 'sawtooth', i * 0.7 + 0.35);
+    }
+  }
+
+  death() {
+    this.tone(260, 50, 0.7, 0.2, 'sawtooth');
+    this.burst('lowpass', 700, 80, 0.6, 0.2, 0.8);
+  }
+
+  lava() {
+    this.burst('lowpass', 300, 120, 0.25, 0.1, 0.5);
+  }
+
+  win() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, f, 0.3, 0.1, 'triangle', i * 0.12));
   }
 
   // ---------- interface ----------
@@ -272,6 +341,15 @@ export class Sfx {
         break;
       case 'score':
         this.score();
+        break;
+      case 'coin':
+        this.coin();
+        break;
+      case 'boing':
+        this.boing();
+        break;
+      case 'target':
+        this.target();
         break;
     }
   }

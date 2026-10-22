@@ -3,7 +3,7 @@ import { HOOP, OBSTACLES, blockTop } from './obstacles';
 // Little objects you can pick up with a click and carry. The server owns who holds what; every
 // client draws the same set, so everyone sees the same things sitting about and being carried.
 
-export type ItemKind = 'ball' | 'basketball' | 'crate' | 'cone' | 'duck' | 'fish';
+export type ItemKind = 'ball' | 'basketball' | 'beachball' | 'crate' | 'cone' | 'duck' | 'fish';
 
 export interface ItemState {
   id: number;
@@ -32,6 +32,8 @@ export const ITEM_SPAWNS: Omit<ItemState, 'holder'>[] = [
   { id: 11, kind: 'duck', x: 1, y: 0, z: -15 },
   { id: 12, kind: 'fish', x: 13, y: 0, z: 9 },
   { id: 13, kind: 'cone', x: -1, y: 0, z: 14 },
+  { id: 14, kind: 'beachball', x: 2, y: 0, z: -7 },
+  { id: 15, kind: 'beachball', x: -12, y: 0, z: 10 },
 ];
 
 // ---- throwing ----
@@ -47,7 +49,7 @@ export type Flight = [number, number, number, number, number, number];
  * motion. It bounces off the ground and block tops, rolls with friction, glances off walls, and
  * drops off edges.
  */
-export function throwPath(f: Flight): [number, number, number][] {
+export function throwPath(f: Flight, bounce = 0.45): [number, number, number][] {
   const dt = 1 / 60;
   let [x, y, z, vx, vy, vz] = f;
   const out: [number, number, number][] = [[x, y, z]];
@@ -88,7 +90,7 @@ export function throwPath(f: Flight): [number, number, number][] {
     if (y <= g) {
       y = g;
       if (vy < -1.6) {
-        vy = -vy * 0.45; // bounce
+        vy = -vy * bounce; // bounce
         vx *= 0.8;
         vz *= 0.8;
       } else {
@@ -118,3 +120,6 @@ export function throughHoop(a: [number, number, number], b: [number, number, num
   const z = a[2] + (b[2] - a[2]) * t;
   return Math.hypot(x - HOOP.x, z - HOOP.z) < HOOP.rimR - 0.04;
 }
+
+/** How bouncy each kind of item is (the fraction of speed it keeps off the ground). */
+export const bounceFor = (kind: ItemKind): number => (kind === 'beachball' ? 0.82 : kind === 'basketball' ? 0.7 : kind === 'ball' ? 0.6 : 0.4);
