@@ -1259,6 +1259,10 @@ async function enterLobby(name: string, token?: string) {
     return;
   }
   net.send({ t: 'join', name, token });
+  // the sign-in service can be slow: say so instead of sitting on "Connecting…"
+  setTimeout(() => {
+    if (!joined && joinBtn.disabled) setStatus('Still signing you in… the sign-in service is slow right now.');
+  }, 4000);
 }
 
 async function submit() {

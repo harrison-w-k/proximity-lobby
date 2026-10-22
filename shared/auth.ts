@@ -5,7 +5,9 @@ export interface AuthConfig {
   anonKey: string; // public (publishable) key; never put a service_role key here
 }
 
-const TIMEOUT_MS = 5000;
+// Supabase's auth service can take several seconds on a busy day, so wait a good while and try twice.
+const TIMEOUT_MS = 15000;
+const CACHE_MS = 5 * 60 * 1000;
 
 /**
  * Returns a verifier: token -> username, null if the token is invalid or has no profile.
@@ -13,7 +15,9 @@ const TIMEOUT_MS = 5000;
  */
 export function supabaseAuth(cfg: AuthConfig): (token: string) => Promise<string | null> {
   const base = cfg.url.replace(/\/+$/, '');
-  return async (token) => {
+  const cache = new Map<string, { name: string; until: number }>();
+
+  const lookup = async (token: string): Promise<string | null> => {
     const headers = { apikey: cfg.anonKey, Authorization: `Bearer ${token}` };
 
     const userRes = await fetch(`${base}/auth/v1/user`, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -29,5 +33,22 @@ export function supabaseAuth(cfg: AuthConfig): (token: string) => Promise<string
     if (!profRes.ok) throw new Error(`profile lookup returned ${profRes.status}`);
     const rows = (await profRes.json()) as { username?: string }[];
     return rows[0]?.username ?? null;
+  };
+
+  return async (token) => {
+    const now = Date.now();
+    const hit = cache.get(token);
+    if (hit && hit.until > now) return hit.name; // reconnects do not need another slow round trip
+    let name: string | null;
+    try {
+      name = await lookup(token);
+    } catch {
+      name = await lookup(token); // one more try: a slow or dropped request is common
+    }
+    if (name) {
+      if (cache.size > 200) for (const [k, v] of cache) if (v.until <= now) cache.delete(k);
+      cache.set(token, { name, until: now + CACHE_MS });
+    }
+    return name;
   };
 }
