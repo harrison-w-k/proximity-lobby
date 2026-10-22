@@ -10,6 +10,8 @@ import { pushOut } from './collision';
 import { validAvatar } from '../../shared/avatar';
 import * as T from './textures';
 import { makePlayerRig, type Rig } from './arena/models';
+import { poseFor, type Cue } from './arena/anim';
+import { inShape, makeMove, type Move, type Slot } from './arena/sparring';
 import { ANIMAL_EMOJI } from './arena/emoji';
 
 export const EYE_HEIGHT = EYE_STAND;
@@ -1142,6 +1144,10 @@ class Avatar {
   private rig: Rig | null = null;
   private nameHeight = NAME_HEIGHT;
   private name: string;
+  private pid: string;
+  animalId = '';
+  private cue: Cue | null = null;
+  private hurtT = 0;
   private pop = 0; // 1 -> 0 while a new animal pops into being
   private tx: number;
   private tz: number;
@@ -1175,6 +1181,7 @@ class Avatar {
     this.hit = hit;
     this.shell.add(ch.group, hit);
     this.name = p.name;
+    this.pid = p.id;
     this.label = makeNameSprite(p.name);
     this.group.add(this.shell, this.label);
     this.group.position.set(p.x, p.y ?? 0, p.z);
@@ -1187,7 +1194,7 @@ class Avatar {
     this.lastY = p.y ?? 0;
     this.lastZ = p.z;
     this.crouch = p.crouch ?? false;
-    if (p.animal) this.setAnimal(p.animal);
+    if (p.animal) this.setAnimal(p.animal, p.paint);
     const s = this.crouch ? CROUCH_SCALE : 1;
     this.shell.scale.y = s;
     this.label.position.y = this.nameHeight * s;
@@ -1206,15 +1213,17 @@ class Avatar {
   }
 
   /** Appear as an animal instead of the clay figure (or back again with `undefined`). */
-  setAnimal(id: string | undefined) {
+  setAnimal(id: string | undefined, paint?: [number, number]) {
     if (this.rig) this.shell.remove(this.rig.root);
     this.rig = null;
+    this.animalId = id ?? '';
+    this.cue = null;
     this.character.group.visible = !id;
     this.nameHeight = this.character.height + 0.3;
     paintName(this.label, this.name, id ? ANIMAL_EMOJI[id] : undefined);
     this.pop = 1;
     if (id) {
-      this.rig = makePlayerRig(id);
+      this.rig = makePlayerRig(id, paint, this.pid);
       this.rig.root.rotation.y = Math.PI; // the lobby's characters face -Z
       this.shell.add(this.rig.root);
       this.nameHeight = this.rig.height + 0.35;
@@ -1223,6 +1232,14 @@ class Avatar {
 
   setAvatar(url: string | null) {
     this.character.setFace(url);
+  }
+
+  playCue(c: Cue) {
+    this.cue = c;
+  }
+
+  flinch() {
+    this.hurtT = 0.45;
   }
 
   setLook(look: Look | null) {
@@ -1287,7 +1304,14 @@ class Avatar {
       this.rig.root.scale.setScalar(popScale(this.pop));
       const rd = ragdollAmount(this.ragdollLeft, this.ragdollDur);
       this.rig.root.rotation.z = rd * this.ragFall * 1.5;
-      this.rig.update(dt, { speed: this.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t, air: airborne ? 0.5 : 0, vy: this.vy });
+      let pose = null;
+      if (this.cue) {
+        pose = poseFor(this.cue, t);
+        if (!pose) this.cue = null;
+      }
+      this.hurtT = Math.max(0, this.hurtT - dt * 2.5);
+      const warn = this.cue && t - this.cue.start < this.cue.wind ? 0.6 : 0;
+      this.rig.update(dt, { speed: this.speed, attack: 0, hurt: rd > 0 ? 0.5 : this.hurtT, stun: rd > 0.3, flee: false, swim: false, t, air: airborne ? 0.5 : 0, vy: this.vy, pose, warn });
     }
     this.ragdollLeft = Math.max(0, this.ragdollLeft - dt);
   }
@@ -1351,7 +1375,22 @@ export class World {
   private selfChars: Character[] = [];
   private selfRig: Rig | null = null;
   private selfAnimal = '';
+  private selfPaint: [number, number] | undefined;
   private selfPop = 0;
+  // sparring: moves for show, nobody can be hurt
+  onSwing?: (slot: Slot) => void;
+  onSpar?: (slot: Slot, combo: number) => void;
+  onSparHit?: (to: string, n: number, kx: number, kz: number) => void;
+  onDamage?: (total: number) => void;
+  private cdLeft: Record<Slot, number> = { a: 0, q: 0, x: 0 };
+  private cdMax: Record<Slot, number> = { a: 1, q: 1, x: 1 };
+  private combo = 0;
+  private comboAt = -9;
+  private selfCue: Cue | null = null;
+  private selfHurtT = 0;
+  private dmgTotal = 0;
+  private strikes: { at: number; fn: () => void }[] = [];
+  private floaties: { s: THREE.Sprite; vy: number; life: number }[] = [];
   private selfAvatar: string | null = null;
   private ray = new THREE.Raycaster();
   private centre = new THREE.Vector2(0, 0);
@@ -1674,9 +1713,10 @@ export class World {
   }
 
   /** Show our own animal in place of the clay figure. */
-  setSelfAnimal(id: string) {
-    if (id !== this.selfAnimal) this.poof(this.pos.x, this.feetY, this.pos.z);
+  setSelfAnimal(id: string, paint?: [number, number]) {
+    if (id !== this.selfAnimal || paint?.join() !== this.selfPaint?.join()) this.poof(this.pos.x, this.feetY, this.pos.z);
     this.selfAnimal = id;
+    this.selfPaint = paint;
     this.applySelfAnimal();
   }
 
@@ -1686,15 +1726,167 @@ export class World {
     for (const c of this.selfChars) c.group.visible = !this.selfAnimal;
     if (!this.selfAnimal) return;
     this.selfPop = 1;
-    this.selfRig = makePlayerRig(this.selfAnimal);
+    this.selfRig = makePlayerRig(this.selfAnimal, this.selfPaint, this.selfId);
     this.selfRig.root.rotation.y = Math.PI;
     this.selfThird.add(this.selfRig.root);
   }
 
-  setPlayerAnimal(id: string, animal: string | undefined) {
+  /** Remaining cooldown of one of your moves, 1 (just used) down to 0 (ready). */
+  cooldown(slot: Slot): number {
+    return this.cdLeft[slot] <= 0 ? 0 : Math.min(1, this.cdLeft[slot] / this.cdMax[slot]);
+  }
+
+  /** Use your animal's attack or one of its two skills. Nobody can be hurt: it is all for show. */
+  cast(slot: Slot): boolean {
+    if (!this.selfAnimal || this.cdLeft[slot] > 0 || this.ragdollT > 0 || this.holding !== null) return false;
+    if (slot === 'a' && this.clock - this.comboAt > 1.3) this.combo = 0;
+    const used = this.combo;
+    const mv = makeMove(this.selfAnimal, slot, used, this.clock);
+    if (!mv) return false;
+    if (slot === 'a') {
+      this.combo = (this.combo + 1) % 3;
+      this.comboAt = this.clock;
+    }
+    this.cdLeft[slot] = this.cdMax[slot] = mv.cooldown;
+    this.selfCue = mv.cue;
+    this.onSwing?.(slot);
+    this.onSpar?.(slot, used);
+    this.strikes.push({ at: this.clock + mv.wind, fn: () => this.landSelf(mv) });
+    return true;
+  }
+
+  private landSelf(mv: Move) {
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    this.strikeFx(this.pos.x, this.feetY, this.pos.z, fx, fz, mv);
+    if (mv.lunge) {
+      this.sim.vx += fx * 7;
+      this.sim.vz += fz * 7;
+    }
+    let landed = 0;
+    for (const [id, a] of this.avatars) {
+      const p = a.group.position;
+      if (!inShape(mv.shape, this.pos.x, this.pos.z, fx, fz, p.x, p.z) || Math.abs(p.y - this.feetY) > 2.5) continue;
+      const d = Math.max(1e-3, Math.hypot(p.x - this.pos.x, p.z - this.pos.z));
+      const n = Math.max(1, Math.round(mv.dmg * (0.88 + Math.random() * 0.24)));
+      const kx = (p.x - this.pos.x) / d;
+      const kz = (p.z - this.pos.z) / d;
+      this.sparHit(id, n, kx, kz);
+      this.onSparHit?.(id, n, kx, kz);
+      this.dmgTotal += n;
+      landed++;
+    }
+    if (landed) {
+      this.onSound?.({ kind: 'hit' });
+      this.onDamage?.(this.dmgTotal);
+    }
+  }
+
+  /** Dust and sparks where a move lands. */
+  private strikeFx(x: number, y: number, z: number, fx: number, fz: number, mv: Move) {
+    const col = mv.cue.kind === 'flex' ? (mv.cue.fx === 'heal' ? 0x9bd15a : 0xf3b43c) : mv.cue.heavy ? 0xffb07a : 0xffffff;
+    const s = mv.shape;
+    if (s.k === 'circle') {
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2;
+        this.puffs.emit(x + Math.cos(a) * s.r * 0.8, y + 0.2, z + Math.sin(a) * s.r * 0.8, 1, col, 1.2, 1);
+      }
+    } else if (s.k === 'cone') {
+      this.puffs.emit(x + fx * s.range * 0.6, y + 0.9, z + fz * s.range * 0.6, 8, col, 2, 1.2);
+    } else if (s.k === 'line') {
+      for (let i = 1; i <= 5; i++) this.puffs.emit(x + fx * s.len * (i / 5), y + 0.5, z + fz * s.len * (i / 5), 2, col, 1, 0.8);
+    } else {
+      this.puffs.emit(x, y + 1, z, 10, col, 1.6, 2.2);
+    }
+  }
+
+  /** Someone else used a move: play it on them. */
+  playRemote(id: string, slot: Slot, combo: number) {
+    const a = this.avatars.get(id);
+    if (!a?.animalId) return;
+    const mv = makeMove(a.animalId, slot, combo, this.clock);
+    if (!mv) return;
+    a.playCue(mv.cue);
+    const g = a.group;
+    this.strikes.push({ at: this.clock + mv.wind, fn: () => this.strikeFx(g.position.x, g.position.y, g.position.z, -Math.sin(g.rotation.y), -Math.cos(g.rotation.y), mv) });
+  }
+
+  /** A move landed on `to` (it was the server relaying someone else's). */
+  lobbyHit(_by: string, to: string, n: number, kx: number, kz: number) {
+    this.sparHit(to, n, kx, kz);
+  }
+
+  /** The number, a flash and a shrug: everyone is invincible here. */
+  private sparHit(to: string, n: number, kx: number, kz: number) {
+    if (to === this.selfId) {
+      this.selfHurtT = 0.45;
+      this.knockDown(kx, kz, 6); // a soft shove, never a knock-down
+      this.floatText(this.pos.x, this.feetY + 2.4, this.pos.z, String(n));
+      return;
+    }
+    const a = this.avatars.get(to);
+    if (!a) return;
+    a.flinch();
+    const p = a.group.position;
+    this.puffs.emit(p.x, p.y + 1.2, p.z, 7, 0xffe27a, 2, 1.8);
+    this.floatText(p.x, p.y + 2.8, p.z, String(n));
+  }
+
+  private floatText(x: number, y: number, z: number, n: string) {
+    const c = document.createElement('canvas');
+    c.width = 192;
+    c.height = 96;
+    const g = c.getContext('2d')!;
+    g.textAlign = 'center';
+    g.lineJoin = 'round';
+    g.lineWidth = 8;
+    g.strokeStyle = '#120c07';
+    g.font = '700 54px Fredoka, "Trebuchet MS", sans-serif';
+    g.strokeText(n, 96, 50);
+    g.fillStyle = '#ffffff';
+    g.fillText(n, 96, 50);
+    g.font = '700 22px Fredoka, "Trebuchet MS", sans-serif';
+    g.lineWidth = 5;
+    g.strokeText('✦ INVINCIBLE', 96, 82);
+    g.fillStyle = '#ffd77a';
+    g.fillText('✦ INVINCIBLE', 96, 82);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    s.scale.set(1.45, 0.725, 1);
+    s.position.set(x, y, z);
+    s.renderOrder = 30;
+    this.scene.add(s);
+    this.floaties.push({ s, vy: 1.8, life: 0 });
+  }
+
+  private tickSparring(dt: number) {
+    for (const k of ['a', 'q', 'x'] as const) this.cdLeft[k] = Math.max(0, this.cdLeft[k] - dt);
+    this.selfHurtT = Math.max(0, this.selfHurtT - dt * 2.5);
+    for (const st of this.strikes) if (this.clock >= st.at) st.fn();
+    this.strikes = this.strikes.filter((st) => this.clock < st.at);
+    this.floaties = this.floaties.filter((f) => {
+      f.life += dt;
+      f.s.position.y += f.vy * dt;
+      f.vy *= 0.95;
+      const u = Math.min(1, f.life / 0.18) - 1;
+      const k = 1 + 2.7 * u * u * u + 1.7 * u * u;
+      f.s.scale.set(1.45 * k, 0.725 * k, 1);
+      (f.s.material as THREE.SpriteMaterial).opacity = Math.max(0, Math.min(1, (1.3 - f.life) / 0.5));
+      if (f.life >= 1.3) {
+        this.scene.remove(f.s);
+        (f.s.material as THREE.SpriteMaterial).map?.dispose();
+        f.s.material.dispose();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  setPlayerAnimal(id: string, animal: string | undefined, paint?: [number, number]) {
     const a = this.avatars.get(id);
     if (!a) return;
-    a.setAnimal(animal);
+    a.setAnimal(animal, paint);
     this.poof(a.group.position.x, a.group.position.y, a.group.position.z);
   }
 
@@ -2259,6 +2451,7 @@ export class World {
       this.remoteSteps(a, Math.hypot(a.group.position.x - px, a.group.position.z - pz));
     }
     this.puffs.update(dt);
+    this.tickSparring(dt);
     if (this.hoopFlash > 0) {
       this.hoopFlash = Math.max(0, this.hoopFlash - dt);
       this.rimMat?.color.setHSL(0.07, 1, 0.5 + 0.35 * Math.abs(Math.sin(this.hoopFlash * 14)));
@@ -2308,7 +2501,13 @@ export class World {
       this.selfRig.root.scale.setScalar(popScale(this.selfPop));
       const rd = state.ragdoll ?? 0;
       this.selfRig.root.rotation.z = rd * (state.ragFall ?? 1) * 1.5;
-      this.selfRig.update(dt, { speed: state.speed, attack: 0, hurt: rd > 0 ? 0.5 : 0, stun: rd > 0.3, flee: false, swim: false, t: this.clock, air: state.grounded ? 0 : 0.5, vy: state.vy, guard: false });
+      let pose = null;
+      if (this.selfCue) {
+        pose = poseFor(this.selfCue, this.clock);
+        if (!pose) this.selfCue = null;
+      }
+      const warn = this.selfCue && this.clock - this.selfCue.start < this.selfCue.wind ? 0.6 : 0;
+      this.selfRig.update(dt, { speed: state.speed, attack: 0, hurt: rd > 0 ? 0.5 : this.selfHurtT, stun: rd > 0.3, flee: false, swim: false, t: this.clock, air: state.grounded ? 0 : 0.5, vy: state.vy, guard: false, pose, warn });
     }
 
     this.pos.y = this.feetY + sim.eye;

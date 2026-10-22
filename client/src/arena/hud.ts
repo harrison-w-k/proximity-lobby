@@ -142,6 +142,12 @@ const CSS = `
 @keyframes brheart { 0%, 100% { opacity: .25; } 18% { opacity: .85; } 34% { opacity: .35; } 50% { opacity: .7; } }
 .br-bar.sta.empty > i { background: linear-gradient(#ff8a6a, #d2432c); }
 
+.br-zone { position: absolute; left: 50%; top: 104px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 22px 6px 14px; border: 3px solid var(--ink); border-radius: 999px; pointer-events: none; opacity: 0;
+  background: linear-gradient(#5a3d24, #2e1d11); box-shadow: inset 0 0 0 2px #6e4c2d, 0 5px 0 rgba(0,0,0,.45); color: var(--cream); font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 var(--ink); }
+.br-zone i { font-style: normal; font-size: 28px; }
+.br-zone small { display: block; font-size: 13px; font-weight: 500; color: var(--amber); letter-spacing: .08em; text-transform: uppercase; }
+.br-zone.on { animation: brzone 3.2s ease-out forwards; }
+@keyframes brzone { 0% { opacity: 0; transform: translate(-50%, -18px) scale(.9); } 10% { opacity: 1; transform: translate(-50%, 0) scale(1.06); } 16% { transform: translate(-50%, 0) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, 0) scale(1); } }
 .br-streak { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; pointer-events: none; opacity: 0; }
 .br-streak.pop { animation: brstreak 2.4s ease-out forwards; }
 .br-streak b { display: block; font-size: 64px; font-weight: 700; letter-spacing: .08em; color: #ffb23a; -webkit-text-stroke: 8px var(--ink); paint-order: stroke fill; text-shadow: 0 7px 0 rgba(0,0,0,.45), 0 0 30px rgba(255,120,20,.7); }
@@ -272,6 +278,7 @@ export class Hud {
   private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="x"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
   private callouts = el('div', 'br-callout');
   private streakEl = el('div', 'br-streak', '<b></b><span></span>');
+  private zoneEl = el('div', 'br-zone', '<i></i><div><span></span><small></small></div>');
   private lowhp = el('div', 'br-lowhp');
   private dizzyEl = el('div', 'br-dizzy', '<i>⭐</i><i>💫</i><i>⭐</i>');
   private cursor = el('div', 'br-cursor', 'Cursor free — click things, then press Left Alt to go back');
@@ -376,7 +383,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -831,6 +838,17 @@ export class Hud {
   }
 
   /** A big word in the middle of the screen: PARRY!, DODGED, GUARD BROKEN. */
+  /** A small plank that slides in when you cross into a new kind of ground. */
+  zone(icon: string, name: string, sub: string) {
+    const z = this.zoneEl;
+    z.querySelector('i')!.textContent = icon;
+    z.querySelector('span')!.textContent = name;
+    z.querySelector('small')!.textContent = sub;
+    z.classList.remove('on');
+    void z.offsetWidth;
+    z.classList.add('on');
+  }
+
   callout(text: string, color = '#fff') {
     const c = this.callouts;
     c.textContent = text;

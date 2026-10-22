@@ -286,4 +286,26 @@ await malformedTests();
   assert.equal(p.inbox.length, n, 'too far to push');
 }
 
+// sparring: moves and hits are relayed for show, validated, and rate-limited
+{
+  const L = new Lobby([]);
+  const p = client(L);
+  const q = client(L);
+  p.tx({ t: 'join', name: 'p' });
+  q.tx({ t: 'join', name: 'q' });
+  p.tx({ t: 'lfx', s: 'q', c: 1 });
+  const fx = q.inbox.find((x) => x.t === 'lfx');
+  assert.ok(fx && fx.t === 'lfx' && fx.id === p.s.id && fx.s === 'q' && fx.c === 1, 'the move is relayed to others');
+  assert.ok(!p.inbox.some((x) => x.t === 'lfx'), 'not echoed to the caster');
+  p.tx({ t: 'lfx', s: 'zzz', c: 0 });
+  assert.equal(q.inbox.filter((x) => x.t === 'lfx').length, 1, 'unknown slots are ignored');
+  p.tx({ t: 'lhit', to: q.s.id, n: 5000, kx: 3, kz: 4 });
+  const hit = q.inbox.find((x) => x.t === 'lhit');
+  assert.ok(hit && hit.t === 'lhit' && hit.to === q.s.id && hit.n === 99 && Math.abs(Math.hypot(hit.kx, hit.kz) - 1) < 1e-9, 'damage is clamped and the shove normalised');
+  p.tx({ t: 'lhit', to: p.s.id, n: 5, kx: 1, kz: 0 });
+  assert.equal(q.inbox.filter((x) => x.t === 'lhit').length, 1, 'you cannot hit yourself');
+  for (let i = 0; i < 80; i++) p.tx({ t: 'lfx', s: 'a', c: 0 });
+  assert.ok(q.inbox.filter((x) => x.t === 'lfx').length < 40, 'spam is rate-limited');
+}
+
 console.log('lobby tests passed');

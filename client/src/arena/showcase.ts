@@ -120,12 +120,28 @@ export class Showcase {
     this.stepAt = 0; // the next frame starts the next step
   }
 
+  private paint?: [number, number];
+
+  /** Recolour the animal on the stage without making it rise again. */
+  setPaint(paint?: [number, number]) {
+    this.paint = paint;
+    if (!this.animal || !this.rig) return;
+    const old = this.rig.root;
+    this.rig = makePlayerRig(this.animal, paint);
+    this.rig.root.position.copy(old.position);
+    this.rig.root.rotation.copy(old.rotation);
+    this.rig.root.scale.copy(old.scale);
+    this.scene.remove(old);
+    this.scene.add(this.rig.root);
+  }
+
   /** Bring an animal up into focus. */
-  setAnimal(id: string) {
+  setAnimal(id: string, paint?: [number, number]) {
     if (id === this.animal) return;
     this.animal = id;
+    this.paint = paint;
     if (this.rig) this.scene.remove(this.rig.root);
-    this.rig = makePlayerRig(id);
+    this.rig = makePlayerRig(id, paint);
     this.scene.add(this.rig.root);
     const box = new THREE.Box3().setFromObject(this.rig.root);
     const sph = box.getBoundingSphere(new THREE.Sphere());

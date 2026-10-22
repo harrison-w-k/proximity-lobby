@@ -546,6 +546,18 @@
     #join-animals .an:hover { transform: translateY(-3px) scale(1.1); }
     #join-animals .an.on { background: linear-gradient(#cdf08e, #8fc653); transform: translateY(-4px) scale(1.12); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 3px var(--amber), 0 3px 0 rgba(0,0,0,.45); }
     #join-animal-name { color: #ecdcb2; font-size: 15px; min-height: 18px; }
+
+    /* sparring bar: your attack and two skills in the lobby */
+    #spar { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 30px); display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 6; max-width: 94vw; }
+    #spar.on { opacity: 1; transform: translate(-50%, 0); }
+    #spar .mv { position: relative; width: 92px; height: 70px; overflow: hidden; border: 3px solid var(--ink); border-radius: 14px; text-align: center; color: var(--cream); font-weight: 700;
+      background: linear-gradient(#5a3d24, #2e1d11); box-shadow: inset 0 0 0 2px #6e4c2d, 0 5px 0 rgba(0,0,0,.45); }
+    #spar .mv b { position: absolute; left: 4px; right: 4px; bottom: 6px; font-size: 14px; line-height: 1.05; text-shadow: 0 2px 0 var(--ink); }
+    #spar .mv kbd { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); min-width: 34px; padding: 1px 9px; border: 2px solid var(--ink); border-radius: 999px; font: 700 15px var(--font-body); color: #17210c; background: var(--leaf); }
+    #spar .mv i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: rgba(0,0,0,.55); }
+    #spar .mv.cool { filter: saturate(.55); }
+    #spar .cap { flex-basis: 100%; text-align: center; font-size: 15px; font-weight: 600; color: var(--amber); text-shadow: 0 2px 0 var(--ink); }
+    #spar .cap span { color: var(--cream); }
   </style>
 </head>
 <body>

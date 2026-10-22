@@ -2,6 +2,7 @@
 // tick() from its timer; it talks back through `send`.
 import { ANIMALS } from './animals';
 import { DT, Match, type Entrant } from './match';
+import { cleanPaint } from './paint';
 import { isSpawnId, type SpawnId } from './spawn';
 import type { ClientMatchMsg, QueueInfo, ServerMatchMsg } from './proto';
 
@@ -23,6 +24,7 @@ interface Queued {
   animal: string;
   team: string;
   spawn: SpawnId;
+  paint?: [number, number];
 }
 
 export class Director {
@@ -66,12 +68,12 @@ export class Director {
     }
   }
 
-  join(id: string, animal: string, team?: string, spawn?: string) {
+  join(id: string, animal: string, team?: string, spawn?: string, paint?: unknown) {
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
     const a = ANIMALS.find((x) => x.id === animal);
     if (!a) return;
     if (!this.queue.has(id) && this.queue.size >= MATCH_SLOTS) return;
-    this.queue.set(id, { animal: a.id, team: (team ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12), spawn: isSpawnId(spawn) ? spawn : 'any' });
+    this.queue.set(id, { animal: a.id, team: (team ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12), spawn: isSpawnId(spawn) ? spawn : 'any', paint: cleanPaint(paint) });
     if (this.startAt === null && !(this.match && !this.match.finished)) this.startAt = Date.now() + this.countdownMs;
     this.broadcastQueue(true);
   }
@@ -94,7 +96,7 @@ export class Director {
   handle(id: string, msg: ClientMatchMsg) {
     switch (msg.t) {
       case 'mq':
-        if (typeof msg.animal === 'string') this.join(id, msg.animal, typeof msg.team === 'string' ? msg.team : '', msg.spawn);
+        if (typeof msg.animal === 'string') this.join(id, msg.animal, typeof msg.team === 'string' ? msg.team : '', msg.spawn, msg.paint);
         break;
       case 'mqx':
         this.leave(id);
@@ -127,7 +129,7 @@ export class Director {
         }
       } else team = nextTeam++;
       teamSize.set(team, (teamSize.get(team) ?? 0) + 1);
-      entrants.push({ id, name: names.get(id)!, animal: q.animal, team, bot: false, spawn: q.spawn });
+      entrants.push({ id, name: names.get(id)!, animal: q.animal, team, bot: false, spawn: q.spawn, paint: q.paint });
     }
     if (!entrants.length) {
       this.queue.clear();

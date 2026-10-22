@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
+import type { Paint } from '../../../shared/arena/paint';
 
 export interface RigState {
   speed: number; // m/s along the ground
@@ -75,6 +76,12 @@ function spike(r: number, len: number, c: number, dir: 1 | -1, x: number, y: num
   return m;
 }
 
+/** Mark a part as taking the accent colour (2 = a darker shade, for paws). */
+function acc<T extends THREE.Object3D>(o: T, kind = 1): T {
+  o.userData.acc = kind;
+  return o;
+}
+
 // A tiny deterministic random so each species always looks the same.
 function rnd(seed: number) {
   let a = seed >>> 0;
@@ -128,7 +135,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   root.add(torso);
   const belly = spec.belly ?? spec.fur;
   torso.add(lump(spec.w, spec.h, spec.len, spec.fur));
-  torso.add(lump(spec.w * 0.94, spec.h * 0.5, spec.len * 0.86, belly, 0, -spec.h * 0.3, 0));
+  torso.add(acc(lump(spec.w * 0.94, spec.h * 0.5, spec.len * 0.86, belly, 0, -spec.h * 0.3, 0)));
   // shoulders and haunches a little fuller than the middle
   torso.add(lump(spec.w * 1.04, spec.h * 1.06, spec.len * 0.4, spec.fur, 0, spec.h * 0.04, spec.len * 0.28));
   torso.add(lump(spec.w * 1.06, spec.h * 1.0, spec.len * 0.4, spec.fur, 0, 0, -spec.len * 0.3));
@@ -141,7 +148,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   head.add(box(hs * 0.7, hs * 0.5, hs * 0.5, spec.fur, 0, -hs * 0.18, hs * 0.18)); // cheeks
   const sn = spec.head.snout;
   const snH = spec.head.snoutH ?? hs * 0.5;
-  head.add(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02));
+  head.add(acc(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02)));
   head.add(box(hs * 0.2, hs * 0.14, hs * 0.14, 0x16120f, 0, -hs * 0.04, hs * 0.5 + sn)); // nose
   const eyeC = spec.eye ?? 0x111111;
   // eyes: a white ball, a dark pupil looking forward and a glint, so they read as alive
@@ -162,6 +169,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     else if (spec.ears === 'round') e = ball(es * 0.5, es * 0.5, es * 0.3, ec, sx * hs * 0.38, hs * 0.5, -hs * 0.1);
     else if (spec.ears === 'long') e = part(CONE3, ec, es * 0.3, es * 2.4, es * 0.14, sx * hs * 0.22, hs * 0.95, -hs * 0.1);
     if (e) {
+      acc(e);
       head.add(e);
       ears.push({ o: e, side: sx });
     }
@@ -184,7 +192,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
       const shin = part(LEG, spec.fur, spec.legT * 1.05, spec.legLen * 0.52, spec.legT * 1.05, 0, -spec.legLen * 0.74, -spec.legT * 0.12);
       shin.rotation.x = 0.22;
       g.add(shin);
-      g.add(box(spec.legT * 1.2, spec.legT * 0.6, spec.legT * 1.8, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.2, spec.legT * 0.3));
+      g.add(acc(box(spec.legT * 1.2, spec.legT * 0.6, spec.legT * 1.8, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.2, spec.legT * 0.3), 2));
     }
     root.add(g);
     legs.push(g);
@@ -201,7 +209,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     for (let i = 0; i < n; i++) {
       const k = 1 - i * 0.28;
       const seg = spec.tail.len / n;
-      tail.add(spike(spec.tail.t * 0.75 * k, seg * 1.25, tc, -1, 0, y, z - seg / 2, CONE5));
+      tail.add(acc(spike(spec.tail.t * 0.75 * k, seg * 1.25, tc, -1, 0, y, z - seg / 2, CONE5)));
       z -= seg * 0.95;
       y += (spec.tail.up ?? 0) * seg;
     }
@@ -743,10 +751,43 @@ function crown(): THREE.Group {
   return g;
 }
 
-/** An articulated model for something a player controls. */
-export function makePlayerRig(animal: string): Rig {
+/** Re-colour a freshly built animal: the fur takes the main colour, belly, ears, tail and paws the accent. */
+function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
+  const spec = b.spec;
+  const fur = spec.fur;
+  const wantMain = !!paint && paint[0] >= 0;
+  const wantAcc = !!paint && paint[1] >= 0;
+  const map = new Map<number, number>();
+  if (wantMain) map.set(fur, paint![0]);
+  else if (!wantAcc && key) {
+    // nothing chosen: every player gets their own shade of the animal's natural colours
+    const shift = ((hashStr(key) % 360) / 360 + 0.08) % 1;
+    const hsl = { h: 0, s: 0, l: 0 };
+    const colours = new Set<number>([fur]);
+    for (const c of [spec.belly, spec.earC, spec.tail?.c, spec.head.snoutC, spec.paw]) if (c !== undefined) colours.add(c);
+    for (const c of colours) {
+      new THREE.Color(c).getHSL(hsl);
+      map.set(c, new THREE.Color().setHSL((hsl.h + shift) % 1, Math.max(hsl.s, 0.28), hsl.l).getHex());
+    }
+  }
+  if (!map.size && !wantAcc) return;
+  const dark = wantAcc ? new THREE.Color(paint![1]).multiplyScalar(0.72).getHex() : 0;
+  b.root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    if (wantAcc && o.userData.acc) {
+      o.material = mat(o.userData.acc === 2 ? dark : paint![1]);
+      return;
+    }
+    const to = map.get((o.material as Mat).color.getHex());
+    if (to !== undefined) o.material = mat(to);
+  });
+}
+
+/** An articulated model for something a player controls. `key` (a player id) gives an unpainted animal its own shade. */
+export function makePlayerRig(animal: string, paint?: Paint | null, key?: string): Rig {
   const spec = SPECS[animal] ?? SPECS.wolf;
   const b = buildQuad(spec, hashStr(animal));
+  recolor(b, paint ?? undefined, key);
   const def = ANIMAL_BY_ID.get(animal);
   const radius = def ? SIZE[def.size].radius : 0.5;
   return new QuadRig(b, radius);

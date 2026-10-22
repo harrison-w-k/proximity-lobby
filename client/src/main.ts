@@ -8,6 +8,9 @@ import { Sfx } from './sfx';
 import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
 import { ANIMAL_EMOJI } from './arena/emoji';
+import { loadPaint } from './arena/paintStore';
+import { slotLabel, type Slot } from './arena/sparring';
+import type { Paint } from '../../shared/arena/paint';
 import { ANIMALS, ANIMAL_BY_ID } from '../../shared/arena/animals';
 import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
@@ -33,7 +36,7 @@ document.addEventListener(
 );
 // Dev server only (stripped from production builds): lets automated checks pose the scene.
 if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = world;
-if (import.meta.env.DEV) setTimeout(() => ((window as unknown as { __arena?: unknown }).__arena = arena), 0);
+if (import.meta.env.DEV) setTimeout(() => Object.assign(window, { __arena: arena, __world: world }), 0);
 let voice: Voice | null = null;
 let joined = false;
 let myAnimal = 'wolf';
@@ -51,9 +54,11 @@ function refreshAnimalUi() {
   if (label && a) label.textContent = `${a.name}: ${a.role}. ${a.blurb}`;
   document.querySelectorAll<HTMLElement>('#join-animals .an').forEach((b) => b.classList.toggle('on', b.dataset.id === myAnimal));
 }
-function chooseAnimal(id: string) {
+let myPaint: Paint | undefined = loadPaint(myAnimal);
+function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id)) {
   if (!ANIMAL_BY_ID.has(id)) return;
   myAnimal = id;
+  myPaint = paint ?? undefined;
   try {
     localStorage.setItem('br-animal', id);
   } catch {
@@ -61,8 +66,8 @@ function chooseAnimal(id: string) {
   }
   refreshAnimalUi();
   if (joined) {
-    world.setSelfAnimal(id);
-    net.send({ t: 'animal', a: id });
+    world.setSelfAnimal(id, myPaint);
+    net.send({ t: 'animal', a: id, paint: myPaint });
   }
 }
 {
@@ -81,7 +86,7 @@ function chooseAnimal(id: string) {
   refreshAnimalUi();
 }
 const brMenu = new BrMenu(net, sfx);
-brMenu.onChoose = (id) => chooseAnimal(id);
+brMenu.onChoose = (id, paint) => chooseAnimal(id, paint);
 document.getElementById('animal-chip')?.addEventListener('click', () => {
   if (!arena.active) brMenu.open();
 });
@@ -174,7 +179,40 @@ canvas.addEventListener('click', () => joined && !typing && world.lock());
 // Aiming a throw: hold the left button to charge the bar, release to throw.
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && world.aiming && hasControl()) world.charging = true;
+  else if (e.button === 0 && !world.aiming) tryCast('a');
 });
+
+// Sparring: your animal's attack (left button) and two skills (Q, X) work in the lobby, and nobody can be hurt.
+function tryCast(slot: Slot) {
+  if (!joined || typing || menuOpen || arena.active || brMenu.isOpen || !hasControl()) return;
+  world.cast(slot);
+}
+world.onSwing = (slot) => (slot === 'a' ? sfx.swing() : sfx.whoosh());
+world.onSpar = (slot, combo) => net.send({ t: 'lfx', s: slot, c: combo });
+world.onSparHit = (to, n, kx, kz) => net.send({ t: 'lhit', to, n, kx, kz });
+const sparBar = document.createElement('div');
+sparBar.id = 'spar';
+sparBar.innerHTML = ['a|LMB', 'q|Q', 'x|X'].map((s) => `<div class="mv" data-s="${s.split('|')[0]}"><i></i><kbd>${s.split('|')[1]}</kbd><b></b></div>`).join('') + '<div class="cap">✦ Everyone here is invincible <span id="spar-total"></span></div>';
+document.body.append(sparBar);
+world.onDamage = (total) => {
+  const t = document.getElementById('spar-total');
+  if (t) t.textContent = `· ${total} damage dealt`;
+};
+function refreshSparBar() {
+  const show = joined && !arena.active && !brMenu.isOpen && !menuOpen;
+  sparBar.classList.toggle('on', show);
+  if (!show) return;
+  sparBar.querySelectorAll<HTMLElement>('.mv').forEach((el) => {
+    const s = el.dataset.s as Slot;
+    const cd = world.cooldown(s);
+    (el.querySelector('i') as HTMLElement).style.height = `${Math.round(cd * 100)}%`;
+    el.classList.toggle('cool', cd > 0);
+    const label = slotLabel(myAnimal, s);
+    const b = el.querySelector('b')!;
+    if (b.textContent !== label) b.textContent = label;
+  });
+}
+setInterval(refreshSparBar, 80);
 function releaseThrow() {
   if (!world.aiming || !world.charging) return;
   world.charging = false;
@@ -803,6 +841,8 @@ window.addEventListener('keydown', (e) => {
     }
   } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
     world.cycleView();
+  } else if ((e.code === 'KeyQ' || e.code === 'KeyX') && !typing && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    tryCast(e.code === 'KeyQ' ? 'q' : 'x');
   }
 });
 
@@ -908,8 +948,8 @@ net.onMessage = (m: ServerMsg) => {
       world.orbit = false;
       world.setSelfId(m.id);
       world.setSelfLook(myLook);
-      world.setSelfAnimal(myAnimal);
-      net.send({ t: 'animal', a: myAnimal });
+      world.setSelfAnimal(myAnimal, myPaint);
+      net.send({ t: 'animal', a: myAnimal, paint: myPaint });
       net.send({ t: 'look', c: myLook.c, h: myLook.h });
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
@@ -967,7 +1007,13 @@ net.onMessage = (m: ServerMsg) => {
       world.setPlayerLook(m.id, { c: m.c, h: m.h });
       break;
     case 'animal':
-      world.setPlayerAnimal(m.id, m.a);
+      world.setPlayerAnimal(m.id, m.a, m.paint);
+      break;
+    case 'lfx':
+      world.playRemote(m.id, m.s, m.c);
+      break;
+    case 'lhit':
+      world.lobbyHit(m.by, m.to, m.n, m.kx, m.kz);
       break;
     case 'ragdoll':
       world.ragdollPlayer(m.id, m.vx, m.vz, m.sev);

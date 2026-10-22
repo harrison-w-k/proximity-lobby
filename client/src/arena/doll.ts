@@ -31,12 +31,12 @@ export class Doll {
   }
 
   /** Rebuild the model when the animal (or a leader's form) changes. */
-  set(animal: string, role: number, swarm: string | undefined, tier: number) {
-    const key = `${animal}|${role}|${swarm}|${tier}`;
+  set(animal: string, role: number, swarm: string | undefined, tier: number, paint?: [number, number], who?: string) {
+    const key = `${animal}|${role}|${swarm}|${tier}|${paint?.join(',') ?? ''}`;
     if (key === this.key) return;
     this.key = key;
     if (this.rig) this.scene.remove(this.rig.root);
-    this.rig = role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal);
+    this.rig = role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal, paint, who);
     this.scene.add(this.rig.root);
     // frame the whole animal, whatever its size
     const box = new THREE.Box3().setFromObject(this.rig.root);

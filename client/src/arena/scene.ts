@@ -114,7 +114,7 @@ export class ArenaScene {
   private prevJy = new Map<string, number>();
   private prevYaw = new Map<string, number>();
   private decals: { g: THREE.Group; mats: THREE.MeshBasicMaterial[]; t: number; wind: number; hostile: boolean; heavy: boolean }[] = [];
-  private floaters: { s: THREE.Sprite; vy: number; life: number; max: number }[] = [];
+  private floaters: { s: THREE.Sprite; vy: number; life: number; max: number; base: number }[] = [];
   private projs = new Map<number, { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number }>();
   private lure: { g: THREE.Group; until: number } | null = null;
   private clock = 0;
@@ -641,7 +641,7 @@ varying vec3 vWP;`)
     g.font = 'bold 22px "Courier New", monospace';
     g.textAlign = 'center';
     g.lineWidth = 5;
-    g.strokeStyle = '#0b0b1a';
+    g.strokeStyle = '#120c07';
     const label = `${v.name}${v.role === 2 ? ' ☠' : ''}`;
     g.strokeText(label, 128, 22);
     g.fillStyle = (v.flags & FL.hunted) !== 0 ? '#ffd23f' : friend ? '#9bf08a' : '#ffffff';
@@ -664,12 +664,12 @@ varying vec3 vWP;`)
     return tex;
   }
 
-  private buildFighterRig(role: number, animal: string, swarm: string | undefined, tier: number): Rig {
-    return role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal);
+  private buildFighterRig(role: number, animal: string, swarm: string | undefined, tier: number, paint?: [number, number], id?: string): Rig {
+    return role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal, paint, id);
   }
 
   /** Create or refresh the models for the roster. */
-  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; swarm?: string; tier?: number }[], selfId: string) {
+  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; swarm?: string; tier?: number; paint?: [number, number] }[], selfId: string) {
     this.selfId = selfId;
     const ids = new Set(list.map((l) => l.id));
     for (const [id, v] of this.fighters) {
@@ -686,7 +686,7 @@ varying vec3 vWP;`)
         v = undefined;
       }
       if (!v) {
-        const rig = this.buildFighterRig(r.role, r.animal, r.swarm, tier);
+        const rig = this.buildFighterRig(r.role, r.animal, r.swarm, tier, r.paint, r.id);
         const group = new THREE.Group();
         group.add(rig.root);
         const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: undefined, transparent: true, depthWrite: false, depthTest: false }));
@@ -1169,12 +1169,32 @@ varying vec3 vWP;`)
     });
   }
 
+  /** A creature that has gone (usually killed) tips over and shrinks away instead of blinking out. */
+  private mobFall(v: MobView) {
+    const g = v.group;
+    const s0 = g.scale.x;
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    let t = 0;
+    this.fxList.push({
+      update: (dt) => {
+        t += dt / 0.5;
+        if (t >= 1) {
+          this.scene.remove(g);
+          return false;
+        }
+        g.rotation.z = dir * Math.min(1, t * 2.2) * 1.5;
+        g.scale.setScalar(s0 * (1 - t * t * 0.95));
+        return true;
+      },
+    });
+  }
+
   floater(x: number, y: number, z: number, text: string, color: string, size = 1) {
     const c = document.createElement('canvas');
     c.width = 128;
     c.height = 48;
     const g = c.getContext('2d')!;
-    g.font = 'bold 34px "Courier New", monospace';
+    g.font = '700 38px Fredoka, "Trebuchet MS", sans-serif';
     g.textAlign = 'center';
     g.lineWidth = 6;
     g.strokeStyle = '#0b0b1a';
@@ -1186,7 +1206,8 @@ varying vec3 vWP;`)
     s.position.set(x, y, z);
     s.renderOrder = 30;
     this.scene.add(s);
-    this.floaters.push({ s, vy: 2.2, life: 0, max: 0.9 });
+    this.floaters.push({ s, vy: 2.2, life: 0, max: 0.9, base: size });
+    s.scale.set(0, 0, 1);
   }
 
   projectile(id: number, x: number, z: number, tx: number, tz: number, color: number) {
@@ -1322,9 +1343,10 @@ varying vec3 vWP;`)
 
     for (const [id, v] of this.mobs) {
       if (now - v.seen > 0.6) {
-        this.scene.remove(v.group);
         if (v.shadow) this.scene.remove(v.shadow);
         this.mobs.delete(id);
+        if (Math.hypot(v.x - this.camera.position.x, v.z - this.camera.position.z) < 45) this.mobFall(v);
+        else this.scene.remove(v.group);
         continue;
       }
       const k = 1 - Math.exp(-dt * 10);
@@ -1427,6 +1449,10 @@ varying vec3 vWP;`)
       f.life += dt;
       f.s.position.y += f.vy * dt;
       f.vy *= 0.94;
+      // pop in with a little overshoot
+      const u = Math.min(1, f.life / 0.2) - 1;
+      const k = 1 + 2.7 * u * u * u + 1.7 * u * u;
+      f.s.scale.set(1.8 * f.base * k, 0.68 * f.base * k, 1);
       (f.s.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - f.life / f.max);
       if (f.life >= f.max) {
         this.scene.remove(f.s);

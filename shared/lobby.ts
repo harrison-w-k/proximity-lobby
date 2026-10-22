@@ -15,6 +15,7 @@ import { clampToArena } from './map';
 import { validAvatar } from './avatar';
 import { validLook, type Look } from './look';
 import { ANIMAL_BY_ID } from './arena/animals';
+import { cleanPaint } from './arena/paint';
 import { Director } from './arena/director';
 import { ITEM_SPAWNS, REACH, THROW_MAX_SPEED, bounceFor, throwPath, type ItemState } from './items';
 
@@ -36,6 +37,7 @@ export interface Session extends Saved {
   verifying?: boolean; // a join is waiting on the auth check
   closed?: boolean;
   hitAt?: number;
+  fxTimes?: number[]; // recent lobby moves, to keep sparring from flooding everyone
   score?: number;
   ptsTimes?: number[];
   avatar?: string; // not part of Saved: too big for a socket attachment, hosts persist it separately
@@ -55,6 +57,7 @@ const publicState = (c: Session): PlayerState => ({
   avatar: c.avatar,
   look: c.look,
   animal: c.animal,
+  paint: c.paint,
 });
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -153,7 +156,7 @@ export class Lobby {
   }
 
   save(c: Session): Saved {
-    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined, look: c.look, animal: c.animal };
+    return { id: c.id, name: c.name, x: c.x, z: c.z, ry: c.ry, y: c.y, crouch: c.crouch, joined: c.joined, look: c.look, animal: c.animal, paint: c.paint };
   }
 
   /**
@@ -292,10 +295,27 @@ export class Lobby {
         this.broadcastScores();
         break;
       }
+      case 'lfx': {
+        if (!c.joined || !this.allowFx(c) || !['a', 'q', 'x'].includes(msg.s)) return;
+        const combo = finite(msg.c) ? Math.max(0, Math.min(9, Math.floor(msg.c))) : 0;
+        this.broadcast({ t: 'lfx', id: c.id, s: msg.s, c: combo }, c.id);
+        break;
+      }
+      case 'lhit': {
+        if (!c.joined || !this.allowFx(c) || typeof msg.to !== 'string' || !finite(msg.n) || !finite(msg.kx) || !finite(msg.kz)) return;
+        const target = this.conns.get(msg.to);
+        if (!target?.joined || target.id === c.id) return;
+        const len = Math.max(1e-3, Math.hypot(msg.kx, msg.kz));
+        const n = Math.max(1, Math.min(99, Math.round(msg.n)));
+        // nobody loses anything: this is only the number and the shove, shown to everyone
+        this.broadcast({ t: 'lhit', by: c.id, to: target.id, n, kx: msg.kx / len, kz: msg.kz / len }, c.id);
+        break;
+      }
       case 'animal': {
         if (!c.joined || typeof msg.a !== 'string' || !ANIMAL_BY_ID.has(msg.a) || !this.allowChat(c)) return;
         c.animal = msg.a;
-        this.broadcast({ t: 'animal', id: c.id, a: msg.a }, c.id);
+        c.paint = cleanPaint(msg.paint);
+        this.broadcast({ t: 'animal', id: c.id, a: msg.a, paint: c.paint }, c.id);
         break;
       }
       case 'look': {
@@ -456,6 +476,14 @@ export class Lobby {
   }
 
   /** Shared rate limit for public and private chat: 5 messages / 5 s. */
+  private allowFx(c: Session): boolean {
+    const now = Date.now();
+    const list = (c.fxTimes = (c.fxTimes ?? []).filter((t) => now - t < 1000));
+    if (list.length >= 30) return false;
+    list.push(now);
+    return true;
+  }
+
   private allowChat(c: Session): boolean {
     const now = Date.now();
     c.chatTimes = c.chatTimes.filter((t) => now - t < 5000);

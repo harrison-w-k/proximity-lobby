@@ -14,6 +14,8 @@ import type { World } from '../world';
 import { Doll } from './doll';
 import { Hud, itemLabel } from './hud';
 import { ArenaScene } from './scene';
+import { ANIMAL_EMOJI } from './emoji';
+import { SPAWN_CHOICES } from '../../../shared/arena/spawn';
 
 export interface ArenaDeps {
   world: World;
@@ -98,6 +100,9 @@ export class Arena {
   private pings: { x: number; z: number; until: number }[] = [];
   private lastRole = 0;
   private lastLvl = 1;
+  private lastZone = '';
+  private shownZone = '';
+  private zoneSince = 0;
   private ended = false;
   private lastVoice = 0;
   private lavaSfx = 0;
@@ -245,8 +250,8 @@ export class Arena {
     this.roster = new Map(m.roster.map((r) => [r.id, r]));
     // the map takes a moment to build: say so first
     this.loading = document.createElement('div');
-    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:#0b1630;color:#fff;font-family:var(--font-pixel);font-size:16px;text-transform:uppercase';
-    this.loading.textContent = 'Generating the wilds…';
+    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#2f5a24,#10200c 70%);color:#f7edd3;font-family:Fredoka,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #120c07';
+    this.loading.innerHTML = `<div style="font-size:72px;animation:brbob 1s ease-in-out infinite alternate">${ANIMAL_EMOJI[this.def.id] ?? '🐾'}</div><div>Generating the wilds…</div><div style="font-size:17px;font-weight:500;color:#f3b43c">${this.def.name} · ${this.def.role}</div><style>@keyframes brbob{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-14px) rotate(6deg)}}</style>`;
     document.body.append(this.loading);
     setTimeout(() => {
       try {
@@ -267,6 +272,8 @@ export class Arena {
       this.seq = 0;
       this.acc = 0;
       this.lastLvl = 1;
+      this.lastZone = '';
+      this.shownZone = '';
       this.lastRole = 0;
       this.camYaw = 0;
       this.panelOpen = false;
@@ -863,7 +870,7 @@ export class Arena {
     if (you && you.role !== 3) {
       const rs = this.roster.get(this.myId);
       const sv = sc.fighter(this.myId);
-      this.doll.set(this.def.id, you.role, rs?.swarm, rs?.tier ?? 1);
+      this.doll.set(this.def.id, you.role, rs?.swarm, rs?.tier ?? 1, rs?.paint, this.myId);
       this.doll.update(dtWorld, sv?.lastState, this.visYaw, this.camYaw);
     }
 
@@ -942,6 +949,21 @@ export class Arena {
     this.fovNow += (targetFov - this.fovNow) * (1 - Math.exp(-dt * 12));
     cam.fov = this.fovNow;
     cam.updateProjectionMatrix();
+    // a plank announces the ground you are standing on, once it has stayed the same a moment
+    {
+      const wet = sc.terrain.depthAt(this.pos.x, this.pos.z) > 0.4;
+      const zone = wet ? 'water' : String(sc.terrain.biomeAt(this.pos.x, this.pos.z));
+      const nowMs = performance.now();
+      if (zone !== this.lastZone) {
+        this.lastZone = zone;
+        this.zoneSince = nowMs;
+      } else if (nowMs - this.zoneSince > 700 && zone !== this.shownZone) {
+        this.shownZone = zone;
+        const c = wet ? null : SPAWN_CHOICES.find((x) => x.biome === sc.terrain.biomeAt(this.pos.x, this.pos.z));
+        if (wet) this.hud.zone('💧', 'Deep water', 'Water animals swim fast and hide here');
+        else if (c) this.hud.zone(c.icon, c.name, c.good[0]);
+      }
+    }
     const gy = sc.groundY(this.pos.x, this.pos.z);
     const self = sc.fighter(this.myId);
     const height = Math.min(2.4, (self?.rig.height ?? 1.6) * 0.62) + 0.35;

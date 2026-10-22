@@ -24,6 +24,7 @@ export interface PlayerState {
   avatar?: string; // profile photo as a small data URL, drawn on the face
   look?: Look; // chosen clay colour and hat
   animal?: string; // the animal you play as (shown instead of the clay figure)
+  paint?: [number, number]; // its main and accent colours
 }
 
 export type ClientMsg =
@@ -35,7 +36,9 @@ export type ClientMsg =
   | { t: 'dm'; to: string; text: string } // private message to a player id
   | { t: 'avatar'; img: string | null } // set (or clear) your profile photo
   | { t: 'look'; c: number; h: number } // set your colour and hat
-  | { t: 'animal'; a: string } // choose the animal you appear as
+  | { t: 'lfx'; s: 'a' | 'q' | 'x'; c: number } // you used a move in the lobby (attack, or one of your two skills)
+  | { t: 'lhit'; to: string; n: number; kx: number; kz: number } // your move landed on someone (nobody is hurt: it is for show)
+  | { t: 'animal'; a: string; paint?: [number, number] } // choose the animal you appear as, and its colours
   | { t: 'hit'; vx: number; vz: number; sev: number } // a hard throw hit you (sev 0..1): everyone ragdolls you
   | { t: 'emote'; e: number } // start an emote (0 stops it)
   | { t: 'pts'; n: number } // you scored points (coin, target, basket)
@@ -66,7 +69,9 @@ export type ServerMsg =
   | { t: 'notice'; text: string }
   | { t: 'avatar'; id: string; img: string | null }
   | { t: 'look'; id: string; c: number; h: number }
-  | { t: 'animal'; id: string; a: string }
+  | { t: 'animal'; id: string; a: string; paint?: [number, number] }
+  | { t: 'lfx'; id: string; s: 'a' | 'q' | 'x'; c: number }
+  | { t: 'lhit'; by: string; to: string; n: number; kx: number; kz: number }
   | { t: 'emote'; id: string; e: number }
   | { t: 'scores'; s: [id: string, name: string, pts: number][] }
   | { t: 'ragdoll'; id: string; vx: number; vz: number; sev: number }
