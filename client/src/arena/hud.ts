@@ -111,6 +111,17 @@ const CSS = `
 .br-leader b { color: var(--amber); font-weight: 700; }
 .br-end { position: absolute; inset: 0; background: rgba(12,8,5,.84); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
 .br-end .box { width: min(740px, 94vw); max-height: 90vh; overflow: auto; padding: 22px 26px; }
+@keyframes brstamp { 0% { transform: rotate(-12deg) scale(3); opacity: 0; } 55% { transform: rotate(-12deg) scale(.88); opacity: 1; } 75% { transform: rotate(-12deg) scale(1.06); } 100% { transform: rotate(-12deg) scale(1); opacity: 1; } }
+@keyframes brrow { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes brconf { 0% { transform: translateY(-20px) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
+.br-end .box { position: relative; }
+.br-end .stamp { position: absolute; top: 18px; right: 26px; min-width: 96px; padding: 0 14px; text-align: center; border: 6px solid #e2573a; border-radius: 16px; color: #e2573a; font: 700 68px/1.1 'Fraunces', Georgia, serif;
+  background: rgba(255,255,255,.06); transform: rotate(-12deg); animation: brstamp .7s .45s cubic-bezier(.2,.8,.3,1) both; text-shadow: 0 3px 0 rgba(0,0,0,.35); }
+.br-end .stamp.gold { color: #ffd23f; border-color: #ffd23f; }
+.br-end .note { margin: 4px 0 6px; max-width: 70%; font-style: italic; color: #e8d7ad; font-size: 19px; }
+.br-end tr.row { animation: brrow .4s calc(var(--i) * 60ms + .3s) ease-out both; }
+.br-end td.gr { font: 700 20px 'Fraunces', Georgia, serif; color: var(--amber); }
+.br-conf { position: absolute; top: -20px; width: 10px; height: 16px; border-radius: 2px; pointer-events: none; animation: brconf 3.4s linear infinite; }
 .br-end h2 { font-size: 40px; margin: 0 0 4px; color: var(--amber); letter-spacing: .06em; text-shadow: 0 4px 0 var(--ink); }
 .br-end table { width: 100%; border-collapse: collapse; font-size: 20px; margin: 12px 0 16px; }
 .br-end td, .br-end th { padding: 3px 10px; text-align: left; border-bottom: 2px solid rgba(255,255,255,.12); }
@@ -788,13 +799,38 @@ export class Hud {
     this.end.innerHTML = '';
     const box = el('div', 'box wood');
     const won = res.team === myTeam;
-    box.append(el('h2', '', won ? 'VICTORY!' : 'Match over'));
-    box.append(el('div', '', `Last one standing: <b style="color:var(--amber)">${res.winner}</b>`));
+    const me = res.results.find((r) => r.id === myId);
+    const grade = (place: number) => (place === 1 ? 'A+' : place === 2 ? 'A' : place === 3 ? 'A-' : place <= 5 ? 'B' : place <= 8 ? 'C' : place <= 12 ? 'D' : 'F');
+    const comment = !me
+      ? 'A spirited effort from the whole class.'
+      : me.place === 1
+        ? 'Top of the class. Valedictorian material.'
+        : me.place <= 3
+          ? 'Honour roll! Almost a perfect score.'
+          : me.kills >= 3
+            ? 'Excellent at group work, a little hasty with the exits.'
+            : me.place <= 8
+              ? 'Shows promise. Study the lava lines more closely.'
+              : 'Needs to attend more office hours. Try again!';
+    box.append(el('h2', '', won ? 'TOP OF THE CLASS!' : 'REPORT CARD'));
+    box.append(el('div', '', `Class champion: <b style="color:var(--amber)">${res.winner}</b>`));
+    box.append(el('div', 'note', `“${comment}”`));
+    if (me) box.append(el('div', 'stamp' + (me.place <= 3 ? ' gold' : ''), grade(me.place)));
     const rows = res.results
       .slice(0, 20)
-      .map((r) => `<tr class="${r.id === myId ? 'me' : ''}"><td>${r.place}</td><td>${r.name}</td><td>${ANIMAL_BY_ID.get(r.animal)?.name ?? r.animal}</td><td>Lv ${r.lvl}</td><td>${r.kills}</td><td>${r.dmg}</td></tr>`)
+      .map((r, i) => `<tr class="row ${r.id === myId ? 'me' : ''}" style="--i:${i}"><td>${r.place}</td><td>${r.name}</td><td>${ANIMAL_BY_ID.get(r.animal)?.name ?? r.animal}</td><td>Lv ${r.lvl}</td><td>${r.kills}</td><td>${r.dmg}</td><td class="gr">${grade(r.place)}</td></tr>`)
       .join('');
-    box.append(el('table', '', `<tr><th>#</th><th>Player</th><th>Animal</th><th>Level</th><th>Kills</th><th>Damage</th></tr>${rows}`));
+    box.append(el('table', '', `<tr><th>#</th><th>Student</th><th>Animal</th><th>Level</th><th>Kills</th><th>Damage</th><th>Grade</th></tr>${rows}`));
+    if (won) {
+      for (let i = 0; i < 36; i++) {
+        const c = el('i', 'br-conf');
+        c.style.left = `${Math.random() * 100}%`;
+        c.style.background = ['#ffd23f', '#e2573a', '#7fd1ff', '#b7e46f', '#f1a7c0'][i % 5];
+        c.style.animationDelay = `${Math.random() * 3}s`;
+        c.style.animationDuration = `${2.6 + Math.random() * 1.6}s`;
+        this.end.append(c);
+      }
+    }
     const b = el<HTMLButtonElement>('button', 'br-btn', 'Back to the lobby');
     b.addEventListener('click', () => this.onBack());
     box.append(b);

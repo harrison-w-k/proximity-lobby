@@ -100,6 +100,7 @@ export class Arena {
   private pings: { x: number; z: number; until: number }[] = [];
   private lastRole = 0;
   private lastLvl = 1;
+  private droppedIn = false;
   private camFrac = 1;
   private lastZone = '';
   private shownZone = '';
@@ -118,6 +119,10 @@ export class Arena {
     this.hud.onPick = (t, o) => this.d.net.send({ t: 'mpick', i: t, o });
     this.hud.onSwarm = (k) => this.d.net.send({ t: 'mswarm', k: k as 'rat' | 'bird' | 'shoal' });
     this.hud.onResume = () => {
+      if (!this.droppedIn && this.scene) {
+        this.droppedIn = true;
+        this.scene.dropIn();
+      }
       this.hud.showPause(false);
       this.d.world.lock();
     };
@@ -263,6 +268,11 @@ export class Arena {
         this.d.net.send({ t: 'mleave' });
         return;
       }
+      this.droppedIn = false;
+      this.scene.onLand = () => {
+        this.addShake(0.55);
+        this.d.sfx.land(1.4);
+      };
       this.scene.setRoster(m.roster, this.myId);
       this.hud.setTerrain(this.scene.terrain);
       this.hud.show(true);
@@ -287,10 +297,15 @@ export class Arena {
       document.getElementById('crosshair')?.setAttribute('hidden', '');
       const v = this.d.getVoice();
       v?.setRange(10, 40);
-      this.loading?.remove();
+      const fade = this.loading;
       this.loading = null;
+      if (fade) {
+        fade.style.transition = 'opacity .55s ease-out';
+        fade.style.opacity = '0';
+        setTimeout(() => fade.remove(), 600);
+      }
       this.d.onStart();
-      this.hud.announce(this.def.name.toUpperCase(), 'Scatter, farm the hordes and level up. The lava is coming.', 4200);
+      this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
     }, 60);
   }
 
@@ -538,6 +553,7 @@ export class Arena {
       case 'kill': {
         const killer = e.killer ? this.who(e.killer) : e.how === 'lava' ? 'The lava' : 'The wild';
         this.hud.feedLine(`${killer} ▸ ${this.who(e.victim)}`, e.killer === this.myId || e.victim === this.myId);
+        this.scene?.faint(e.victim);
         break;
       }
       case 'level':

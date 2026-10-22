@@ -48,6 +48,9 @@ export interface FighterView {
   jy: number;
   vy: number;
   lastJy?: number;
+  drop?: number; // seconds since the arrival began (negative = still waiting)
+  dying?: number; // seconds left of the fall-over
+  fallDir?: number;
   lastState?: RigState;
   shield: THREE.Mesh;
   stars?: THREE.Group;
@@ -1189,6 +1192,22 @@ varying vec3 vWP;`)
     return 1;
   }
 
+  /** Everyone drops in from the sky at the start, landing one after another in a puff of dust. */
+  dropIn() {
+    for (const v of this.fighters.values()) v.drop = v.self ? 0 : -Math.random() * 0.7;
+  }
+
+  onLand?: () => void;
+
+  /** A fighter who has just been eliminated tips over and fades out instead of blinking away. */
+  faint(id: string) {
+    const v = this.fighters.get(id);
+    if (!v || v.self || !v.group.visible) return;
+    v.dying = 0.9;
+    v.fallDir = Math.random() < 0.5 ? -1 : 1;
+    this.burst(v.x, this.groundY(v.x, v.z) + 0.8, v.z, 0xffe9a0, 14, 3.2, 0.7);
+  }
+
   /** A creature that has gone (usually killed) tips over and shrinks away instead of blinking out. */
   private mobFall(v: MobView) {
     const g = v.group;
@@ -1264,7 +1283,7 @@ varying vec3 vWP;`)
     const now = this.clock;
 
     for (const v of this.fighters.values()) {
-      const visible = v.self || now - v.seen < 0.7;
+      const visible = v.self || now - v.seen < 0.7 || (v.dying ?? 0) > 0;
       v.group.visible = visible;
       v.shadow.visible = visible;
       if (!visible) continue;
@@ -1284,10 +1303,33 @@ varying vec3 vWP;`)
       v.swim = v.x < GULAG_X - 400 && depth > 0.4;
       const y = ground - (v.swim ? Math.min(0.5, depth * 0.3) : 0) + (aquaticBody ? 1.1 : 0) + (bird ? 1.6 : 0);
       const prevJy = v.jy;
-      v.group.position.set(v.x, y + v.jy, v.z);
+      let dropOff = 0;
+      if (v.drop !== undefined) {
+        v.drop += dt;
+        const u = Math.max(0, Math.min(1, v.drop / 0.8));
+        dropOff = 26 * (1 - u * u);
+        if (u >= 1) {
+          v.drop = undefined;
+          this.burst(v.x, ground + 0.2, v.z, 0xfff4d0, 16, 4, 0.7);
+          this.ringFx(v.x, v.z, 3.5, 0xfff4d0, 0.5);
+          if (v.self) this.onLand?.();
+        }
+      }
+      v.group.position.set(v.x, y + v.jy + dropOff, v.z);
       v.group.rotation.y = v.yaw;
+      if (v.dying !== undefined) {
+        v.dying -= dt;
+        const u = 1 - Math.max(0, v.dying) / 0.9;
+        v.group.rotation.z = Math.min(1, u * 2.4) * 1.5 * (v.fallDir ?? 1);
+        v.group.scale.setScalar(1 - Math.max(0, u - 0.55) * 2.1);
+        if (v.dying <= 0) {
+          v.dying = undefined;
+          v.group.scale.setScalar(1);
+          v.group.rotation.z = 0;
+        }
+      }
       v.shadow.position.set(v.x, ground + 0.06, v.z);
-      v.shadow.scale.setScalar(Math.max(0.45, 1 - v.jy * 0.25));
+      v.shadow.scale.setScalar(Math.max(0.45, 1 - v.jy * 0.25) * Math.max(0.2, 1 - dropOff / 30));
       v.vy += ((v.jy - (v.lastJy ?? prevJy)) / Math.max(dt, 1e-3) - v.vy) * 0.5;
       v.lastJy = v.jy;
       const moved = Math.hypot(v.x - v.lastX, v.z - v.lastZ) / Math.max(dt, 1e-3);

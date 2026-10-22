@@ -592,6 +592,24 @@
     .btn.primary:hover:not(:disabled) { background: linear-gradient(#fff2b8, #f3c640); }
     .tab.active { background: linear-gradient(#ffe9a0, #e8b830); color: #3a2a00; }
     .animal-pick .setting-title, .group-title, .panel-head h1, .card h2 { color: var(--gold); }
+
+    /* ---- motion polish ---- */
+    @keyframes popin { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+    @keyframes slidein { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+    @keyframes sheen { from { transform: translateX(-140%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
+    #join .hero > * { animation: slidein .6s ease-out both; }
+    #join .hero > :nth-child(2) { animation-delay: .08s; } #join .hero > :nth-child(3) { animation-delay: .16s; } #join .hero > :nth-child(4) { animation-delay: .24s; }
+    #join-form { animation: popin .6s .15s cubic-bezier(.2,.8,.3,1) both; }
+    #settings:not([hidden]) .panel, #dead:not([hidden]) .panel { animation: popin .28s cubic-bezier(.2,.8,.3,1) both; }
+    .btn { position: relative; overflow: hidden; transition: transform .12s, filter .12s; }
+    .btn.primary::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.55), rgba(255,255,255,0)); transform: translateX(-140%) skewX(-20deg); pointer-events: none; }
+    .btn.primary:hover:not(:disabled)::after { animation: sheen .7s ease-out; }
+    .btn:hover:not(:disabled) { transform: translateY(-2px); }
+    .chip { transition: transform .15s, filter .15s; }
+    #animal-chip:hover, #br-open:hover { transform: translateY(-2px) scale(1.03); }
+    #join-animals .an.on { animation: anbob 1.6s ease-in-out infinite alternate; }
+    @keyframes anbob { from { transform: translateY(-4px) scale(1.12); } to { transform: translateY(-7px) scale(1.16); } }
+    @media (prefers-reduced-motion: reduce) { #join .hero > *, #join-form, #join-animals .an.on, .btn.primary:hover::after { animation: none !important; } }
   </style>
 </head>
 <body>
