@@ -33,7 +33,7 @@ for (const seed of [1, 42, 9001, 123456789]) {
   );
   assert.equal(t.spawns.length, 20, 'twenty spawn points');
   assert.ok(minGap >= 95, `spawns spread apart (${minGap})`);
-  assert.ok(water / n > 0.03 && water / n < 0.4, 'some water, not too much');
+  assert.ok(water / n > 0.4 && water / n < 0.6, 'about half the map is rivers and lakes');
   assert.ok(counts.every((c) => c / n > 0.03), 'all four biomes present');
   // determinism
   const again = new Terrain(seed);

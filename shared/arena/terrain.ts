@@ -7,6 +7,8 @@ export const CELL = 2.5; // m per height-grid cell
 const GRID = Math.ceil((MAP_RADIUS * 2) / CELL) + 1;
 export const WATER_Y = 0;
 export const DEEP_Y = -1.2; // below this you swim
+const RIVER_W = 0.11; // half-width of a river in noise units: tuned so about half the map is water
+const RIVER_SCALE = 150;
 
 export const Biome = { Forest: 0, Wetlands: 1, Grassland: 2, Highlands: 3 } as const;
 export type Biome = (typeof Biome)[keyof typeof Biome];
@@ -68,10 +70,24 @@ export class Terrain {
         // highlands rise where the elevation noise is high
         let hgt = 1.5 + (elev - 0.45) * 5 + detail * 1.4;
         const high = Math.max(0, elev - 0.6) / 0.4;
+        let riverM = 0;
         hgt += high * high * 30 + Math.max(0, elev - 0.6) * 16;
         // wetlands: a wet, low area is carved into lakes
         const wet = moist > 0.58 && elev < 0.6 && r > 55 ? Math.min(1, (moist - 0.58) / 0.15) : 0;
         hgt -= wet * 9 * Math.min(1, wet * 3);
+        // rivers: ridges of a warped noise field, so winding channels run right across the map (about half of it is water)
+        {
+          const wx = x + (fbm(x / 130 + 3, z / 130 + 9, seed + 6, 2) - 0.5) * 140;
+          const wz = z + (fbm(x / 130 - 8, z / 130 + 2, seed + 7, 2) - 0.5) * 140;
+          const ridge = Math.abs(fbm(wx / RIVER_SCALE + 21, wz / RIVER_SCALE - 14, seed + 5, 3) - 0.5);
+          let m = 1 - Math.min(1, Math.max(0, (ridge - RIVER_W * 0.55) / (RIVER_W * 0.45)));
+          m *= 1 - Math.min(0.6, high * 0.7); // rivers favour the valleys but cut canyons through the hills
+          m *= Math.min(1, Math.max(0, (r - 48) / 22)); // and leave the central clearing alone
+          const ford = fbm(x / 55 + 40, z / 55 - 40, seed + 8, 2) > 0.6; // shallow crossings
+          const bed = ford ? -0.8 : -3.4;
+          hgt = hgt * (1 - m) + bed * m;
+          riverM = m;
+        }
         // the centre: a flat clearing around the Alpha den with the watering hole in it
         const centre = Math.max(0, 1 - r / 55);
         hgt = hgt * (1 - centre * 0.85) + 1.6 * centre * 0.85;
@@ -92,7 +108,7 @@ export class Terrain {
     }
   }
 
-  /** At least 85% of the walkable ground must be one connected piece. */
+  /** At least half of the walkable ground must be one connected piece. */
   private connected(): boolean {
     const step = 2;
     const n = Math.floor(GRID / step);
@@ -133,7 +149,7 @@ export class Terrain {
         best = Math.max(best, size);
       }
     }
-    return total > 0 && best / total >= 0.85;
+    return total > 0 && best / total >= 0.5; // rivers split the land, but everything can swim across
   }
 
   private gridPos(x: number, z: number): [number, number, number, number] {
@@ -351,9 +367,9 @@ export class Terrain {
         // look for dry ground near the ideal spot that keeps its distance from the others
         for (const gap of [120, 105, 90, 60, 0]) {
           let best: SpawnPoint | null = null;
-          for (let off = 0; off < 70 && !best; off += 4) {
-            for (let k = 0; k < 12 && !best; k++) {
-              const ang = (k / 12) * Math.PI * 2;
+          for (let off = 0; off < 150 && !best; off += 5) {
+            for (let k = 0; k < 16 && !best; k++) {
+              const ang = (k / 16) * Math.PI * 2;
               const x = Math.cos(a) * ring.r + Math.cos(ang) * off;
               const z = Math.sin(a) * ring.r + Math.sin(ang) * off;
               if (Math.hypot(x, z) > MAP_RADIUS - 25 || !dry(x, z)) continue;

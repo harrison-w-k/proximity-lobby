@@ -1091,6 +1091,53 @@ varying vec3 vWP;`)
     }
   }
 
+  /** A picked-up item does not just vanish: it spins up, arcs into whoever took it, and bursts into sparkles. */
+  private collectFx(g: THREE.Group) {
+    let who: FighterView | null = null;
+    let best = 36; // within 6 m
+    for (const v of this.fighters.values()) {
+      const d = (v.x - g.position.x) ** 2 + (v.z - g.position.z) ** 2;
+      if (d < best) {
+        best = d;
+        who = v;
+      }
+    }
+    if (!who) {
+      this.scene.remove(g);
+      return;
+    }
+    const target = who;
+    let col = 0xffe9a0;
+    g.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+      if (m && m.color && col === 0xffe9a0 && (o as THREE.Mesh).isMesh && !(m as unknown as THREE.MeshBasicMaterial).transparent) col = m.color.getHex();
+    });
+    const from = g.position.clone();
+    const base = g.scale.x || 1;
+    let t = 0;
+    const dur = 0.42;
+    this.ringFx(from.x, from.z, 0.9, col, 0.35);
+    this.fxList.push({
+      update: (dt) => {
+        t += dt;
+        const k = Math.min(1, t / dur);
+        const e = k * k * (3 - 2 * k); // ease in and out
+        const h = target.rig.height * 0.6 + this.groundY(target.x, target.z);
+        g.position.set(from.x + (target.x - from.x) * e, from.y + (h - from.y) * e + Math.sin(k * Math.PI) * 1.1, from.z + (target.z - from.z) * e);
+        g.rotation.y += dt * (8 + 30 * k);
+        g.scale.setScalar(base * (k < 0.3 ? 1 + k * 1.6 : 1.5 * (1 - (k - 0.3) / 0.7) + 0.05));
+        if (Math.random() < 0.7) this.burst(g.position.x, g.position.y, g.position.z, col, 1, 0.8, 0.35);
+        if (k >= 1) {
+          this.scene.remove(g);
+          this.burst(g.position.x, g.position.y, g.position.z, col, 14, 3.4, 0.55);
+          this.burst(g.position.x, g.position.y, g.position.z, 0xffffff, 6, 2, 0.4);
+          return false;
+        }
+        return true;
+      },
+    });
+  }
+
   groundY(x: number, z: number): number {
     return Math.max(this.terrain.heightAt(x, z), WATER_Y - 0.1);
   }
@@ -1476,8 +1523,8 @@ varying vec3 vWP;`)
 
     for (const [id, d] of this.drops) {
       if (now - d.seen > 0.8) {
-        this.scene.remove(d.g);
         this.drops.delete(id);
+        this.collectFx(d.g);
         continue;
       }
       d.g.position.y = d.y0 + Math.sin(now * 3 + id) * 0.08;

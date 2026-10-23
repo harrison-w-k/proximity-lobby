@@ -50,16 +50,27 @@ function mat(color: number): Mat {
   return m;
 }
 
+const smoothCache = new Map<number, Mat>();
+/** Body and head parts are shaded smooth, so animals read as rounded creatures rather than cut gems. */
+function smoothMat(color: number): Mat {
+  let m = smoothCache.get(color);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({ color });
+    smoothCache.set(color, m);
+  }
+  return m;
+}
+const ICO2 = new THREE.IcosahedronGeometry(1, 2); // 320 triangles: a smooth body
 const ICO0 = new THREE.IcosahedronGeometry(1, 0); // 20 triangles: a cut gem
 const ICO = new THREE.IcosahedronGeometry(1, 1); // 80 triangles: a lumpy ellipsoid
 const CONE = new THREE.ConeGeometry(1, 1, 6);
 const CONE5 = new THREE.ConeGeometry(1, 1, 5);
 const CONE3 = new THREE.ConeGeometry(1, 1, 3);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 6);
-const LEG = new THREE.CylinderGeometry(0.62, 0.38, 1, 5); // tapers toward the paw
+const LEG = new THREE.CylinderGeometry(0.62, 0.38, 1, 10); // tapers toward the paw
 
 function part(geo: THREE.BufferGeometry, color: number, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0): THREE.Mesh {
-  const m = new THREE.Mesh(geo, mat(color));
+  const m = new THREE.Mesh(geo, geo === LEG ? smoothMat(color) : mat(color));
   m.scale.set(sx, sy, sz);
   m.position.set(x, y, z);
   return m;
@@ -67,7 +78,11 @@ function part(geo: THREE.BufferGeometry, color: number, sx: number, sy: number, 
 /** A faceted chunk sized like a box of w x h x d: used for everything small. */
 const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(ICO0, c, w * 0.62, h * 0.62, d * 0.62, x, y, z);
 /** A lumpy low-poly ellipsoid for torsos and heads. */
-const lump = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(ICO, c, w * 0.56, h * 0.56, d * 0.56, x, y, z);
+const lump = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => {
+  const m = part(ICO2, c, w * 0.56, h * 0.56, d * 0.56, x, y, z);
+  m.material = smoothMat(c);
+  return m;
+};
 const ball = (rx: number, ry: number, rz: number, c: number, x = 0, y = 0, z = 0) => part(ICO, c, rx, ry, rz, x, y, z);
 const cone = (r: number, h: number, c: number, x = 0, y = 0, z = 0) => part(CONE, c, r, h, r, x, y, z);
 const cyl = (r: number, h: number, c: number, x = 0, y = 0, z = 0) => part(CYL, c, r, h, r, x, y, z);
@@ -136,10 +151,11 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   torso.position.y = hip + spec.h / 2 - 0.04;
   root.add(torso);
   const belly = spec.belly ?? spec.fur;
-  torso.add(lump(spec.w, spec.h, spec.len, spec.fur));
+  torso.add(lump(spec.w * 0.92, spec.h * 0.9, spec.len * 0.92, spec.fur));
   torso.add(acc(lump(spec.w * 0.94, spec.h * 0.5, spec.len * 0.86, belly, 0, -spec.h * 0.3, 0)));
   // shoulders and haunches a little fuller than the middle
-  torso.add(lump(spec.w * 1.04, spec.h * 1.06, spec.len * 0.4, spec.fur, 0, spec.h * 0.04, spec.len * 0.28));
+  torso.add(lump(spec.w * 1.08, spec.h * 1.16, spec.len * 0.44, spec.fur, 0, spec.h * 0.02, spec.len * 0.27)); // a deep chest
+  torso.add(lump(spec.head.s * 0.72, spec.head.s * 0.8, spec.head.s * 0.95, spec.fur, 0, spec.h * 0.2, spec.len / 2 + spec.head.s * 0.02)); // the neck
   torso.add(lump(spec.w * 1.06, spec.h * 1.0, spec.len * 0.4, spec.fur, 0, 0, -spec.len * 0.3));
 
   // head
@@ -152,13 +168,19 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   const snH = spec.head.snoutH ?? hs * 0.5;
   head.add(acc(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02)));
   head.add(box(hs * 0.2, hs * 0.14, hs * 0.14, 0x16120f, 0, -hs * 0.04, hs * 0.5 + sn)); // nose
+  for (const sx of [-1, 1]) head.add(box(hs * 0.05, hs * 0.045, hs * 0.04, 0x000000, sx * hs * 0.05, -hs * 0.035, hs * 0.5 + sn + hs * 0.06)); // nostrils
+  if (sn > 0.04) head.add(lump(hs * 0.4, hs * 0.2, sn + hs * 0.35, spec.belly ?? spec.fur, 0, -hs * 0.27, hs * 0.38 + sn * 0.4)); // the jaw
+  head.add(lump(hs * 0.34, hs * 0.26, hs * 0.4, spec.head.snoutC ?? spec.fur, 0, -hs * 0.08, hs * 0.5 + sn * 0.18)); // the muzzle pad
   const eyeC = spec.eye ?? 0x111111;
   // eyes: a white ball, a dark pupil looking forward and a glint, so they read as alive
   const eyes: THREE.Object3D[] = [];
   for (const sx of [-1, 1]) {
     const eye = new THREE.Group();
     eye.position.set(sx * hs * 0.32, hs * 0.14, hs * 0.44);
-    eye.add(ball(hs * 0.1, hs * 0.115, hs * 0.07, 0xf4f1e6), box(hs * 0.1, hs * 0.13, hs * 0.05, eyeC, sx * -hs * 0.01, 0, hs * 0.05), box(hs * 0.035, hs * 0.035, hs * 0.03, 0xffffff, sx * hs * 0.015, hs * 0.04, hs * 0.075));
+    eye.add(ball(hs * 0.1, hs * 0.115, hs * 0.07, 0xf4f1e6), ball(hs * 0.075, hs * 0.09, hs * 0.05, eyeC, sx * -hs * 0.01, 0, hs * 0.04), box(hs * 0.06, hs * 0.08, hs * 0.04, 0x050505, sx * -hs * 0.01, 0, hs * 0.07), box(hs * 0.03, hs * 0.03, hs * 0.03, 0xffffff, sx * hs * 0.02, hs * 0.035, hs * 0.09));
+    const brow = box(hs * 0.24, hs * 0.07, hs * 0.14, spec.fur, 0, hs * 0.11, hs * 0.01); // a brow ridge shades the eye
+    brow.rotation.z = sx * -0.25;
+    eye.add(brow);
     head.add(eye);
     eyes.push(eye);
   }
@@ -190,6 +212,14 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
       }
     }
   }
+  if (sn > 0.2 && spec.ears !== 'long') {
+    // meat-eaters show a pair of fangs at the corners of the mouth
+    for (const sx of [-1, 1]) {
+      const f = spike(hs * 0.025, hs * 0.1, 0xf4f0e6, -1, sx * hs * 0.1, -hs * 0.26, hs * 0.5 + sn * 0.85, CONE3);
+      f.rotation.x = Math.PI;
+      head.add(f);
+    }
+  }
   torso.add(head);
 
   // legs pivot at the hip so they can swing
@@ -208,7 +238,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
       const shin = part(LEG, spec.fur, spec.legT * 1.05, spec.legLen * 0.52, spec.legT * 1.05, 0, -spec.legLen * 0.74, -spec.legT * 0.12);
       shin.rotation.x = 0.22;
       g.add(shin);
-      g.add(acc(box(spec.legT * 1.2, spec.legT * 0.6, spec.legT * 1.8, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.2, spec.legT * 0.3), 2));
+      g.add(acc(lump(spec.legT * 1.3, spec.legT * 0.75, spec.legT * 2.1, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.25, spec.legT * 0.35), 2));
     }
     root.add(g);
     legs.push(g);
