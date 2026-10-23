@@ -1,13 +1,14 @@
 // The 3D world of a match: terrain, water, lava, vegetation, the animals and the effects.
 import * as THREE from 'three';
+import { toonMat } from './toon';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, type Res } from '../../../shared/arena/terrain';
 import { FL } from '../../../shared/arena/proto';
 import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
 import { makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
 
-const SKY_TOP = 0x7aa9ee;
-const SKY_HORIZON = 0xfbe6d6;
+const SKY_TOP = 0x5f968a;
+const SKY_HORIZON = 0xe6cf92;
 
 export interface FighterView {
   id: string;
@@ -133,8 +134,8 @@ export class ArenaScene {
     this.scene.fog = this.fog;
     this.scene.background = new THREE.Color(SKY_HORIZON);
     this.camera.rotation.order = 'YXZ';
-    this.scene.add(new THREE.HemisphereLight(0xfff0e0, 0x86ad76, 1.2));
-    this.sun = new THREE.DirectionalLight(0xffedc0, 1.8);
+    this.scene.add(new THREE.HemisphereLight(0xf4e6b4, 0x5c7a48, 1.25));
+    this.sun = new THREE.DirectionalLight(0xffd98e, 1.8);
     this.sun.position.set(180, 260, 90);
     this.scene.add(this.sun);
     this.scene.add(this.makeSky());
@@ -166,23 +167,23 @@ export class ArenaScene {
   private terrainColor(x: number, z: number, h: number, bio: number, slope: number): THREE.Color {
     const c = new THREE.Color();
     const n = noise(x * 0.31, z * 0.27) * 0.12 - 0.06;
-    if (h < WATER_Y - 0.1) c.setHex(h < -1.5 ? 0x4b5f55 : 0x9c9570);
-    else if (h < WATER_Y + 0.5) c.setHex(0xe8d9a8);
+    if (h < WATER_Y - 0.1) c.setHex(h < -1.5 ? 0x2f4a47 : 0x7f8a5a);
+    else if (h < WATER_Y + 0.5) c.setHex(0xcdb472);
     else {
       switch (bio) {
         case Biome.Forest:
-          c.setHex(0x4f8f48);
+          c.setHex(0x56743a);
           break;
         case Biome.Wetlands:
-          c.setHex(0x70ad5c);
+          c.setHex(0x4f8d6c);
           break;
         case Biome.Grassland:
-          c.setHex(0xb9d268);
+          c.setHex(0xb3a64e);
           break;
         default:
-          c.setHex(0xcfc9b8);
-          if (h > 24) c.setHex(0xf6f3ea);
-          else if (h > 15) c.lerp(new THREE.Color(0xe6e1d3), (h - 15) / 9);
+          c.setHex(0xb89a60);
+          if (h > 24) c.setHex(0xe9dcb8);
+          else if (h > 15) c.lerp(new THREE.Color(0xc9b58a), (h - 15) / 9);
       }
       if (slope > 0.75) c.lerp(new THREE.Color(0xa59f92), Math.min(1, (slope - 0.75) * 2.5));
     }
@@ -236,7 +237,7 @@ export class ArenaScene {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeVertexNormals();
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const mat = toonMat({ vertexColors: true });
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uRing = this.ring;
       sh.uniforms.uTime = this.time;
@@ -299,7 +300,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, lavaCol, lava);`,
     this.waterTex = tex;
     const geo = new THREE.CircleGeometry(MAP_RADIUS + 20, 48);
     geo.rotateX(-Math.PI / 2);
-    this.water = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: tex, transparent: true, opacity: 0.72, shininess: 80, specular: 0xbfe6ff, depthWrite: false }));
+    this.water = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: tex, color: 0x8fcfae, transparent: true, opacity: 0.78, shininess: 80, specular: 0xbfe6ff, depthWrite: false }));
     this.water.position.y = WATER_Y - 0.05;
     this.water.renderOrder = 1;
     this.scene.add(this.water);
@@ -495,19 +496,19 @@ varying vec3 vWP;`)
     })();
 
     const kinds: Record<string, { geo: THREE.BufferGeometry; mat: THREE.Material; node?: boolean; jitter?: boolean }> = {
-      tree: { geo: treeGeo(0xec93b8, 0x7a5238, 'round'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
-      pine: { geo: treeGeo(0x2a7a58, 0x5b3f29, 'pine'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }) },
-      fruit: { geo: treeGeo(0x6dba4c, 0x7a5238, 'fruit'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
-      hive: { geo: treeGeo(0x6fae4a, 0x7a5238, 'hive'), mat: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), node: true },
-      bush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x68a84f, flatShading: true }) },
-      berryBush: { geo: bushGeo, mat: new THREE.MeshLambertMaterial({ color: 0x56933f, flatShading: true }) },
-      berry: { geo: berriesGeo, mat: new THREE.MeshLambertMaterial({ color: 0xd42a3c, flatShading: true, emissive: 0x330508 }), node: true },
-      rock: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0xe6e1d3, flatShading: true }), jitter: true },
-      stone: { geo: rockGeo, mat: new THREE.MeshLambertMaterial({ color: 0xf2eee2, flatShading: true }), jitter: true },
-      herb: { geo: herbGeo, mat: new THREE.MeshLambertMaterial({ color: 0x7ec06a, flatShading: true, emissive: 0x0a1a0a }), node: true },
-      reed: { geo: reedGeo, mat: new THREE.MeshLambertMaterial({ color: 0x9aa655, flatShading: true }), node: true },
-      mud: { geo: mudGeo, mat: new THREE.MeshLambertMaterial({ color: 0x5a4330, flatShading: true }), node: true },
-      tuft: { geo: tuftGeo, mat: new THREE.MeshLambertMaterial({ color: 0xb7c95a, flatShading: true }) },
+      tree: { geo: treeGeo(0xd0903a, 0x5e4430, 'round'), mat: toonMat({ vertexColors: true, flatShading: true }) },
+      pine: { geo: treeGeo(0x2d6b5c, 0x5b3f29, 'pine'), mat: toonMat({ vertexColors: true, flatShading: true }) },
+      fruit: { geo: treeGeo(0x6dba4c, 0x7a5238, 'fruit'), mat: toonMat({ vertexColors: true, flatShading: true }), node: true },
+      hive: { geo: treeGeo(0x6fae4a, 0x7a5238, 'hive'), mat: toonMat({ vertexColors: true, flatShading: true }), node: true },
+      bush: { geo: bushGeo, mat: toonMat({ color: 0x6c8c3a, flatShading: true }) },
+      berryBush: { geo: bushGeo, mat: toonMat({ color: 0x4a7c42, flatShading: true }) },
+      berry: { geo: berriesGeo, mat: toonMat({ color: 0xd42a3c, flatShading: true, emissive: 0x330508 }), node: true },
+      rock: { geo: rockGeo, mat: toonMat({ color: 0xc2b28c, flatShading: true }), jitter: true },
+      stone: { geo: rockGeo, mat: toonMat({ color: 0xd2c6a2, flatShading: true }), jitter: true },
+      herb: { geo: herbGeo, mat: toonMat({ color: 0x7ec06a, flatShading: true, emissive: 0x0a1a0a }), node: true },
+      reed: { geo: reedGeo, mat: toonMat({ color: 0x9aa655, flatShading: true }), node: true },
+      mud: { geo: mudGeo, mat: toonMat({ color: 0x5a4330, flatShading: true }), node: true },
+      tuft: { geo: tuftGeo, mat: toonMat({ color: 0xb0a64a, flatShading: true }) },
     };
     for (const [name, k] of Object.entries(kinds)) {
       this.ringMaterial(k.mat, name);
@@ -1025,7 +1026,7 @@ varying vec3 vWP;`)
 
   private dropMesh(kind: string, id = 0): THREE.Group {
     const g = new THREE.Group();
-    const m = (c: number) => new THREE.MeshLambertMaterial({ color: c, flatShading: true, emissive: c, emissiveIntensity: 0.25 });
+    const m = (c: number) => toonMat({ color: c, flatShading: true, emissive: c, emissiveIntensity: 0.25 });
     switch (kind) {
       case 'morsel': {
         // a small bright pellet, a different colour each, like the food in deeeep.io
@@ -1323,7 +1324,7 @@ varying vec3 vWP;`)
   lureAt(x: number, z: number) {
     if (this.lure) this.scene.remove(this.lure.g);
     const g = new THREE.Group();
-    const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.4, 6), new THREE.MeshLambertMaterial({ color: 0xe8b830, emissive: 0x553300 }));
+    const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.4, 6), toonMat({ color: 0xe8b830, emissive: 0x553300 }));
     jar.position.y = 0.2;
     g.add(jar);
     g.position.set(x, this.groundY(x, z), z);

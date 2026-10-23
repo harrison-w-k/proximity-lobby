@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { toonMat } from './arena/toon';
 import { MAP_RADIUS, SWIM_LIMIT, type PlayerState } from '../../shared/protocol';
 import { clampToArena, SHORE_RADIUS, waterDepth } from '../../shared/map';
 import { BODY_RADIUS, EYE_CROUCH, EYE_STAND, newSim, stepPlayer, type Input, type MoveProfile } from '../../shared/movement';
@@ -80,10 +81,10 @@ function seeded(seed: number) {
 }
 
 const flat = (color: number, extra: Partial<THREE.MeshLambertMaterialParameters> = {}) =>
-  new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+  toonMat({ color, flatShading: true, ...extra });
 
 const textured = (map: THREE.Texture, color = 0xffffff, extra: Partial<THREE.MeshLambertMaterialParameters> = {}) =>
-  new THREE.MeshLambertMaterial({ map, color, flatShading: true, ...extra });
+  toonMat({ map, color, flatShading: true, ...extra });
 
 /** The textures are built once, the first time the world needs them. */
 let texCache: {
@@ -176,7 +177,7 @@ function makeNameSprite(name: string): THREE.Sprite {
 }
 
 // ---------- sky, sun, clouds, hills ----------
-const SKY_HORIZON = 0xfce8d6; // fog and sea fade into this, so the horizon is seamless
+const SKY_HORIZON = 0xe6cf92; // fog and sea fade into this, so the horizon is seamless
 
 function makeSkyDome(): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
@@ -184,8 +185,8 @@ function makeSkyDome(): THREE.Mesh {
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x2f6fe0) },
-      mid: { value: new THREE.Color(0x6db4ff) },
+      top: { value: new THREE.Color(0x4a8580) },
+      mid: { value: new THREE.Color(0x86b59a) },
       horizon: { value: new THREE.Color(SKY_HORIZON) },
     },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
@@ -222,7 +223,7 @@ function makeSun(): THREE.Group {
 function makeClouds(): THREE.Group {
   const rnd = seeded(5);
   const root = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9db2cc, flatShading: true, fog: false });
+  const mat = toonMat({ color: 0xffffff, emissive: 0x9db2cc, flatShading: true, fog: false });
   for (let i = 0; i < 11; i++) {
     const cloud = new THREE.Group();
     const blobs = 4 + Math.floor(rnd() * 3);
@@ -289,9 +290,9 @@ function makeWater(scene: THREE.Scene, glints: THREE.Texture): Water {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
-  const shallow = new THREE.Color(0x4fe3d0);
-  const mid = new THREE.Color(0x2b9ae8);
-  const deep = new THREE.Color(0x14509e);
+  const shallow = new THREE.Color(0x5fc9a8);
+  const mid = new THREE.Color(0x2f8f8a);
+  const deep = new THREE.Color(0x174f55);
   const foam = new THREE.Color(0xffffff);
   const tmp = new THREE.Color();
 
@@ -347,7 +348,7 @@ function makeWater(scene: THREE.Scene, glints: THREE.Texture): Water {
   scene.add(mesh);
 
   // beyond the animated patch: a plain disc in the deep colour, sitting a little lower
-  const far = new THREE.Mesh(new THREE.CircleGeometry(1600, 24), new THREE.MeshLambertMaterial({ color: deep }));
+  const far = new THREE.Mesh(new THREE.CircleGeometry(1600, 24), toonMat({ color: deep }));
   far.rotation.x = -Math.PI / 2;
   far.position.y = SEA_LEVEL - 0.3;
   scene.add(far);
@@ -501,7 +502,7 @@ interface AnimState {
 interface Character {
   group: THREE.Group;
   head: THREE.Group; // hidden in first person so it can't block the view
-  shirt: THREE.MeshLambertMaterial; // the armour: its emissive lights up when the player speaks
+  shirt: THREE.MeshToonMaterial; // the armour: its emissive lights up when the player speaks
   setHue(h: number): void;
   /** Clay colour and hat chosen in the character menu (null: the id-based defaults). */
   setLook(look: Look | null): void;
@@ -523,15 +524,15 @@ function makeCharacter(id: string): Character {
   const SHADES = [0xf4f4f2, 0xe6e6e2, 0xd6d6d6, 0xc4c6ca, 0xb4b6ba];
   const clayColor = new THREE.Color(SHADES[Math.floor(r() * SHADES.length)]);
   const baseShade = clayColor.clone();
-  const lit = (c: THREE.Color) => new THREE.MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0.22 });
+  const lit = (c: THREE.Color) => toonMat({ color: c, emissive: c, emissiveIntensity: 0.22 });
   // the clay (also what lights up when the player speaks)
-  const armor = new THREE.MeshLambertMaterial({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.25 });
+  const armor = toonMat({ color: clayColor, emissive: clayColor, emissiveIntensity: 0.25 });
   const skin = armor;
   const jointCol = clayColor.clone().multiplyScalar(0.78);
   const jointM = lit(jointCol);
-  const darkM = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-  const whiteM = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 });
-  const lipM = new THREE.MeshLambertMaterial({ color: 0x77777a });
+  const darkM = toonMat({ color: 0x1a1a1a });
+  const whiteM = toonMat({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3 });
+  const lipM = toonMat({ color: 0x77777a });
   const hairKind = Math.floor(r() * 6);
   const blank = new THREE.Color(clayColor);
   // the photo (if any) is drawn over the face; without one the plane is hidden and the features show
@@ -713,7 +714,7 @@ function makeCharacter(id: string): Character {
 
   // ----- look: colour and hat -----
   let hat: THREE.Group | null = null;
-  const hatMat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const hatMat = (color: number) => toonMat({ color, flatShading: true });
   const makeHat = (kind: number): THREE.Group | null => {
     if (kind <= 0) return null;
     const g = new THREE.Group();
@@ -1142,7 +1143,7 @@ class Avatar {
   readonly hit: THREE.Mesh; // what the crosshair ray tests against (invisible)
   private shell = new THREE.Group(); // the character; squashed when crouching
   private label: THREE.Sprite;
-  private body: THREE.MeshLambertMaterial;
+  private body: THREE.MeshToonMaterial;
   private character: Character;
   private rig: Rig | null = null;
   private nameHeight = NAME_HEIGHT;
@@ -1453,8 +1454,8 @@ export class World {
     this.scene.fog = new THREE.Fog(horizon, 90, 720);
     this.camera.rotation.order = 'YXZ';
 
-    this.scene.add(new THREE.HemisphereLight(0xd8eeff, 0x7d95b0, 1.0));
-    const sunlight = new THREE.DirectionalLight(0xfff0cc, 1.8);
+    this.scene.add(new THREE.HemisphereLight(0xf0e4b8, 0x6f8a60, 1.05));
+    const sunlight = new THREE.DirectionalLight(0xffdc9a, 1.8);
     sunlight.position.copy(SUN_DIR).multiplyScalar(100); // lights the world from where the sun is drawn
     this.scene.add(sunlight);
 

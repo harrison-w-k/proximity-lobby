@@ -1,6 +1,7 @@
 // Procedural low-poly animals. Player animals are articulated (legs, tail and head move);
 // horde creatures are merged into a single mesh so hundreds of them stay cheap to draw.
 import * as THREE from 'three';
+import { toonMat } from './toon';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
@@ -39,12 +40,12 @@ const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: t
 /** Geometries merge only if they are all indexed or all not. */
 const flat = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
 
-type Mat = THREE.MeshLambertMaterial;
+type Mat = THREE.MeshToonMaterial;
 const matCache = new Map<number, Mat>();
 function mat(color: number): Mat {
   let m = matCache.get(color);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color, flatShading: true });
+    m = toonMat({ color, flatShading: true });
     matCache.set(color, m);
   }
   return m;
@@ -55,7 +56,7 @@ const smoothCache = new Map<number, Mat>();
 function smoothMat(color: number): Mat {
   let m = smoothCache.get(color);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color });
+    m = toonMat({ color });
     smoothCache.set(color, m);
   }
   return m;
@@ -173,7 +174,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
 
   // head
   const head = new THREE.Group();
-  const hs = spec.head.s;
+  const hs = spec.head.s * 1.15; // a slightly oversized head
   head.position.set(0, spec.h * 0.28 - (spec.head.drop ?? 0), spec.len / 2 + (spec.head.fwd ?? hs * 0.35));
   head.add(lump(hs, hs * 0.92, hs * 1.08, spec.fur));
   head.add(box(hs * 0.7, hs * 0.5, hs * 0.5, spec.fur, 0, -hs * 0.18, hs * 0.18)); // cheeks
@@ -199,14 +200,15 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   const eyes: THREE.Object3D[] = [];
   for (const sx of [-1, 1]) {
     const eye = new THREE.Group();
+    const E = hs * 1.75; // big, wide-set cartoon eyes
     eye.position.set(sx * hs * 0.31, hs * 0.15, hs * 0.4);
     eye.rotation.y = sx * 0.32;
-    eye.add(ball(hs * 0.12, hs * 0.125, hs * 0.06, 0x120d0a, 0, 0, -hs * 0.01)); // a dark socket rim
-    eye.add(ball(hs * 0.095, hs * 0.105, hs * 0.055, eyeC, 0, 0, hs * 0.015)); // the iris
-    if (spec.slit) eye.add(ball(hs * 0.026, hs * 0.095, hs * 0.04, 0x040404, 0, 0, hs * 0.045));
-    else eye.add(ball(hs * 0.058, hs * 0.068, hs * 0.04, 0x040404, 0, 0, hs * 0.045));
-    eye.add(ball(hs * 0.022, hs * 0.022, hs * 0.02, 0xffffff, sx * -hs * 0.02, hs * 0.038, hs * 0.07)); // the glint
-    const lid = ball(hs * 0.125, hs * 0.06, hs * 0.075, spec.fur, 0, hs * 0.07, hs * 0.012); // the upper lid shades the eye
+    eye.add(ball(E * 0.12, E * 0.125, E * 0.06, 0x120d0a, 0, 0, -E * 0.01)); // a dark socket rim
+    eye.add(ball(E * 0.095, E * 0.105, E * 0.055, eyeC, 0, 0, E * 0.015)); // the iris
+    if (spec.slit) eye.add(ball(E * 0.026, E * 0.095, E * 0.04, 0x040404, 0, 0, E * 0.045));
+    else eye.add(ball(E * 0.058, E * 0.068, E * 0.04, 0x040404, 0, 0, E * 0.045));
+    eye.add(ball(E * 0.022, E * 0.022, E * 0.02, 0xffffff, sx * -E * 0.02, E * 0.038, E * 0.07)); // the glint
+    const lid = ball(E * 0.125, E * 0.06, E * 0.075, spec.fur, 0, E * 0.07, E * 0.012); // the upper lid shades the eye
     lid.rotation.z = sx * -0.18;
     eye.add(lid);
     head.add(eye);
@@ -321,7 +323,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
  */
 function bakeQuad(b: Built): Mat[] {
   b.root.updateMatrixWorld(true);
-  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const material = toonMat({ vertexColors: true });
   const roots: THREE.Object3D[] = [b.torso, b.head, ...(b.tail ? [b.tail] : []), ...b.legs, ...b.eyes];
   const keep = new Set<THREE.Object3D>([...roots, ...b.ears.map((e) => e.o)]);
   for (const R of roots) {
@@ -344,11 +346,11 @@ function bakeQuad(b: Built): Mat[] {
       if (Math.max(c.scale.x, c.scale.y, c.scale.z) >= 0.07) {
         const og = new THREE.BufferGeometry();
         og.setAttribute('position', g0.attributes.position.clone());
-        og.scale(1.09, 1.09, 1.09);
+        og.scale(1.14, 1.14, 1.14);
         og.applyMatrix4(rel);
         hull.push(og);
       }
-      if (m.flatShading) g0.computeVertexNormals(); // non-indexed, so every face keeps its own flat normal
+      if ((m as unknown as { flatShading?: boolean }).flatShading) g0.computeVertexNormals(); // non-indexed, so every face keeps its own flat normal
       g0.deleteAttribute('uv');
       const n = g0.attributes.position.count;
       const col = new Float32Array(n * 3);
@@ -749,7 +751,7 @@ function mergeGroup(group: THREE.Group): THREE.Mesh {
     geos.push(g);
   });
   const merged = mergeGeometries(geos.map(flat), false)!;
-  return new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  return new THREE.Mesh(merged, toonMat({ vertexColors: true, flatShading: true }));
 }
 
 class MergedRig implements Rig {

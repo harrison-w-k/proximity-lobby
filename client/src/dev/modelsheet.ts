@@ -2,6 +2,7 @@
 // checked by eye. In the dev server, open the console and run:
 //   (await import('/src/dev/modelsheet.ts')).renderSheet(['house_cat', 'gray_wolf'], { yaw: 0.6 })
 import * as THREE from 'three';
+import { toonMat } from '../arena/toon';
 import { makePlayerRig } from '../arena/models';
 
 export interface SheetOpts {
@@ -29,7 +30,7 @@ export function renderSheet(ids: string[], o: SheetOpts = {}): string {
   const sun = new THREE.DirectionalLight(0xffffff, 1.6);
   sun.position.set(3, 6, 4);
   scene.add(sun);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 32), new THREE.MeshLambertMaterial({ color: 0x6f8f4a }));
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 32), toonMat({ color: 0x6f8f4a }));
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
   const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 200);
