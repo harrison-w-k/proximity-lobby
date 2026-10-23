@@ -1,15 +1,15 @@
 // The authoritative match simulation: 20 animals, a procedural map, horde AI, a closing lava
-// ring, XP and skills, the Gulag and Horde Leaders. It knows nothing about sockets: a host feeds
+// ring, XP and skills. It knows nothing about sockets: a host feeds
 // it client messages, calls tick() at 30 Hz and sends the snapshots it produces.
 import {
   ANIMAL_BY_ID, ANIMALS, EVOLVE_TIME, MAX_LEVEL, SKILL_BY_ID, STAT_KEYS, derive, evolveOptions, emptyStats, hordeXp, killXp, sumMods, xpNeed,
   type AnimalDef, type Derived, type Effect, type Mods, type Skill, type Status, type Stats,
 } from './animals';
 import {
-  LEADER_RESPAWN, MOBS, SWARMS, SWARM_BUDGET, SWARM_DAMAGE_CAP, SWARM_MIN, TIER_SHARE, mobDef, swarmChoices,
-  mobIndex, type MobDef, type SwarmKind,
+  MOBS, TIER_SHARE, mobDef,
+  mobIndex, type MobDef,
 } from './mobs';
-import { GULAG_R, GULAG_X, JUMP_COST, JUMP_V, MAP_BOUND, inGulagZone, medium, standY, stepPos, stepVertical, type Bound } from './move';
+import { JUMP_COST, JUMP_V, MAP_BOUND, medium, standY, stepPos, stepVertical, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
@@ -184,24 +184,8 @@ export interface Fighter extends Body {
   recentAttackers: Map<string, number>;
   atkFlash: number;
   roarFlash: number;
-  // gulag
-  duel?: Duel;
-  waitSince: number;
   deathX: number;
   deathZ: number;
-  deathBiome: Biome;
-  swarmPick: SwarmKind | null;
-  defeated: boolean;
-  // horde leader
-  swarm?: SwarmKind;
-  tier: number;
-  eaten: number;
-  order: 'free' | 'attack' | 'guard' | 'scatter';
-  guardX: number;
-  guardZ: number;
-  respawnAt: number;
-  frenzyUntil: number;
-  swarmHurt: [number, number, string][]; // damage taken from swarms: [time, amount, leader]
   moving: boolean;
   sprinting: boolean;
   cmds: { s: number; dt: number; dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }[];
@@ -225,7 +209,6 @@ interface Swing {
   fx?: Effect;
   yaw: number;
   wind: number;
-  lead?: { kind: string; tx: number; tz: number; tid: string }; // a Horde Leader skill aimed at a marked spot
 }
 
 type MobState = 'idle' | 'flee' | 'attack' | 'investigate' | 'stampede';
@@ -243,7 +226,6 @@ export interface Mob extends Body {
   target: Fighter | null;
   pack: number;
   atkAt: number;
-  owner: string; // leader id for swarm units
   awake: boolean;
   atkFlash: number;
   slowUntil: number;
@@ -253,7 +235,6 @@ export interface Mob extends Body {
   scareUntil: number;
   wander: number;
   hurtFlash: number;
-  warden?: boolean;
   strikeAt: number; // a boss attack lands at this time (0 = not winding up)
   fleeAt: number;
   jit: number; // a fleeing animal's wobble off a straight line
@@ -281,17 +262,6 @@ interface Proj {
   st?: Status[];
 }
 
-interface Duel {
-  id: number;
-  slot: number;
-  a: Fighter;
-  b: Fighter | null;
-  warden: Mob | null;
-  startedAt: number;
-  cx: number;
-  cz: number;
-}
-
 export interface Entrant {
   id: string;
   name: string;
@@ -311,7 +281,6 @@ const MORSEL_XP = 5;
 const NODE_RESPAWN: Record<string, number> = { berry: 50, fruit: 90, herb: 80, mud: 45, hive: 120, reed: 30 };
 const HARVEST_TIME: Record<string, number> = { berry: 2.2, fruit: 3, herb: 2.5, mud: 2, hive: 3.5, reed: 1.8 };
 
-const FIXED_GULAG_ALLOC: Stats = { hp: 6, atk: 6, spd: 0, sta: 0, sen: 0 };
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const yawOf = (dx: number, dz: number) => Math.atan2(dx, dz);
@@ -336,8 +305,6 @@ export class Match {
   mobs: Mob[] = [];
   drops: Drop[] = [];
   projs: Proj[] = [];
-  duels: Duel[] = [];
-  gulagQueue: Fighter[] = [];
   nodeUntil = new Map<number, number>();
   rnd: () => number;
   phase = 0;
@@ -351,7 +318,6 @@ export class Match {
   private nextDrop = 1;
   private nextProj = 1;
   private nextPack = 1;
-  private nextDuel = 1;
   private events: { e: MatchEvent; x?: number; z?: number }[] = [];
   private noises: { x: number; z: number; r: number }[] = [];
   private warned = new Set<number>();
@@ -360,7 +326,6 @@ export class Match {
   private lastHunted = -10;
   private lastAwake = -10;
   private lastPop = 0;
-  private lastSwarmAlloc = -10;
   private lastLava = 0;
   private teamsAlive = new Set<number>();
   private startTeams = 0;
@@ -407,9 +372,9 @@ export class Match {
       cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, whiffUntil: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
       speedUntil: 0, glideUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
-      hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, waitSince: 0, deathX: 0, deathZ: 0,
-      deathBiome: Biome.Grassland, swarmPick: null, defeated: false, tier: 1, eaten: 0, order: 'free', guardX: 0, guardZ: 0,
-      respawnAt: 0, frenzyUntil: 0, swarmHurt: [], moving: false, sprinting: false, cmds: [], ack: 0, lastCmd: 0, lastInputAt: 0, walkSpeed: 0, holdUntil: 0, holdDps: 0, bornAt: 0,
+      hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, deathX: 0, deathZ: 0,
+     
+      moving: false, sprinting: false, cmds: [], ack: 0, lastCmd: 0, lastInputAt: 0, walkSpeed: 0, holdUntil: 0, holdDps: 0, bornAt: 0,
     };
     this.recompute(f, true);
     // everyone starts with an empty water pouch
@@ -501,30 +466,21 @@ export class Match {
 
   roster(): RosterEntry[] {
     return this.fighters.map((f) => ({
-      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], swarm: f.swarm, tier: f.role === 'leader' ? f.tier : undefined, paint: f.paint,
+      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], paint: f.paint,
     }));
-  }
-
-  private inGulag(f: Fighter) {
-    return f.role === 'gulag';
   }
 
   /** Skills the fighter currently has: slots Q E R F. */
   slotSkills(f: Fighter): (Skill | null)[] {
-    return [f.def.skill, null, null, null]; // one signature skill: evolving replaces it
+    return [f.def.skill, f.def.skill2, null, null]; // Q: the signature skill, E: a second move from stage 2 on
   }
 
   recompute(f: Fighter, fill = false) {
     const skills: Skill[] = [f.def.innate];
-    if (f.role !== 'gulag') skills.push(classSkill(f.def.cls)); // gulag duels are on equal terms
+    skills.push(classSkill(f.def.cls));
     f.mods = sumMods(skills);
     const oldMax = f.maxHp;
-    if (f.role === 'leader') {
-      f.dv = { maxHp: 55 + f.tier * 15, dmg: 4 + f.tier, speed: 6.6 + f.tier * 0.4, maxSta: 100, sense: 40, radius: 0.4, reach: 1.8 };
-    } else {
-      f.dv = derive(f.def, f.role === 'gulag' ? FIXED_GULAG_ALLOC : f.alloc, f.mods);
-      if (f.role === 'gulag') f.dv.maxHp = Math.max(f.dv.maxHp, 180);
-    }
+    f.dv = derive(f.def, f.alloc, f.mods);
     f.maxHp = f.dv.maxHp;
     f.r = f.dv.radius;
     if (fill) f.hp = f.maxHp;
@@ -564,46 +520,26 @@ export class Match {
 
   private teamOf(b: Body | null): number {
     if (!b) return -1;
-    if (b.kind === 'f') return (b as Fighter).team;
-    const o = (b as Mob).owner;
-    return o ? (this.byId.get(o)?.team ?? -1) : -1;
+    return b.kind === 'f' ? (b as Fighter).team : -1;
   }
 
-  /** May `src` hurt `t`? Wildlife and leaders only hurt living players; the Gulag is separate. */
+  /** May `src` hurt `t`? Wild animals only hurt living players, and nobody hurts a teammate or a spectator. */
   private canHit(src: Body | null, t: Body): boolean {
     if (t.kind === 'f') {
       const tf = t as Fighter;
       if (tf.role === 'out') return false;
-      if (tf.role === 'gulag') {
-        if (!tf.duel || tf.defeated) return false;
-        if (!src) return false;
-        if (src.kind === 'f') return (src as Fighter).duel === tf.duel;
-        return (src as Mob).warden === true && tf.duel.warden === src;
-      }
       if (src === null) return true;
       if (src.kind === 'f') {
         const sf = src as Fighter;
-        if (sf.role === 'gulag') return false;
         if (sf.team === tf.team && sf !== tf) return false;
-        if (tf.role === 'leader' && sf.role === 'leader') return false;
         if (sf.role === 'alive' && tf.role === 'alive' && this.time < SCATTER_PEACE) return false; // first contact comes in the Farm phase
         return true;
       }
-      // a mob
-      const m = src as Mob;
-      if (m.warden) return false;
-      if (tf.role !== 'alive') return false;
-      if (m.owner) return (this.byId.get(m.owner)?.team ?? -2) !== tf.team;
-      return true;
+      return tf.role === 'alive'; // a wild animal
     }
-    // t is a mob
-    const tm = t as Mob;
+    // t is a wild animal
     if (!src || src.kind === 'm') return false;
-    const sf = src as Fighter;
-    if (tm.warden) return sf.role === 'gulag' && sf.duel?.warden === tm;
-    if (sf.role === 'gulag') return false;
-    if (tm.owner) return sf.role === 'alive' && (this.byId.get(tm.owner)?.team ?? -2) !== sf.team;
-    return sf.role === 'alive';
+    return (src as Fighter).role === 'alive';
   }
 
   private bodies(x: number, z: number, r: number, pred: (b: Body) => boolean): Body[] {
@@ -665,12 +601,6 @@ export class Match {
         else if (msg.a === 'loot') this.startLoot(f);
         else if (msg.a === 'drink') this.startDrink(f);
         else if (msg.a === 'drop') this.dropItem(f, msg.i ?? 0);
-        break;
-      case 'mcmd':
-        this.command(f, msg.c, msg.yaw);
-        break;
-      case 'mswarm':
-        this.chooseSwarm(f, msg.k);
         break;
       case 'mguard':
         this.setGuard(f, msg.on === 1);
@@ -786,9 +716,7 @@ export class Match {
 
   castSkill(f: Fighter, slot: number, yaw: number): boolean {
     if (slot < 0 || slot > 3 || f.hp <= 0) return false;
-    if (f.role === 'leader') return this.leaderSkill(f, slot);
     if (f.role === 'out') return false;
-    if (f.role === 'gulag' && (!f.duel || f.defeated)) return false;
     if (f.stunUntil > this.time || f.whiffUntil > this.time || f.grab) return false;
     const skill = this.slotSkills(f)[slot];
     if (!skill?.fx || this.time < f.cdAt[slot]) return false;
@@ -832,7 +760,7 @@ export class Match {
         const f = t as Fighter;
         switch (s.s) {
           case 'bleed':
-            if (f.mods.bleedImmune <= 0) f.bleed = { until: this.time + s.dur, dps: base * s.dps, src: src && src.kind === 'f' ? (src as Fighter).id : ((src as Mob | null)?.owner ?? '') };
+            if (f.mods.bleedImmune <= 0) f.bleed = { until: this.time + s.dur, dps: base * s.dps, src: src && src.kind === 'f' ? (src as Fighter).id : '' };
             break;
           case 'slow':
             f.slow = { until: this.time + s.dur, f: s.f };
@@ -879,7 +807,7 @@ export class Match {
   }
 
   private scareMob(m: Mob, dur: number) {
-    if (m.def.behavior === 'alpha' || m.warden) return;
+    if (m.def.behavior === 'alpha') return;
     if (m.state !== 'flee') m.fleeAt = this.time;
     m.scareUntil = this.time + dur;
     m.state = 'flee';
@@ -911,7 +839,7 @@ export class Match {
           if (fx.scare && b.kind === 'f') (b as Fighter).scareUntil = this.time + fx.scare * 0.5;
         }
         // wild animals that are not "hit" still hear and react
-        if (fx.scare) for (const m of this.mobs) if (m.hp > 0 && !m.owner && dist(m, f) < fx.r) this.scareMob(m, fx.scare);
+        if (fx.scare) for (const m of this.mobs) if (m.hp > 0 && dist(m, f) < fx.r) this.scareMob(m, fx.scare);
         break;
       }
       case 'dash': {
@@ -976,14 +904,13 @@ export class Match {
 
   /** Every animal can dash: a short burst of speed, for timing a dodge or a chase. */
   dash(f: Fighter, dx: number, dz: number): boolean {
-    if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return false;
+    if (f.hp <= 0 || f.role === 'out') return false;
     if (f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.holding || f.dash || this.time < f.dashAt) return false;
-    const leader = f.role === 'leader';
-    if (!leader && f.sta < DASH_COST && !this.hasFree(f)) return false;
+    if (f.sta < DASH_COST && !this.hasFree(f)) return false;
     const l = Math.hypot(dx, dz);
     const ux = l > 0.1 ? dx / l : Math.sin(f.yaw);
     const uz = l > 0.1 ? dz / l : Math.cos(f.yaw);
-    if (!leader && !this.hasFree(f)) f.sta -= DASH_COST;
+    if (!this.hasFree(f)) f.sta -= DASH_COST;
     f.chan = null;
     f.swing = null; // a dash cancels a wind-up
     f.guarding = false;
@@ -1001,15 +928,14 @@ export class Match {
   /** Start the next swing of the combo. The damage lands after the wind-up, so it can be read and answered. */
   private basicAttack(f: Fighter) {
     if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.chan || f.guarding) return;
-    const leader = f.role === 'leader';
     const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0;
     const c = COMBO[combo];
-    const free = leader || this.hasFree(f);
+    const free = this.hasFree(f);
     if (!free) {
       if (f.sta < c.cost) return; // too tired to swing
       f.sta -= c.cost;
     }
-    const rof = leader ? 1 : this.buffSum(f, 'rof');
+    const rof = this.buffSum(f, 'rof');
     const wind = c.wind / rof;
     f.combo = combo;
     f.comboAt = this.time;
@@ -1049,10 +975,6 @@ export class Match {
     const sw = f.swing;
     f.swing = null;
     if (!sw) return;
-    if (sw.lead) {
-      this.fireLeaderSkill(f, sw.lead);
-      return;
-    }
     if (sw.kind === 'skill') {
       if (sw.skill && sw.fx) this.fireSkill(f, sw.skill, sw.fx, f.yaw);
       return;
@@ -1084,13 +1006,13 @@ export class Match {
    */
   setGuard(f: Fighter, on: boolean) {
     if (!on) return; // releasing the button does nothing: a parry runs its course
-    if (f.hp <= 0 || f.role === 'out' || (f.role === 'gulag' && (!f.duel || f.defeated))) return;
+    if (f.hp <= 0 || f.role === 'out') return;
     const t = this.time;
     if (f.guarding || t < f.guardCd || f.stunUntil > t || f.whiffUntil > t || f.grab || f.dash || f.holding) return;
     if (f.swing) {
       // changing your mind mid-swing: a feint, at a small stamina cost
       f.swing = null;
-      if (f.role !== 'leader') f.sta = Math.max(0, f.sta - 6);
+      f.sta = Math.max(0, f.sta - 6);
       f.atkAt = t + 0.2;
     }
     f.chan = null;
@@ -1113,7 +1035,7 @@ export class Match {
     this.lastResult = 'hit';
     if (raw <= 0 || t.hp <= 0) return 0;
     const srcF = src?.kind === 'f' ? (src as Fighter) : null;
-    const srcOwner = src?.kind === 'm' ? ((src as Mob).owner ? this.byId.get((src as Mob).owner) ?? null : null) : srcF;
+    const srcOwner = srcF;
     if (t.kind === 'm') {
       const m = t as Mob;
       let amount = raw;
@@ -1127,7 +1049,7 @@ export class Match {
       }
       if (!o.dot && !o.lava) this.emit({ k: 'mobhit', x: m.x, z: m.z, n: Math.round(amount) }, m.x, m.z);
       // wake up and respond
-      if (srcF && !m.owner && !m.warden) this.provoke(m, srcF);
+      if (srcF) this.provoke(m, srcF);
       if (m.hp <= 0) this.killMob(m, srcF);
       return amount;
     }
@@ -1143,7 +1065,7 @@ export class Match {
     let dr = Math.min(0.8, f.mods.dr + this.buffSum(f, 'dr'));
     if (o.lava) dr = this.time < f.mudUntil ? 0.6 : 0;
     let amount = raw * (1 - dr);
-    if (srcF && srcF !== f && (srcF.role === 'alive' || srcF.role === 'gulag') && !o.lava && !o.dot) amount *= PVP_DAMAGE;
+    if (srcF && srcF !== f && srcF.role === 'alive' && !o.lava && !o.dot) amount *= PVP_DAMAGE;
     // a blow from the front that lands inside the parry window is parried
     if (o.blockable && src && f.guarding && !o.lava && !o.dot) {
       const front = Math.abs(angDiff(yawOf(src.x - f.x, src.z - f.z), f.yaw)) < 1.3;
@@ -1169,16 +1091,6 @@ export class Match {
         this.emit({ k: 'parry', id: f.id, by: src.kind === 'f' ? (src as Fighter).id : '', x: f.x, z: f.z, heavy, mob: src.kind === 'm' ? (src as Mob).id : undefined, stun: PARRY_STUN }, f.x, f.z);
         return 0;
       }
-    }
-    // swarms may deal at most 30% of a player's health per 10 s
-    const swarmId = src?.kind === 'm' ? (src as Mob).owner : srcF?.role === 'leader' ? srcF.id : '';
-    if (swarmId) {
-      f.swarmHurt = f.swarmHurt.filter(([t0]) => this.time - t0 < 10);
-      const used = f.swarmHurt.reduce((s, [, a, id]) => (id === swarmId ? s + a : s), 0);
-      const room = Math.max(0, f.maxHp * SWARM_DAMAGE_CAP - used);
-      amount = Math.min(amount, room);
-      if (amount <= 0) return 0;
-      f.swarmHurt.push([this.time, amount, swarmId]);
     }
     if (!this.campus) f.hp -= amount; // in the campus the numbers fly but nobody loses anything
     f.lastHurt = this.time;
@@ -1213,7 +1125,7 @@ export class Match {
 
   private provoke(m: Mob, by: Fighter) {
     if (m.pack) {
-      for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0 && !o.owner) this.aggro(o, by);
+      for (const o of this.mobs) if (o.pack === m.pack && o.hp > 0) this.aggro(o, by);
     } else this.aggro(m, by);
   }
   private aggro(m: Mob, by: Fighter) {
@@ -1230,15 +1142,12 @@ export class Match {
 
   private killMob(m: Mob, by: Fighter | null) {
     m.hp = 0;
-    if (m.warden) return; // handled by the duel
     if (by && by.role === 'alive') {
       let xp = hordeXp(m.def.tier, by.level);
-      if (m.owner) xp = hordeXp(1, by.level) * 0.35;
-      else xp *= 1 + by.mods.preyXp;
+      xp *= 1 + by.mods.preyXp;
       this.gainXp(by, xp);
       by.lastCombat = this.time;
     }
-    if (m.owner) return;
     // drops
     const def = m.def;
     if (def.meat > 0) this.addDrop(m.x, m.z, [{ k: 'meat', n: def.meat, born: this.time }], 90);
@@ -1252,21 +1161,6 @@ export class Match {
   }
 
   private kill(f: Fighter, killer: Fighter | null, how: string) {
-    if (f.role === 'gulag') {
-      // a duel loss: the fighter keeps their body, the duel resolves
-      f.hp = 1;
-      f.defeated = true;
-      f.invUntil = this.time + 99;
-      return;
-    }
-    if (f.role === 'leader') {
-      f.hp = 0;
-      f.respawnAt = this.time + LEADER_RESPAWN;
-      this.removeUnits(f.id);
-      this.emit({ k: 'kill', killer: killer?.id ?? '', victim: f.id, how }, f.x, f.z);
-      if (killer?.role === 'alive') this.gainXp(killer, hordeXp(2, killer.level) * 0.5);
-      return;
-    }
     if (f.role !== 'alive') return;
     // a living player falls: drop everything as a loot pile, credit the kill
     const items = f.inv.filter((i): i is InvItem => !!i && (i.k !== 'water' || i.n > 0));
@@ -1281,8 +1175,6 @@ export class Match {
         if (tm !== killer && tm.team === killer.team && tm.role === 'alive' && dist(tm, killer) < 70) this.gainXp(tm, killXp(f.totalXp, f.level, tm.level) * 0.25);
       }
       killer.hp = Math.min(killer.maxHp, killer.hp + killer.maxHp * 0.15);
-    } else if (killer && killer.role === 'leader') {
-      killer.kills++;
     }
     // assists and credit when the killing blow was lava
     if (!killer || killer === f) {
@@ -1299,7 +1191,6 @@ export class Match {
     this.emit({ k: 'kill', killer: killer?.id ?? '', victim: f.id, how }, f.x, f.z);
     f.deathX = f.x;
     f.deathZ = f.z;
-    f.deathBiome = this.terrain.biomeAt(f.x, f.z);
     f.chan = null;
     f.dash = undefined;
     f.grab = undefined;
@@ -1308,18 +1199,12 @@ export class Match {
     f.subUntil = 0;
     f.buffs = [];
     f.hunted = false;
-    f.role = 'gulag';
-    f.defeated = false;
-    f.waitSince = this.time;
-    f.swarmPick = null;
+    // death is final: you spectate, untouchable, until the match ends
+    f.role = 'out';
     f.input.at = false;
-    this.recompute(f, true);
-    f.invUntil = 0;
-    const pen = this.penSpot();
-    f.x = pen.x;
-    f.z = pen.z;
-    f.y = 0;
-    this.gulagQueue.push(f);
+    f.moving = false;
+    f.hp = f.maxHp;
+    f.invUntil = this.time + 9999;
     // team elimination
     if (!this.fighters.some((o) => o.team === f.team && o.role === 'alive')) {
       this.teamsAlive.delete(f.team);
@@ -1327,7 +1212,7 @@ export class Match {
       for (const o of this.fighters) if (o.team === f.team) o.place = place;
     }
     this.rosterDirty = true;
-    this.emit({ k: 'toast', to: f.id, text: 'You were eliminated. Survive Detention to return as a Horde Leader.' });
+    this.emit({ k: 'toast', to: f.id, text: 'You were eliminated. Click to watch someone else, or head back to the campus.' });
   }
 
   /** Kills in quick succession build a streak that the whole match gets to see. */
@@ -1335,12 +1220,6 @@ export class Match {
     k.streak = this.time - k.streakAt < 25 ? k.streak + 1 : 1;
     k.streakAt = this.time;
     if (k.streak >= 2) this.emit({ k: 'streak', id: k.id, n: k.streak });
-  }
-
-  private penSpot() {
-    const a = this.rnd() * Math.PI * 2;
-    const r = 4 + this.rnd() * 10;
-    return { x: GULAG_X - 70 + Math.cos(a) * r, z: Math.sin(a) * r };
   }
 
   private addDrop(x: number, z: number, items: InvItem[], ttl: number, pile = false) {
@@ -1488,7 +1367,7 @@ export class Match {
 
   startLoot(f: Fighter) {
     if (f.chan || f.stunUntil > this.time) return;
-    if (f.role !== 'alive' && f.role !== 'leader') return;
+    if (f.role !== 'alive') return;
     const d = this.nearestDrop(f.x, f.z, 3.2);
     if (!d) {
       this.toast(f.id, 'Nothing to pick up.');
@@ -1512,14 +1391,6 @@ export class Match {
     const i = this.drops.findIndex((d) => d.id === id);
     if (i < 0 || this.drops[i].items[0]?.k === 'morsel') return;
     const d = this.drops[i];
-    if (f.role === 'leader') {
-      // leaders eat: it makes them stronger
-      f.eaten += d.items.reduce((s, it) => s + (it.k === 'meat' ? it.n : 1), 0);
-      this.drops.splice(i, 1);
-      f.hp = Math.min(f.maxHp, f.hp + 10);
-      this.checkTier(f);
-      return;
-    }
     const left: InvItem[] = [];
     for (const it of d.items) {
       if (it.k === 'meat') it.born = this.time;
@@ -1641,261 +1512,18 @@ export class Match {
     f.inv[slot] = null;
   }
 
-  // --- horde leaders -----------------------------------------------------------------------------
-
-  chooseSwarm(f: Fighter, k: SwarmKind) {
-    if (f.role !== 'gulag') return;
-    if (!swarmChoices(f.deathBiome).some((s) => s.id === k)) return;
-    f.swarmPick = k;
-  }
-
-  command(f: Fighter, c: string, yaw?: number) {
-    if (f.role !== 'leader' || f.hp <= 0) return;
-    if (c === 'attack') f.order = 'attack';
-    else if (c === 'free') f.order = 'free';
-    else if (c === 'scatter') f.order = 'scatter';
-    else if (c === 'guard') {
-      f.order = 'guard';
-      f.guardX = f.x;
-      f.guardZ = f.z;
-    } else if (c === 'skill') this.leaderSkill(f, 0);
-    else if (c === 'frenzy') this.leaderSkill(f, 1);
-    if (yaw !== undefined && Number.isFinite(yaw)) f.yaw = yaw;
-  }
-
-  private leaderSkill(f: Fighter, slot: number): boolean {
-    if (f.hp <= 0 || this.time < f.cdAt[slot]) return false;
-    const def = SWARMS.find((s) => s.id === f.swarm);
-    if (!def) return false;
-    if (slot === 1) {
-      if (f.tier < 3) {
-        this.toast(f.id, 'Reach Tier III by eating to unlock Frenzy.');
-        return false;
-      }
-      f.frenzyUntil = this.time + 8;
-      f.cdAt[1] = this.time + 25;
-      this.emit({ k: 'skill', id: f.id, s: 'frenzy', x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
-      return true;
-    }
-    if (slot !== 0) return false;
-    // find the nearest living enemy in front
-    const foes = this.bodies(f.x, f.z, 28, (b) => b.kind === 'f' && (b as Fighter).role === 'alive' && (b as Fighter).team !== f.team) as Fighter[];
-    foes.sort((a, b) => dist(a, f) - dist(b, f));
-    const tgt = foes.find((b) => Math.abs(angDiff(yawOf(b.x - f.x, b.z - f.z), f.yaw)) < 1.2) ?? foes[0];
-    if (!tgt) {
-      this.toast(f.id, 'No target in range.');
-      return false;
-    }
-    f.cdAt[0] = this.time + def.skill.cd;
-    const wind = 0.45;
-    this.emit({ k: 'skill', id: f.id, s: `sw_${def.id}`, x: tgt.x, z: tgt.z, yaw: f.yaw, w: wind }, tgt.x, tgt.z);
-    f.swing = { at: this.time + wind, start: this.time, kind: 'skill', combo: -1, heavy: true, yaw: f.yaw, wind, lead: { kind: def.id, tx: tgt.x, tz: tgt.z, tid: tgt.id } };
-    return true;
-  }
-
-  /** The marked spot is hit now: anyone who stayed in it pays. */
-  private fireLeaderSkill(f: Fighter, lead: { kind: string; tx: number; tz: number }) {
-    this.emit({ k: 'strike', id: f.id, s: `sw_${lead.kind}`, x: lead.tx, z: lead.tz, yaw: f.yaw }, lead.tx, lead.tz);
-    const foes = (r: number) => this.bodies(lead.tx, lead.tz, r, (x) => x.kind === 'f' && (x as Fighter).role === 'alive' && (x as Fighter).team !== f.team) as Fighter[];
-    if (lead.kind === 'rat') {
-      for (const b of foes(3.5)) this.statusTo(f, b, [{ s: 'bleed', dur: 8, dps: (b.maxHp * 0.018) / Math.max(1, f.dv.dmg) }], f.dv.dmg);
-    } else if (lead.kind === 'bird') {
-      for (const b of foes(7)) {
-        b.blindUntil = this.time + 3.5;
-        this.hurt(b, 4, f, { kind: 'dive' });
-      }
-    } else {
-      const wet = this.terrain.depthAt(lead.tx, lead.tz) > 0.1 || this.nearWater(lead.tx, lead.tz);
-      for (const b of foes(12)) b.slow = { until: this.time + 4, f: wet ? 0.5 : 0.25 };
-    }
-  }
-
-  private checkTier(f: Fighter) {
-    const t = f.eaten >= 14 ? 3 : f.eaten >= 6 ? 2 : 1;
-    if (t > f.tier) {
-      f.tier = t;
-      this.recompute(f);
-      this.toast(f.id, t === 3 ? 'Tier III! Frenzy unlocked (E).' : 'Tier II! Your swarm grows.');
-      this.rosterDirty = true;
-    }
-  }
-
-  private becomeLeader(f: Fighter, tier: number) {
-    f.role = 'leader';
-    f.tier = tier;
-    f.eaten = tier === 2 ? 6 : 0;
-    f.swarm = f.swarmPick ?? swarmChoices(f.deathBiome)[0].id;
-    f.duel = undefined;
-    f.defeated = false;
-    f.invUntil = 0;
-    f.order = 'free';
-    f.cdAt = [0, 0, 0, 0];
-    this.recompute(f, true);
-    // return to the world near where they fell, inside the lava ring
-    const ring = ringAt(this.ringTime()).r;
-    let x = f.deathX;
-    let z = f.deathZ;
-    const d = Math.hypot(x, z);
-    if (d > ring - 10) {
-      x *= (ring - 10) / d;
-      z *= (ring - 10) / d;
-    }
-    const p = this.terrain.randomLand(this.rnd, 1, 0);
-    if (this.terrain.heightAt(x, z) < WATER_Y + 0.2 && f.swarm !== 'shoal') {
-      const q = this.terrain.randomLand(this.rnd, Math.max(20, ring - 10), 0);
-      x = q.x;
-      z = q.z;
-    }
-    void p;
-    f.x = x;
-    f.z = z;
-    f.y = standY(this.terrain, x, z);
-    this.rosterDirty = true;
-    this.emit({ k: 'toast', to: f.id, text: `You return as ${SWARMS.find((s) => s.id === f.swarm)?.name}. Command your swarm (1 attack, 2 scatter, 3 guard).` });
-    this.allocateSwarms(true);
-  }
-
-  private leaderUnits(id: string) {
-    return this.mobs.filter((m) => m.owner === id && m.hp > 0);
-  }
-  private removeUnits(id: string) {
-    for (const m of this.mobs) if (m.owner === id) m.hp = 0;
-  }
-
-  /** The shared 60-animal budget: more leaders means smaller swarms. */
-  swarmWant = new Map<string, number>();
-  private allocateSwarms(force = false) {
-    if (!force && this.time - this.lastSwarmAlloc < 2) return;
-    this.lastSwarmAlloc = this.time;
-    const leaders = this.fighters.filter((f) => f.role === 'leader' && f.hp > 0);
-    const share = leaders.reduce((s, f) => s + TIER_SHARE[f.tier], 0) || 1;
-    this.swarmWant.clear();
-    for (const f of leaders) this.swarmWant.set(f.id, this.disbanded ? 0 : Math.max(SWARM_MIN, Math.floor((SWARM_BUDGET * TIER_SHARE[f.tier]) / share)));
-  }
-
-  // --- gulag -----------------------------------------------------------------------------------
-
-  private updateGulag() {
-    // pair up waiting players, or send a lone player against the Warden
-    const waiting = this.gulagQueue.filter((f) => f.role === 'gulag' && !f.duel);
-    const freeSlot = () => {
-      for (let s = 0; s < 4; s++) if (!this.duels.some((d) => d.slot === s)) return s;
-      return -1;
-    };
-    while (waiting.length >= 2) {
-      const s = freeSlot();
-      if (s < 0) break;
-      const a = waiting.shift()!;
-      const b = waiting.shift()!;
-      this.startDuel(s, a, b);
-    }
-    if (waiting.length === 1 && this.time - waiting[0].waitSince > 10) {
-      const s = freeSlot();
-      if (s >= 0) this.startDuel(s, waiting.shift()!, null);
-    }
-    this.gulagQueue = this.gulagQueue.filter((f) => f.role === 'gulag' && !f.duel);
-
-    for (const d of [...this.duels]) {
-      const { a, b } = d;
-      let winner: Fighter | null = null;
-      let loser: Fighter | null = null;
-      if (d.warden) {
-        if (a.defeated) {
-          winner = null;
-          loser = a;
-        } else if (d.warden.hp <= 0) winner = a;
-      } else if (b) {
-        if (a.defeated) {
-          winner = b;
-          loser = a;
-        } else if (b.defeated) {
-          winner = a;
-          loser = b;
-        }
-      }
-      const timeout = this.time - d.startedAt > 55;
-      if (!winner && !loser && !timeout) continue;
-      if (timeout && !winner && !loser) {
-        if (d.warden) loser = a;
-        else if (b) {
-          const pa = a.hp / a.maxHp;
-          const pb = b.hp / b.maxHp;
-          winner = pa >= pb ? a : b;
-          loser = winner === a ? b : a;
-        }
-      }
-      this.duels = this.duels.filter((x) => x !== d);
-      if (d.warden) d.warden.hp = 0;
-      if (winner) this.finishGulag(winner, 2, true);
-      if (loser) this.finishGulag(loser, 1, false);
-    }
-  }
-
-  private finalFight() {
-    return this.disbanded || (this.fighters.length > 3 && this.fighters.filter((o) => o.role === 'alive').length <= 3);
-  }
-
-  private finishGulag(f: Fighter, tier: number, won: boolean) {
-    this.emit({ k: 'gulag', id: f.id, winner: won });
-    if (this.finalFight()) {
-      // the final fight is already on: there is no swarm to lead
-      f.role = 'out';
-      f.duel = undefined;
-      f.hp = f.maxHp;
-      f.defeated = false;
-      f.invUntil = 0;
-      this.rosterDirty = true;
-      this.toast(f.id, 'The final fight has begun. Watch it unfold.');
-      return;
-    }
-    this.becomeLeader(f, tier);
-  }
-
-  private startDuel(slot: number, a: Fighter, b: Fighter | null) {
-    const cx = GULAG_X;
-    const cz = -120 + slot * 80;
-    const duel: Duel = { id: this.nextDuel++, slot, a, b, warden: null, startedAt: this.time, cx, cz };
-    this.duels.push(duel);
-    a.duel = duel;
-    if (b) b.duel = duel;
-    for (const [i, f] of [a, b].entries()) {
-      if (!f) continue;
-      f.x = cx + (i === 0 ? -9 : 9);
-      f.z = cz;
-      f.yaw = i === 0 ? Math.PI / 2 : -Math.PI / 2;
-      f.input.yaw = f.yaw;
-      f.defeated = false;
-      f.invUntil = this.time + 2.5; // a moment to get ready
-      f.cdAt = [this.time + 1, this.time + 1, 0, 0];
-      this.recompute(f, true);
-    }
-    if (!b) {
-      const def = mobDef('alpha_bear');
-      const w = this.makeMob({ ...def, id: 'warden', name: 'The Warden', hp: 380, dmg: 16, speed: 6, r: 1.2, tier: 3 }, cx + 9, cz, 0);
-      w.warden = true;
-      w.state = 'attack';
-      w.target = a;
-      w.until = Infinity;
-      w.awake = true;
-      duel.warden = w;
-      this.mobs.push(w);
-    }
-    this.emit({ k: 'toast', to: a.id, text: b ? `Detention duel vs ${b.name}!` : 'Detention duel vs the Headmaster!' });
-    if (b) this.emit({ k: 'toast', to: b.id, text: `Detention duel vs ${a.name}!` });
-  }
-
   // --- mobs -----------------------------------------------------------------------------------
 
-  /** Wild prey has half the health (it is food); bosses, the Warden and swarm animals keep theirs. */
+  /** Wild prey has half the health (it is food); the alpha keeps its own. */
   private mobHp(def: MobDef): number {
-    const keep = def.behavior === 'alpha' || def.id === 'warden' || def.id.startsWith('swarm_');
+    const keep = def.behavior === 'alpha';
     return keep ? def.hp : Math.max(3, Math.round(def.hp * 0.5));
   }
 
   private makeMob(def: MobDef, x: number, z: number, pack: number): Mob {
     return {
       kind: 'm', id: this.nextMob++, def, x, z, y: 0, yaw: this.rnd() * 6.28, hp: this.mobHp(def), maxHp: this.mobHp(def), r: def.r, state: 'idle', until: 0, tx: x, tz: z,
-      homeX: x, homeZ: z, target: null, pack, atkAt: 0, owner: '', awake: false, atkFlash: 0, slowUntil: 0, stunUntil: 0, bleedUntil: 0, bleedDps: 0,
+      homeX: x, homeZ: z, target: null, pack, atkAt: 0, awake: false, atkFlash: 0, slowUntil: 0, stunUntil: 0, bleedUntil: 0, bleedDps: 0,
       scareUntil: 0, wander: this.rnd() * 5, hurtFlash: 0, strikeAt: 0, fleeAt: 0, jit: 0, pauseUntil: 0,
     };
   }
@@ -1971,12 +1599,8 @@ export class Match {
   private updateAwake() {
     if (this.time - this.lastAwake < 0.5) return;
     this.lastAwake = this.time;
-    const pts = this.fighters.filter((f) => f.hp > 0 && f.role !== 'out' && f.role !== 'gulag');
+    const pts = this.fighters.filter((f) => f.hp > 0 && f.role !== 'out');
     for (const m of this.mobs) {
-      if (m.warden) {
-        m.awake = true;
-        continue;
-      }
       let near = this.migrating > 0 && !m.def.aquatic;
       if (!near) {
         for (const f of pts) {
@@ -1986,7 +1610,6 @@ export class Match {
           }
         }
       }
-      if (m.owner) near = true;
       if (near && !m.awake) {
         m.awake = true;
         m.wander = this.rnd() * 3;
@@ -2013,7 +1636,7 @@ export class Match {
     this.scatterMorsels(40);
     const ring = ringAt(this.ringTime()).r;
     // only animals still inside the lava count, and the herds shrink with the ring (a small ring cannot hold hundreds)
-    const wild = this.mobs.filter((m) => m.hp > 0 && !m.owner && !m.warden && Math.hypot(m.x, m.z) < ring);
+    const wild = this.mobs.filter((m) => m.hp > 0 && Math.hypot(m.x, m.z) < ring);
     const count = (t: number) => wild.filter((m) => m.def.tier === t).length;
     const area = Math.pow(Math.min(1, ring / (MAP_RADIUS - 6)), 2);
     const inner = ring - 6; // never spawn on the lava's edge
@@ -2034,8 +1657,7 @@ export class Match {
       }
     }
     // compact the dead
-    this.mobs = this.mobs.filter((m) => m.hp > 0 || m.warden);
-    this.mobs = this.mobs.filter((m) => !(m.warden && m.hp <= 0));
+    this.mobs = this.mobs.filter((m) => m.hp > 0);
     this.drops = this.drops.filter((d) => d.ttl > this.time && d.items.length);
   }
 
@@ -2046,10 +1668,6 @@ export class Match {
     const mig = this.migrating > 0;
     for (const m of this.mobs) {
       if (m.hp <= 0 || !m.awake) continue;
-      if (m.owner) {
-        this.unitAi(m, dt);
-        continue;
-      }
       m.atkFlash = Math.max(0, m.atkFlash - dt);
       m.hurtFlash = Math.max(0, m.hurtFlash - dt);
       if (m.stunUntil > this.time) {
@@ -2065,14 +1683,8 @@ export class Match {
 
       // lava drives wildlife inward
       const rr = Math.hypot(m.x, m.z);
-      if (rr > ring.r - 4 && !m.warden) {
+      if (rr > ring.r - 4) {
         this.moveMob(m, -m.x, -m.z, speed, dt);
-        continue;
-      }
-
-      if (m.warden) {
-        const t = m.target;
-        if (t && t.hp > 0 && !t.defeated) this.chaseAndBite(m, t, speed, dt);
         continue;
       }
 
@@ -2183,7 +1795,7 @@ export class Match {
     // react to noises
     for (const n of this.noises) {
       for (const m of this.mobs) {
-        if (m.hp <= 0 || !m.awake || m.owner || m.warden || m.state !== 'idle') continue;
+        if (m.hp <= 0 || !m.awake || m.state !== 'idle') continue;
         if (m.def.behavior !== 'alpha') continue; // prey does not walk toward trouble
         if (dist(m, n) < n.r) {
           m.state = 'investigate';
@@ -2204,7 +1816,7 @@ export class Match {
     // everything else stands its ground: wild animals do not run away
   }
 
-  /** Alphas and the Warden: a slow, readable attack. The wind-up can be parried to stagger the beast. */
+  /** Alphas: a slow, readable attack. The wind-up can be parried to stagger the beast. */
   private chaseAndBite(m: Mob, t: Fighter, speed: number, dt: number) {
     const d = dist(m, t);
     const alpha = m.def.behavior === 'alpha';
@@ -2237,12 +1849,6 @@ export class Match {
     const l = Math.hypot(dx, dz);
     if (l < 1e-4) return;
     m.yaw = yawOf(dx, dz);
-    if (m.owner && !m.warden) {
-      // swarm units fly/skim over everything
-      m.x += (dx / l) * speed * dt;
-      m.z += (dz / l) * speed * dt;
-      return;
-    }
     const p = { x: m.x, z: m.z };
     const wasDeep = this.terrain.isDeep(m.x, m.z);
     if (m.def.aquatic) {
@@ -2263,100 +1869,6 @@ export class Match {
     if (!m.def.amphibious && this.terrain.heightAt(p.x, p.z) < WATER_Y - 0.5) return; // stays out of deep water
     m.x = p.x;
     m.z = p.z;
-  }
-
-  // --- swarm units -------------------------------------------------------------------------------
-
-  private unitAi(m: Mob, dt: number) {
-    const L = this.byId.get(m.owner);
-    m.atkFlash = Math.max(0, m.atkFlash - dt);
-    if (!L || L.role !== 'leader' || L.hp <= 0 || this.disbanded) {
-      m.hp = 0;
-      return;
-    }
-    if (m.stunUntil > this.time) {
-      m.strikeAt = 0;
-      return;
-    }
-    const frenzy = L.frenzyUntil > this.time;
-    const speed = m.def.speed * (frenzy ? 1.3 : 1) * (L.tier === 3 ? 1.1 : 1);
-    const dmg = m.def.dmg * (1 + (L.tier - 1) * 0.25) * (frenzy ? 1.6 : 1);
-    const anchorX = L.order === 'guard' ? L.guardX : L.x;
-    const anchorZ = L.order === 'guard' ? L.guardZ : L.z;
-    const ring = ringAt(this.ringTime());
-    if (Math.hypot(m.x, m.z) > ring.r) this.hurt(m, m.maxHp * ring.dps * dt, null, { lava: true });
-    const aggroR = L.order === 'guard' ? 14 : 16;
-    let tgt: Fighter | null = null;
-    if (L.order !== 'scatter') {
-      let bd = L.order === 'attack' ? 70 : aggroR;
-      for (const f of this.fighters) {
-        if (f.role !== 'alive' || f.hp <= 0 || f.team === L.team || f.subUntil > this.time) continue;
-        const d = L.order === 'attack' ? dist(f, L) : dist(f, { x: anchorX, z: anchorZ });
-        if (d < bd) {
-          bd = d;
-          tgt = f;
-        }
-      }
-    }
-    if (tgt) {
-      const d = dist(m, tgt);
-      if (d > m.r + tgt.r + 0.4) this.moveMob(m, tgt.x - m.x, tgt.z - m.z, speed, dt);
-      else if (m.strikeAt) {
-        if (this.time >= m.strikeAt) {
-          m.strikeAt = 0;
-          if (d < m.r + tgt.r + 0.9) this.hurt(tgt, dmg, m, { kind: 'swarm', blockable: true });
-        }
-      } else if (this.time >= m.atkAt) {
-        m.atkAt = this.time + 1.1;
-        m.atkFlash = 0.5;
-        m.strikeAt = this.time + 0.3; // a visible crouch before the bite
-      }
-    } else if (L.order === 'scatter') {
-      m.wander -= dt;
-      if (m.wander <= 0) {
-        m.wander = 1.5 + this.rnd() * 2;
-        const a = this.rnd() * 6.28;
-        m.tx = L.x + Math.cos(a) * (14 + this.rnd() * 20);
-        m.tz = L.z + Math.sin(a) * (14 + this.rnd() * 20);
-      }
-      this.moveMob(m, m.tx - m.x, m.tz - m.z, speed * 0.8, dt);
-    } else {
-      m.wander -= dt;
-      const d = dist(m, { x: anchorX, z: anchorZ });
-      if (m.wander <= 0) {
-        m.wander = 1 + this.rnd() * 2;
-        const a = this.rnd() * 6.28;
-        const r = 2 + this.rnd() * (L.order === 'guard' ? 4 : 5);
-        m.tx = anchorX + Math.cos(a) * r;
-        m.tz = anchorZ + Math.sin(a) * r;
-      }
-      if (d > 14) this.moveMob(m, anchorX - m.x, anchorZ - m.z, speed * 1.4, dt);
-      else if (dist(m, { x: m.tx, z: m.tz }) > 0.6) this.moveMob(m, m.tx - m.x, m.tz - m.z, speed * 0.6, dt);
-    }
-    const g = Math.max(this.terrain.heightAt(m.x, m.z), WATER_Y);
-    m.y = g + (m.def.flies ? 1.1 + Math.sin(this.time * 8 + m.id) * 0.2 : 0);
-  }
-
-  private topUpSwarms() {
-    this.allocateSwarms();
-    for (const f of this.fighters) {
-      if (f.role !== 'leader' || f.hp <= 0) continue;
-      const want = this.swarmWant.get(f.id) ?? 0;
-      const units = this.leaderUnits(f.id);
-      if (units.length > want) {
-        for (const m of units.slice(want)) m.hp = 0;
-      } else if (units.length < want && this.tickN % 10 === 0) {
-        const kind = SWARMS.find((s) => s.id === f.swarm)!;
-        const def = mobDef(kind.unit);
-        for (let i = 0; i < Math.min(3, want - units.length); i++) {
-          const a = this.rnd() * 6.28;
-          const m = this.makeMob(def, f.x + Math.cos(a) * 2.5, f.z + Math.sin(a) * 2.5, 0);
-          m.owner = f.id;
-          m.awake = true;
-          this.mobs.push(m);
-        }
-      }
-    }
   }
 
   // --- projectiles -------------------------------------------------------------------------------
@@ -2385,25 +1897,6 @@ export class Match {
     if (f.role === 'out') return;
     f.atkFlash = Math.max(0, f.atkFlash - dt);
     f.roarFlash = Math.max(0, f.roarFlash - dt);
-    if (f.role === 'leader' && f.hp <= 0) {
-      if (t >= f.respawnAt && !this.disbanded) {
-        f.hp = f.maxHp;
-        const a = this.rnd() * 6.28;
-        const ring = ringAt(this.campus ? 0 : t).r;
-        let x = f.x + Math.cos(a) * 8;
-        let z = f.z + Math.sin(a) * 8;
-        const d = Math.hypot(x, z);
-        if (d > ring - 10) {
-          x *= (ring - 10) / d;
-          z *= (ring - 10) / d;
-        }
-        f.x = x;
-        f.z = z;
-        f.invUntil = t + 2;
-        this.toast(f.id, 'Your swarm is called back.');
-      }
-      return;
-    }
     if (f.hp <= 0) return;
 
     // statuses
@@ -2470,11 +1963,10 @@ export class Match {
     if (f.slow && f.slow.until > t) base *= 1 - f.slow.f;
     else f.slow = undefined;
     if (f.subUntil > t) base *= 1.2;
-    if (f.role === 'leader' && f.frenzyUntil > t) base *= 1.15;
     if (f.swing) base *= 0.45; // committed to the swing
     else if (f.guarding) base *= 0.75;
     f.walkSpeed = base;
-    const bound: Bound = f.role === 'gulag' && f.duel ? { cx: f.duel.cx, cz: f.duel.cz, r: GULAG_R } : f.role === 'gulag' ? { cx: GULAG_X - 70, cz: 0, r: 19 } : MAP_BOUND;
+    const bound: Bound = MAP_BOUND;
     f.moving = false;
     f.sprinting = false;
     if (f.dash) {
@@ -2520,7 +2012,7 @@ export class Match {
     }
     if (!f.dash && !blocked && !f.chan && inp.at) {
       f.yaw = inp.yaw; // attacking faces the camera
-      if (f.role === 'leader' || f.role === 'alive' || (f.role === 'gulag' && f.duel && !f.defeated)) this.basicAttack(f);
+      if (f.role === 'alive') this.basicAttack(f);
     }
     f.y = standY(this.terrain, f.x, f.z);
     (f as { speedNow?: number }).speedNow = base;
@@ -2530,7 +2022,7 @@ export class Match {
     if (f.reedUntil > t && !(this.terrain.depthAt(f.x, f.z) > 0.2)) f.reedUntil = 0;
 
     // lava
-    if (f.role !== 'gulag' && !inGulagZone(f.x)) {
+    {
       const ring = ringAt(this.campus ? 0 : t);
       if (Math.hypot(f.x, f.z) > ring.r && f.glideUntil <= t) {
         this.hurt(f, f.maxHp * ring.dps * dt, null, { lava: true, kind: 'lava' });
@@ -2541,10 +2033,9 @@ export class Match {
   /** One step of walking: stamina, facing, and the move itself. */
   private applyMove(f: Fighter, dx: number, dz: number, sprint: boolean, crouch: boolean, jump: boolean, dt: number, base: number, noSprint: boolean, blocked: boolean, bound: Bound) {
     // jumping: a hop that clears low rocks and stones
-    if (jump && !blocked && this.time >= f.whiffUntil && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001 && f.jv <= 0.001 && !(inGulagZone(f.x) ? false : this.terrain.isDeep(f.x, f.z))) {
-      const leader = f.role === 'leader';
-      if (leader || f.sta >= JUMP_COST || this.hasFree(f)) {
-        if (!leader && !this.hasFree(f)) f.sta -= JUMP_COST;
+    if (jump && !blocked && this.time >= f.whiffUntil && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001 && f.jv <= 0.001 && !this.terrain.isDeep(f.x, f.z)) {
+      if (f.sta >= JUMP_COST || this.hasFree(f)) {
+        if (!this.hasFree(f)) f.sta -= JUMP_COST;
         f.jv = JUMP_V;
         f.chan = null;
       }
@@ -2556,7 +2047,7 @@ export class Match {
     let sprinting = false;
     // players only run forward: strafing and backpedalling are at walking pace (bots do not use a camera)
     const forward = f.bot || (k > 0.05 && (dx * Math.sin(f.input.yaw) + dz * Math.cos(f.input.yaw)) / k > 0.55);
-    if (sprint && forward && moving && !noSprint && !f.guarding && !f.swing && f.role !== 'leader' && (f.sta > 1 || this.hasFree(f))) {
+    if (sprint && forward && moving && !noSprint && !f.guarding && !f.swing && (f.sta > 1 || this.hasFree(f))) {
       sprinting = true;
       sp *= 1.45;
       if (!this.hasFree(f)) f.sta -= 14 * dt;
@@ -2584,7 +2075,6 @@ export class Match {
 
   /** Back on the ground: if we came down inside a rock, step out of it. */
   private landed(f: Fighter) {
-    if (inGulagZone(f.x)) return;
     const c = this.terrain.collide(f.x, f.z, f.r, f.jy); // landing on a rock keeps you on it
     f.x = c.x;
     f.z = c.z;
@@ -2659,21 +2149,6 @@ export class Match {
     if (this.campus) return; // the campus never ends
     const alive = this.fighters.filter((f) => f.role === 'alive');
     const teams = new Set(alive.map((f) => f.team));
-    // 3 players left: every swarm disbands for a clean final fight
-    if (!this.disbanded && alive.length <= 3 && this.fighters.length > 3) {
-      this.disbanded = true;
-      for (const f of this.fighters) {
-        if (f.role === 'leader') {
-          this.removeUnits(f.id);
-          f.role = 'out';
-          f.hp = f.maxHp;
-        }
-      }
-      for (const d of this.duels) d.warden && (d.warden.hp = 0);
-      this.emit({ k: 'disband' });
-      this.emit({ k: 'toast', text: 'Three left! All swarms disband.' });
-      this.rosterDirty = true;
-    }
     if (teams.size <= 1 && this.startTeams > 1 && this.time > 5) this.finish(teams.size === 1 ? [...teams][0] : -1);
     else if (this.time > MATCH_LEN + 140) this.finish(-1);
   }
@@ -2706,18 +2181,16 @@ export class Match {
     for (const f of this.fighters) this.updateFighter(f);
     this.updateProjs();
     this.updateMobs();
-    this.topUpSwarms();
-    this.updateGulag();
     this.updateHunted();
     this.maintainPopulation();
     if (this.tickN % 15 === 0) this.checkEnd();
-    // wild animals and swarm units also burn
+    // wild animals burn too
     if (this.time - this.lastLava > 0.5) {
       const dtl = this.time - this.lastLava;
       this.lastLava = this.time;
       const ring = ringAt(this.ringTime());
       for (const m of this.mobs) {
-        if (m.hp > 0 && !m.warden && !m.owner && Math.hypot(m.x, m.z) > ring.r) this.hurt(m, m.maxHp * ring.dps * dtl * 1.5, null, { lava: true });
+        if (m.hp > 0 && Math.hypot(m.x, m.z) > ring.r) this.hurt(m, m.maxHp * ring.dps * dtl * 1.5, null, { lava: true });
       }
     }
     if (this.rosterDirty) {
@@ -2747,7 +2220,6 @@ export class Match {
       ringAt: ring.closing ? 0 : (next?.start ?? 0),
       ringN: ring.n,
       alive: this.fighters.filter((f) => f.role === 'alive').length,
-      leaders: this.fighters.filter((f) => f.role === 'leader').length,
       top,
       mig: this.migrating > 0 ? 1 : 0,
     };
@@ -2803,7 +2275,7 @@ export class Match {
     const t = this.time;
     const sk = this.slotSkills(f);
     const cds = [0, 1, 2, 3].map((i) => Math.max(0, f.cdAt[i] - t));
-    const cdMax = [0, 1, 2, 3].map((i) => (f.role === 'leader' ? (i === 0 ? (SWARMS.find((s) => s.id === f.swarm)?.skill.cd ?? 10) : 25) : (sk[i]?.cd ?? 0)));
+    const cdMax = [0, 1, 2, 3].map((i) => (sk[i]?.cd ?? 0));
     const you: YouState = {
       x: r1(f.x), z: r1(f.z), hp: Math.max(0, Math.round(f.hp)), maxHp: f.maxHp, sta: Math.round(f.sta), maxSta: f.dv.maxSta,
       lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, evolve: f.role === 'alive' ? evolveOptions(f.def, f.level).map((a) => a.id) : [],
@@ -2812,16 +2284,6 @@ export class Match {
       noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };
-    if (f.role === 'leader') {
-      you.swarm = {
-        kind: f.swarm!, tier: f.tier, units: this.leaderUnits(f.id).length, want: this.swarmWant.get(f.id) ?? 0, order: f.order, eaten: f.eaten,
-        next: f.tier === 1 ? 6 : f.tier === 2 ? 14 : 0, respawn: f.hp <= 0 ? Math.max(0, f.respawnAt - t) : 0,
-      };
-    }
-    if (f.role === 'gulag') {
-      const foe = f.duel ? (f.duel.warden ? 'The Warden' : ((f.duel.a === f ? f.duel.b : f.duel.a)?.name ?? '')) : '';
-      you.gulag = { phase: f.duel ? 'duel' : 'wait', foe, left: f.duel ? Math.max(0, 55 - (t - f.duel.startedAt)) : 0, choose: swarmChoices(f.deathBiome).map((s) => s.id) };
-    }
     return you;
   }
 
@@ -2844,16 +2306,13 @@ export class Match {
       const cx = focus.x;
       const cz = focus.z;
       const sense = me.dv.sense;
-      const inGulag = inGulagZone(cx);
       const f: [string, number, number, number, number, number, number, number][] = [];
       for (const o of this.fighters) {
         if (o === me || o.role === 'out') continue;
-        if (o.role === 'leader' && o.hp <= 0) continue;
         const d = Math.hypot(o.x - cx, o.z - cz);
         if (d > 170) continue;
-        if (inGulagZone(o.x) !== inGulag) continue;
         const friend = o.team === me.team;
-        const hidden = o.subUntil > this.time || o.reedUntil > this.time || (this.terrain.inBush(o.x, o.z) && !o.moving && !inGulag);
+        const hidden = o.subUntil > this.time || o.reedUntil > this.time || (this.terrain.inBush(o.x, o.z) && !o.moving);
         if (hidden && !friend && d > Math.max(8, sense * 0.2)) continue;
         f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0), Math.round(o.jy * 100) / 100]);
       }
@@ -2872,9 +2331,7 @@ export class Match {
         if (o.state === 'flee') fl |= 2;
         if (o.atkFlash > 0) fl |= 4;
         if (o.hurtFlash > 0) fl |= 8;
-        if (o.owner) fl |= 16;
         if (o.stunUntil > this.time) fl |= 32;
-        if (o.warden) fl |= 64;
         if (o.strikeAt) fl |= 128; // winding up a bite
         m.push([o.id, mobIndex(o.def.id), r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), fl]);
       }

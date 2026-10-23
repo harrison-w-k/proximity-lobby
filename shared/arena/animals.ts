@@ -112,6 +112,7 @@ export interface AnimalDef {
   blurb: string;
   innate: Skill; // a passive that comes with the form
   skill: Skill; // the signature skill, on Q. Evolving replaces it.
+  skill2: Skill | null; // stage 2 and 3 forms carry a second move, on E
   cls: ClassId;
 }
 
@@ -153,7 +154,7 @@ const FORMS: AnimalDef[] = [];
 const form = (f: FormIn) =>
   FORMS.push({
     id: f.id, name: f.name, tree: f.tree, stage: f.stage, size: f.size, role: f.role, stats: split(STAGE_BUDGET[f.stage - 1], f.w),
-    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, innate: f.passive, skill: f.skill, cls: f.cls,
+    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, innate: f.passive, skill: f.skill, skill2: null, cls: f.cls,
   });
 const slow = (dur: number, f: number): Status => ({ s: 'slow', dur, f });
 const bleed = (dur: number, dps: number): Status => ({ s: 'bleed', dur, dps });
@@ -438,6 +439,15 @@ export const CLASS_BY_ID = new Map(CLASSES.map((c) => [c.id, c]));
 
 /** A class as a pseudo-skill so its numbers are summed with the animal's own. */
 export const classSkill = (cls: ClassId): Skill => ({ id: `class_${cls}`, name: CLASS_BY_ID.get(cls)!.name, desc: '', mods: CLASS_BY_ID.get(cls)!.mods });
+
+// Stage 2 and 3 animals keep a move from their earlier life as a second skill (E): stage 2 the tree's starter move, stage 3 a stage 2 move.
+for (const f of FORMS) {
+  if (f.stage < 2) continue;
+  const prev = FORMS.filter((o) => o.tree === f.tree && o.stage === f.stage - 1);
+  const same = FORMS.filter((o) => o.tree === f.tree && o.stage === f.stage);
+  const src = prev[same.indexOf(f) % prev.length];
+  f.skill2 = src.skill2 && src.skill2.id !== f.skill.id && same.indexOf(f) % 2 ? src.skill2 : src.skill;
+}
 
 export const ANIMALS: AnimalDef[] = FORMS;
 export const ANIMAL_BY_ID = new Map(ANIMALS.map((a) => [a.id, a]));

@@ -1,19 +1,12 @@
 // Movement rules shared by the server (authoritative) and the client (prediction).
 import { DEEP_Y, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
 
-export const GULAG_X = 1500; // the Gulag arenas sit far outside the map, on flat ground
-export const GULAG_R = 24;
-export const PEN_Z = 0; // the holding pen centre is (GULAG_X - 70, PEN_Z)
-export const PEN_R = 20;
-
 export interface Bound {
   cx: number;
   cz: number;
   r: number;
 }
 export const MAP_BOUND: Bound = { cx: 0, cz: 0, r: MAP_RADIUS - 2 };
-
-export const inGulagZone = (x: number) => x > GULAG_X - 400;
 
 export interface Medium {
   mul: number; // speed multiplier from the terrain
@@ -24,7 +17,6 @@ export interface Medium {
 
 /** How the ground under a point changes your speed. */
 export function medium(t: Terrain, x: number, z: number, aquatic: boolean, waterSpeed: number): Medium {
-  if (inGulagZone(x)) return { mul: 1, swim: false, shallow: false, noSprint: false };
   const h = t.heightAt(x, z);
   if (h < DEEP_Y) {
     return { mul: aquatic ? 1.25 + waterSpeed : 0.5 + waterSpeed * 0.5, swim: true, shallow: false, noSprint: !aquatic };
@@ -37,7 +29,6 @@ export function medium(t: Terrain, x: number, z: number, aquatic: boolean, water
 
 /** The height an animal stands (or floats) at. */
 export function standY(t: Terrain, x: number, z: number): number {
-  if (inGulagZone(x)) return 0;
   return Math.max(t.heightAt(x, z), WATER_Y - 0.45);
 }
 
@@ -55,13 +46,11 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
   const tryMove = (mx: number, mz: number, d: number): boolean => {
     let nx = p.x + mx * d;
     let nz = p.z + mz * d;
-    if (!inGulagZone(nx)) {
-      const c = t.collide(nx, nz, radius, feet);
-      nx = c.x;
-      nz = c.z;
-      const rise = t.heightAt(nx, nz) - t.heightAt(p.x, p.z);
-      if (rise > MAX_SLOPE * Math.max(0.05, Math.hypot(nx - p.x, nz - p.z)) + 0.05) return false;
-    }
+    const c = t.collide(nx, nz, radius, feet);
+    nx = c.x;
+    nz = c.z;
+    const rise = t.heightAt(nx, nz) - t.heightAt(p.x, p.z);
+    if (rise > MAX_SLOPE * Math.max(0.05, Math.hypot(nx - p.x, nz - p.z)) + 0.05) return false;
     // stay inside the bound
     const bx = nx - bound.cx;
     const bz = nz - bound.cz;

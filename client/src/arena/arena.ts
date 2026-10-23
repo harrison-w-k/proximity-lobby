@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
 import { COMBO, COMBO_RESET, PARRY_WINDOW } from '../../../shared/arena/combat';
-import { GULAG_R, GULAG_X, JUMP_COST, JUMP_V, inGulagZone, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { JUMP_COST, JUMP_V, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
@@ -92,6 +92,10 @@ export class Arena {
   private lastAtSent = 0;
   private clock = 0;
   private visYaw = 0;
+  private corr = { x: 0, z: 0 }; // a server correction, eased out over a few frames instead of snapping
+  private ty = NaN; // smoothed camera height target
+  private spdSm = 0;
+  private lookSm = new THREE.Vector3();
   private attackUntil = 0;
   private nextSwing = 0;
   private stepAcc = 0;
@@ -123,7 +127,6 @@ export class Arena {
   constructor(private d: ArenaDeps) {
     this.hud.onStat = (k) => this.spend(k);
     this.hud.onEvolve = (to) => this.d.net.send({ t: 'mevolve', to });
-    this.hud.onSwarm = (k) => this.d.net.send({ t: 'mswarm', k: k as 'rat' | 'bird' | 'shoal' });
     this.hud.onResume = () => {
       if (!this.droppedIn && this.scene) {
         this.droppedIn = true;
@@ -387,10 +390,14 @@ export class Arena {
         this.pos.z = r.z;
         this.pos.jy = r.jy;
         this.pos.jv = r.jv;
+        this.corr.x = this.corr.z = 0;
+        this.ty = NaN;
       } else {
         if (err > 0.03) {
-          this.pos.x += (r.x - this.pos.x) * 0.4;
-          this.pos.z += (r.z - this.pos.z) * 0.4;
+          this.corr.x += this.pos.x - r.x;
+          this.corr.z += this.pos.z - r.z;
+          this.pos.x = r.x;
+          this.pos.z = r.z;
         }
         if (Math.abs(r.jy - this.pos.jy) > 0.35) {
           this.pos.jy = r.jy;
@@ -431,14 +438,9 @@ export class Arena {
 
   private onRoleChange(from: number, to: number) {
     this.panelOpen = false;
-    if (to === 1) {
-      this.hud.announce('ELIMINATED', 'You are in Detention. Win the duel to lead a bigger swarm.', 4500);
+    if (to === 3) {
+      this.hud.announce('ELIMINATED', 'You are out. Watch the survivors, or press Esc to head back to the campus.', 5500);
       this.d.sfx.death();
-    } else if (to === 2) {
-      const sw = this.roster.get(this.myId)?.swarm;
-      this.hud.announce('HORDE LEADER', `You command the ${sw === 'rat' ? 'Rat King' : sw === 'bird' ? 'Bird Swarm' : 'Shoal'}. Hunt the survivors — you cannot win, but you can change who does.`, 5000);
-    } else if (to === 3) {
-      this.hud.announce('THE FINAL FIGHT', 'Swarms disband. Watch the survivors.', 3500);
     }
     void from;
   }
@@ -495,14 +497,6 @@ export class Arena {
         const fx = sk?.fx;
         const hostile = this.isHostile(e.id);
         if (e.s === 'dash') break;
-        if (e.s.startsWith('sw_') && e.w) {
-          // a Horde Leader marks the ground where its skill will land: step out of it
-          const r = e.s === 'sw_rat' ? 3.5 : e.s === 'sw_bird' ? 7 : 12;
-          sc.cue(e.id, { kind: 'skill', combo: -1, heavy: true, skill: e.s, fx: 'aoe', wind: e.w, rec: 0.4 });
-          sc.telegraph(e.x, e.z, 0, { shape: 'circle', r, arc: 360, width: 0 }, e.w, hostile, true);
-          if (hostile) this.nearSfx(e.x, e.z, () => this.d.sfx.windup(true), 40);
-          break;
-        }
         if (fx) {
           const wind = e.w ?? 0;
           const instant = fx.k === 'buff' || fx.k === 'heal' || fx.k === 'submerge';
@@ -527,7 +521,6 @@ export class Arena {
         else if (fx?.k === 'buff') sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xffd23f, 10, 3, 0.7);
         else if (fx?.k === 'heal') sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0x6af06a, 12, 3, 0.8);
         else if (fx?.k === 'submerge') sc.burst(e.x, WATER_Y, e.z, 0x6ec6ff, 14, 3, 0.7);
-        else if (e.s.startsWith('sw_')) sc.ringFx(e.x, e.z, e.s === 'sw_bird' ? 7 : 10, col, 0.9);
         else if (e.s === 'frenzy') sc.ringFx(e.x, e.z, 6, col, 0.7);
         if (e.s === 'earthshaker' || e.s === 'roar') this.addShake(Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 20 ? 0.45 : 0);
         if (e.s === 'howl' || e.s === 'alpha_howl') this.nearSfx(e.x, e.z, () => this.d.sfx.howl(), 60);
@@ -671,17 +664,11 @@ export class Arena {
           else this.hud.announce(e.text, '', 2400);
         }
         break;
-      case 'disband':
-        this.hud.announce('SWARMS DISBAND', 'A clean fight to the finish.', 3000);
-        break;
       case 'proj':
         sc.projectile(e.id, e.x, e.z, e.tx, e.tz, e.kind.includes('quill') ? 0xf0e6c8 : 0xbbbbbb);
         break;
       case 'lure':
         sc.lureAt(e.x, e.z);
-        break;
-      case 'gulag':
-        if (e.id === this.myId) this.hud.announce(e.winner ? 'DUEL WON' : 'DUEL LOST', e.winner ? 'You lead a Tier II swarm.' : 'You lead a Tier I swarm.', 3000);
         break;
     }
   }
@@ -785,23 +772,12 @@ export class Arena {
       return;
     }
     if (e.code in KEYS_SKILL) {
-      if (role === 2) {
-        if (KEYS_SKILL[e.code] === 0) this.d.net.send({ t: 'mcmd', c: 'skill', yaw: this.aimYaw(30) });
-        else if (KEYS_SKILL[e.code] === 1) this.d.net.send({ t: 'mcmd', c: 'frenzy' });
-        else if (e.code === 'KeyF') this.d.net.send({ t: 'mact', a: 'loot' });
-      } else if (role === 0 || role === 1) {
-        this.d.net.send({ t: 'mskill', i: KEYS_SKILL[e.code], yaw: this.aimYaw(role === 0 ? 14 : 14) });
-      }
+      if (role === 0) this.d.net.send({ t: 'mskill', i: KEYS_SKILL[e.code], yaw: this.aimYaw(14) });
       return;
     }
     if (e.code.startsWith('Digit')) {
       const n = Number(e.code.slice(5));
       if (role === 0 && n >= 1 && n <= 6) this.d.net.send({ t: 'muse', i: n - 1 });
-      else if (role === 2 && n >= 1 && n <= 3) this.d.net.send({ t: 'mcmd', c: (['attack', 'scatter', 'guard'] as const)[n - 1], yaw: this.camYaw });
-      else if (role === 1 && n >= 1 && n <= 2) {
-        const k = you.gulag?.choose[n - 1];
-        if (k) this.d.net.send({ t: 'mswarm', k });
-      }
       return;
     }
     if (e.code === 'KeyX' && role === 0) this.d.net.send({ t: 'mact', a: 'harvest' });
@@ -838,11 +814,8 @@ export class Arena {
     return best;
   }
 
-  private boundFor(x: number, z: number): Bound {
-    if (!inGulagZone(x)) return MAP_BOUND;
-    if (x < GULAG_X - 40) return { cx: GULAG_X - 70, cz: 0, r: 19 };
-    const slot = Math.max(0, Math.min(3, Math.round((z + 120) / 80)));
-    return { cx: GULAG_X, cz: -120 + slot * 80, r: GULAG_R };
+  private boundFor(_x: number, _z: number): Bound {
+    return MAP_BOUND;
   }
 
   private radius() {
@@ -862,7 +835,7 @@ export class Arena {
   /** One step of our own movement, exactly as the server will run it (so the two agree). */
   private simStep(st: { x: number; z: number; jy: number; jv: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
     const sc = this.scene!;
-    if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && (you.sta >= JUMP_COST || you.role === 2) && !(inGulagZone(st.x) ? false : sc.terrain.isDeep(st.x, st.z))) st.jv = JUMP_V;
+    if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && you.sta >= JUMP_COST && !sc.terrain.isDeep(st.x, st.z)) st.jv = JUMP_V;
     if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy);
     stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy));
   }
@@ -939,8 +912,12 @@ export class Arena {
         if (you.wind) flags |= FL.wind;
         if (you.counter > 0) flags |= FL.counter;
         if (inp.at || this.guardHeld) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
-        else this.visYaw = this.camYaw; // always facing where the camera looks: strafing never turns you
-        sc.setSelf(this.pos.x, this.pos.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, moving ? you.speed : 0, this.pos.jy);
+        else { let d = this.camYaw - this.visYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); const m = 18 * dtWorld; this.visYaw += Math.max(-m, Math.min(m, d)); } // faces where the camera looks, eased so a quick flick does not snap the body
+        const cd = Math.exp(-dtWorld * 9);
+        this.corr.x *= cd;
+        this.corr.z *= cd;
+        this.spdSm += ((moving ? you.speed : 0) - this.spdSm) * (1 - Math.exp(-dtWorld * 12));
+        sc.setSelf(this.pos.x + this.corr.x, this.pos.z + this.corr.z, this.visYaw, (you.hp / you.maxHp) * 100, you.lvl, flags, this.spdSm < 0.05 ? 0 : this.spdSm, this.pos.jy);
         // landing
         const air = this.pos.jy - sc.terrain.floorAt(this.pos.x, this.pos.z, this.pos.jy) > 0.05;
         if (this.wasAir && !air) this.d.sfx.step('grass', 0.45);
@@ -957,7 +934,6 @@ export class Arena {
         this.lavaSfx = this.clock + 0.5;
         this.d.sfx.lava();
       }
-      sc.gulagLook = inGulagZone(this.pos.x);
     }
 
     this.updateCamera(dt, you);
@@ -966,7 +942,7 @@ export class Arena {
     if (you && you.role !== 3) {
       const rs = this.roster.get(this.myId);
       const sv = sc.fighter(this.myId);
-      this.doll.set(this.def.id, you.role, rs?.swarm, rs?.tier ?? 1, rs?.paint, this.myId);
+      this.doll.set(this.def.id, rs?.paint, this.myId);
       this.doll.update(dtWorld, sv?.lastState, this.visYaw, this.camYaw);
     }
 
@@ -1025,7 +1001,7 @@ export class Arena {
     if (this.stepAcc < 2.7) return;
     this.stepAcc = 0;
     const h = sc.terrain.heightAt(this.pos.x, this.pos.z);
-    const surface = inGulagZone(this.pos.x) ? 'block' : h < WATER_Y - 0.1 ? 'water' : h < WATER_Y + 0.6 ? 'sand' : sc.terrain.biomeAt(this.pos.x, this.pos.z) === 3 ? 'block' : 'grass';
+    const surface = h < WATER_Y - 0.1 ? 'water' : h < WATER_Y + 0.6 ? 'sand' : sc.terrain.biomeAt(this.pos.x, this.pos.z) === 3 ? 'block' : 'grass';
     this.d.sfx.step(surface, (this.def.size === 'large' ? 0.42 : this.def.size === 'small' ? 0.16 : 0.27) * (this.hasCrouch() ? 0.35 : sprint ? 1.25 : 1));
   }
   private hasCrouch() {
@@ -1060,12 +1036,16 @@ export class Arena {
         else if (c) this.hud.zone(c.icon, c.name, c.good[0]);
       }
     }
-    const gy = sc.groundY(this.pos.x, this.pos.z);
+    const vx = this.pos.x + this.corr.x;
+    const vz = this.pos.z + this.corr.z;
+    const gy = sc.groundY(vx, vz);
     const self = sc.fighter(this.myId);
     const height = Math.min(2.4, (self?.rig.height ?? 1.6) * 0.62) + 0.35;
-    const tx = this.pos.x;
-    const tz = this.pos.z;
-    const ty = gy + this.pos.jy * 0.6 + height - (this.you && sc.terrain.depthAt(tx, tz) > 0.4 ? 0.3 : 0);
+    const tx = vx;
+    const tz = vz;
+    const tyWant = gy + this.pos.jy * 0.6 + height - (this.you && sc.terrain.depthAt(tx, tz) > 0.4 ? 0.3 : 0);
+    this.ty = Number.isNaN(this.ty) || Math.abs(tyWant - this.ty) > 6 ? tyWant : this.ty + (tyWant - this.ty) * (1 - Math.exp(-dt * 14));
+    const ty = this.ty;
     const sizeK = this.you?.role === 2 ? 0.7 : this.def.size === 'large' ? 1.35 : this.def.size === 'small' ? 0.8 : 1;
     const dist = this.zoom * sizeK;
     const cp = Math.cos(this.camPitch);
@@ -1092,8 +1072,9 @@ export class Arena {
     void px;
     void pz;
     this.camPos.set(px, py, pz);
-    const k = 1 - Math.exp(-dt * 22);
-    cam.position.lerp(this.camPos, cam.position.distanceTo(this.camPos) > 8 ? 1 : k);
+    const k = 1 - Math.exp(-dt * 20);
+    const snap = cam.position.distanceTo(this.camPos) > 8;
+    cam.position.lerp(this.camPos, snap ? 1 : k);
     if (this.shake > 0.01) {
       const a = this.shake * this.shake * 0.5;
       cam.position.x += (Math.random() - 0.5) * a;
@@ -1101,7 +1082,10 @@ export class Arena {
       cam.position.z += (Math.random() - 0.5) * a;
     }
     this.lookAt.set(tx + rx * shoulder * 0.9 + sy * 2.4, ty - 1.0 - sp * 0.3, tz + rz * shoulder * 0.9 + cy * 2.4);
-    cam.lookAt(this.lookAt);
+    // the aim point follows the same easing as the camera, so position and rotation lag together instead of wobbling
+    if (snap || this.lookSm.lengthSq() === 0) this.lookSm.copy(this.lookAt);
+    else this.lookSm.lerp(this.lookAt, 1 - Math.exp(-dt * 26));
+    cam.lookAt(this.lookSm);
     px = 0;
     pz = 0;
   }
@@ -1185,14 +1169,13 @@ export class Arena {
         continue;
       }
       v.setPeerPosition(id, fv.x, sc.groundY(fv.x, fv.z) + 1.2, fv.z);
-      // Gulag chat is its own channel, and the living cannot be overheard by the dead
+      // the eliminated hear each other, and the living cannot be overheard by them
       v.setPeerGate(id, myDead === theirDead);
       const crouch = (fv.flags & FL.crouch) !== 0;
-      if (fv.role === 2) v.setPeerRange(id, 4, 15);
-      else if (crouch) v.setPeerRange(id, 5, 20);
+      if (crouch) v.setPeerRange(id, 5, 20);
       else v.setPeerRange(id, 10, 40);
       const wet = inWater || sc.terrain.depthAt(fv.x, fv.z) > 0.6;
-      const blocked = !inGulagZone(this.pos.x) && sc.terrain.blocked(this.pos.x, this.pos.z, fv.x, fv.z);
+      const blocked = sc.terrain.blocked(this.pos.x, this.pos.z, fv.x, fv.z);
       v.setPeerMuffle(id, wet ? 0.85 : blocked ? 0.6 : 0);
       sc.setSpeaking(id, v.speaking.has(id));
     }

@@ -1,11 +1,10 @@
 // The 3D world of a match: terrain, water, lava, vegetation, the animals and the effects.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GULAG_R, GULAG_X } from '../../../shared/arena/move';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, type Res } from '../../../shared/arena/terrain';
 import { FL } from '../../../shared/arena/proto';
 import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
-import { makeLeaderRig, makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
+import { makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
 
 const SKY_TOP = 0x7aa9ee;
 const SKY_HORIZON = 0xfbe6d6;
@@ -16,8 +15,6 @@ export interface FighterView {
   animal: string;
   team: number;
   role: number;
-  swarm?: string;
-  tier: number;
   rig: Rig;
   group: THREE.Group;
   plate: THREE.Sprite;
@@ -124,7 +121,6 @@ export class ArenaScene {
   private lure: { g: THREE.Group; until: number } | null = null;
   private clock = 0;
   private selfId = '';
-  gulagLook = false;
   private selfPos = new THREE.Vector3();
   nodeTimes = new Map<number, number>();
   private nodeMeshes = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4; zero: THREE.Matrix4 }>();
@@ -146,7 +142,6 @@ export class ArenaScene {
     this.buildWater();
     this.buildWalls();
     this.buildVegetation();
-    this.buildGulag();
   }
 
   // --- static world ----------------------------------------------------------------------------
@@ -253,6 +248,10 @@ export class ArenaScene {
           '#include <common>',
           `#include <common>
 uniform float uRing; uniform float uTime; varying vec3 vW;
+float th21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float tvn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(th21(i), th21(i+vec2(1,0)), f.x), mix(th21(i+vec2(0,1)), th21(i+vec2(1,1)), f.x), f.y); }
+float tfb(vec2 p){ return tvn(p)*0.55 + tvn(p*2.1+7.3)*0.3 + tvn(p*4.3+3.1)*0.15; }
 float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
 float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }`,
@@ -260,6 +259,11 @@ float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
+float tg = tfb(vW.xz * 0.5) * 0.9 + tfb(vW.xz * 2.2) * 0.5 + tvn(vec2(vW.x * 7.0, vW.z * 1.2)) * 0.3;
+float tmot = tfb(vW.xz * 0.12);
+float sandy = step(vW.y, 1.1);
+float rip = sin(vW.x * 3.1 + tfb(vW.xz * 0.5) * 6.0) * 0.5 + 0.5;
+diffuseColor.rgb *= mix(0.55 + tg * 0.5, 0.8 + rip * 0.3, sandy) * (0.8 + tmot * 0.4);
 float rr2 = length(vW.xz);
 float lava = smoothstep(uRing - 0.2, uRing + 2.5, rr2);
 float n1 = vn(vW.xz * 0.35 + vec2(uTime * 0.25, uTime * 0.18));
@@ -340,7 +344,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, lavaCol, lava);`,
   private seeA = { value: new THREE.Vector3() };
   private seeB = { value: new THREE.Vector3() };
 
-  private ringMaterial(m: THREE.Material) {
+  private ringMaterial(m: THREE.Material, kind = '') {
+    const rock = kind === 'rock' || kind === 'stone' ? 'true' : 'false';
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uRing = this.ring;
       sh.uniforms.uA = this.seeA;
@@ -348,7 +353,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb, lavaCol, lava);`,
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
 uniform float uRing;
-varying vec3 vWP;`)
+varying vec3 vWP;
+varying vec3 vLoc;`)
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -358,11 +364,35 @@ vec4 wp4 = modelMatrix * instanceMatrix * vec4(transformed, 1.0);
 #else
 vec4 wp4 = modelMatrix * vec4(transformed, 1.0);
 #endif
-vWP = wp4.xyz;`,
+vWP = wp4.xyz;
+vLoc = position;`,
         );
       // leaves, trunks and rocks between the camera and your animal melt away
       sh.fragmentShader = sh.fragmentShader
+        .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  vec3 lp = vLoc;
+  vec3 dc = diffuseColor.rgb;
+  bool bark = dc.r > dc.g * 1.1 && dc.g > dc.b * 1.1;
+  float ang = atan(lp.z, lp.x);
+  float t;
+  if (${rock}) {
+    t = 0.5 + tfb(vec2(lp.y * 4.0 + lp.x * 1.3, lp.z * 1.7)) * 0.8 + tvn(lp.xy * 12.0 + lp.z * 7.0) * 0.3;
+    float crack = smoothstep(0.02, 0.0, abs(tvn(lp.xz * 3.5 + lp.y * 2.0) - 0.5) - 0.01);
+    t *= 1.0 - crack * 0.5;
+  } else if (bark) {
+    t = 0.4 + tvn(vec2(ang * 4.0, lp.y * 0.7)) * 0.8 + tvn(vec2(ang * 11.0, lp.y * 2.0)) * 0.35;
+  } else {
+    t = 0.5 + tfb(lp.xy * 3.0 + lp.z * 2.5) * 0.9 + tvn(lp.zy * 9.0 + lp.x * 6.0) * 0.3;
+  }
+  diffuseColor.rgb = dc * t;
+}`)
         .replace('#include <common>', `#include <common>
+float th21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float tvn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(th21(i), th21(i+vec2(1,0)), f.x), mix(th21(i+vec2(0,1)), th21(i+vec2(1,1)), f.x), f.y); }
+float tfb(vec2 p){ return tvn(p)*0.55 + tvn(p*2.1+7.3)*0.3 + tvn(p*4.3+3.1)*0.15; }
+varying vec3 vLoc;
 uniform vec3 uA;
 uniform vec3 uB;
 varying vec3 vWP;`)
@@ -479,8 +509,8 @@ varying vec3 vWP;`)
       mud: { geo: mudGeo, mat: new THREE.MeshLambertMaterial({ color: 0x5a4330, flatShading: true }), node: true },
       tuft: { geo: tuftGeo, mat: new THREE.MeshLambertMaterial({ color: 0xb7c95a, flatShading: true }) },
     };
-    for (const k of Object.values(kinds)) {
-      this.ringMaterial(k.mat);
+    for (const [name, k] of Object.entries(kinds)) {
+      this.ringMaterial(k.mat, name);
       k.geo.computeBoundingSphere();
     }
 
@@ -582,45 +612,6 @@ varying vec3 vWP;`)
     }
   }
 
-  private buildGulag() {
-    const g = new THREE.Group();
-    const stone = new THREE.MeshLambertMaterial({ color: 0xd8d2c4, flatShading: true });
-    const dark = new THREE.MeshLambertMaterial({ color: 0x4b4944, flatShading: true });
-    const arena = (cx: number, cz: number) => {
-      const floor = new THREE.Mesh(new THREE.CylinderGeometry(GULAG_R + 1, GULAG_R + 1.5, 1.2, 28), new THREE.MeshLambertMaterial({ color: 0xa79d85, flatShading: true }));
-      floor.position.set(cx, -0.6, cz);
-      g.add(floor);
-      for (let i = 0; i < 24; i++) {
-        const a = (i / 24) * Math.PI * 2;
-        const w = new THREE.Mesh(new THREE.BoxGeometry(6.5, 5 + (i % 3), 1.6), i % 2 ? stone : dark);
-        w.position.set(cx + Math.cos(a) * (GULAG_R + 1.2), 2.2, cz + Math.sin(a) * (GULAG_R + 1.2));
-        w.rotation.y = -a + Math.PI / 2;
-        g.add(w);
-      }
-      for (const [dx, dz] of [[-10, -9], [11, 8], [0, 14], [-4, 6]] as const) {
-        const p = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.2, 3.4, 7), stone);
-        p.position.set(cx + dx, 1.7, cz + dz);
-        g.add(p);
-      }
-    };
-    for (let s = 0; s < 4; s++) arena(GULAG_X, -120 + s * 80);
-    // the holding pen: sand and a fence
-    const pen = new THREE.Mesh(new THREE.CylinderGeometry(21, 21.5, 1.2, 24), new THREE.MeshLambertMaterial({ color: 0xc9b98a, flatShading: true }));
-    pen.position.set(GULAG_X - 70, -0.6, 0);
-    g.add(pen);
-    for (let i = 0; i < 36; i++) {
-      const a = (i / 36) * Math.PI * 2;
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.6, 0.4), dark);
-      post.position.set(GULAG_X - 70 + Math.cos(a) * 20.5, 1.3, Math.sin(a) * 20.5);
-      g.add(post);
-    }
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 32), new THREE.MeshLambertMaterial({ color: 0x6d6a60 }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(GULAG_X - 30, -1.3, -20);
-    g.add(ground);
-    this.scene.add(g);
-  }
-
   // --- fighters and mobs ---------------------------------------------------------------------------
 
   private makeShadow(r: number): THREE.Mesh {
@@ -647,7 +638,7 @@ varying vec3 vWP;`)
     g.textAlign = 'center';
     g.lineWidth = 5;
     g.strokeStyle = '#0b3b3f';
-    const label = `${v.name}${v.role === 2 ? ' ☠' : ''}`;
+    const label = v.name;
     g.strokeText(label, 128, 22);
     g.fillStyle = (v.flags & FL.hunted) !== 0 ? '#ffd23f' : friend ? '#9bf08a' : '#ffffff';
     g.fillText(label, 128, 22);
@@ -657,7 +648,7 @@ varying vec3 vWP;`)
     g.fillStyle = friend ? '#58c23a' : '#e5483a';
     g.fillRect(36, 34, Math.max(0, (184 * v.hp) / 100), 10);
     g.font = 'bold 16px "Courier New", monospace';
-    const sub = v.role === 2 ? `Tier ${v.tier}` : `Lv ${v.level}`;
+    const sub = `Lv ${v.level}`;
     g.strokeText(sub, 128, 60);
     g.fillStyle = '#cfe3ff';
     g.fillText(sub, 128, 60);
@@ -670,12 +661,12 @@ varying vec3 vWP;`)
     return tex;
   }
 
-  private buildFighterRig(role: number, animal: string, swarm: string | undefined, tier: number, paint?: [number, number], id?: string): Rig {
-    return role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal, paint, id);
+  private buildFighterRig(animal: string, paint?: [number, number], id?: string): Rig {
+    return makePlayerRig(animal, paint, id);
   }
 
   /** Create or refresh the models for the roster. */
-  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; swarm?: string; tier?: number; paint?: [number, number] }[], selfId: string) {
+  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; paint?: [number, number] }[], selfId: string) {
     this.selfId = selfId;
     const ids = new Set(list.map((l) => l.id));
     for (const [id, v] of this.fighters) {
@@ -686,13 +677,12 @@ varying vec3 vWP;`)
     }
     for (const r of list) {
       let v = this.fighters.get(r.id);
-      const tier = r.tier ?? 1;
-      if (v && (v.role !== r.role || v.swarm !== r.swarm || v.tier !== tier || v.animal !== r.animal)) {
+      if (v && (v.role !== r.role || v.animal !== r.animal)) {
         this.scene.remove(v.group, v.shadow);
         v = undefined;
       }
       if (!v) {
-        const rig = this.buildFighterRig(r.role, r.animal, r.swarm, tier, r.paint, r.id);
+        const rig = this.buildFighterRig(r.animal, r.paint, r.id);
         const group = new THREE.Group();
         group.add(rig.root);
         const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: undefined, transparent: true, depthWrite: false, depthTest: false }));
@@ -703,7 +693,7 @@ varying vec3 vWP;`)
         const old = this.fighters.get(r.id);
         const evolved = !!old && old.animal !== r.animal;
         v = {
-          id: r.id, name: r.name, animal: r.animal, team: r.team, role: r.role, swarm: r.swarm, tier, rig, group, plate, plateKey: '', shadow,
+          id: r.id, name: r.name, animal: r.animal, team: r.team, role: r.role, rig, group, plate, plateKey: '', shadow,
           x: old?.x ?? 0, z: old?.z ?? 0, tx: old?.tx ?? 0, tz: old?.tz ?? 0, yaw: old?.yaw ?? 0, tyaw: old?.tyaw ?? 0, hp: 100, level: old?.level ?? 1, flags: 0, speed: 0,
           seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false, cue: null, guard: false, guardStart: -9, jy: 0, vy: 0, shield: this.makeShield(),
         };
@@ -980,15 +970,15 @@ varying vec3 vWP;`)
     for (const [id, def, x, z, yaw, hp, flags] of list) {
       let v = this.mobs.get(id);
       if (!v) {
-        const defId = def === this.mobIds.length ? 'warden' : this.mobIds[def];
+        const defId = this.mobIds[def];
         const rig = makeMobRig(defId);
         const group = new THREE.Group();
         group.add(rig.root);
-        const big = defId.startsWith('alpha') || defId === 'warden' || defId === 'wildpig' || defId === 'heron' || defId === 'pike';
+        const big = defId.startsWith('alpha') || defId === 'wildpig' || defId === 'heron' || defId === 'pike';
         const shadow = big || defId === 'fox' || defId === 'goat' || defId === 'rabbit' || defId === 'duck' ? this.makeShadow(Math.max(0.3, rig.radius)) : null;
         v = {
           id, def, rig, group, shadow, x, z, tx: x, tz: z, yaw, tyaw: yaw, seen: now, speedS: 0, lastX: x, lastZ: z, attack: 0, hurt: 0, flags,
-          flee: false, aquatic: ['minnow', 'perch', 'pike', 'swarm_fish'].includes(defId), flies: ['sparrow', 'swarm_bird', 'swarm_fish'].includes(defId), hp: 100, barHp: 100, big, cue: null, warnUntil: 0,
+          flee: false, aquatic: ['minnow', 'perch', 'pike'].includes(defId), flies: ['sparrow'].includes(defId), hp: 100, barHp: 100, big, cue: null, warnUntil: 0,
         };
         const mst = this.makeStars(rig.height + 0.15);
         group.add(mst);
@@ -1102,7 +1092,6 @@ varying vec3 vWP;`)
   }
 
   groundY(x: number, z: number): number {
-    if (x > GULAG_X - 400) return 0;
     return Math.max(this.terrain.heightAt(x, z), WATER_Y - 0.1);
   }
 
@@ -1320,11 +1309,9 @@ varying vec3 vWP;`)
       while (dy < -Math.PI) dy += Math.PI * 2;
       v.yaw += dy * (1 - Math.exp(-dt * 12));
       const ground = this.groundY(v.x, v.z);
-      const aquaticBody = v.role === 2 && v.swarm === 'shoal';
-      const bird = v.role === 2 && v.swarm === 'bird';
       const depth = Math.max(0, WATER_Y - this.terrain.heightAt(v.x, v.z));
-      v.swim = v.x < GULAG_X - 400 && depth > 0.4;
-      const y = ground - (v.swim ? Math.min(0.5, depth * 0.3) : 0) + (aquaticBody ? 1.1 : 0) + (bird ? 1.6 : 0);
+      v.swim = depth > 0.4;
+      const y = ground - (v.swim ? Math.min(0.5, depth * 0.3) : 0);
       const prevJy = v.jy;
       const rockFloor = this.terrain.floorAt(v.x, v.z, v.jy);
       const airH = Math.max(0, v.jy - rockFloor); // height above whatever it stands on, a rock included
@@ -1422,7 +1409,7 @@ varying vec3 vWP;`)
       if (v.stars) this.spinStars(v.stars, (v.flags & FL.stun) !== 0, now, Math.max(0.35, v.rig.radius * 0.7));
       v.rig.setTint((v.evolveUntil ?? 0) > now ? 0xbff0ff : (v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : v.self ? null : v.team === mineTeam ? 0x2f9bff : 0xff3a3a); // blue teammates, red hostiles
       // hide models in bushes/underwater from far away is the server's job; here just the plate
-      const key = `${v.hp}|${v.level}|${v.flags & 1}|${v.role}|${v.tier}|${mineTeam}`;
+      const key = `${v.hp}|${v.level}|${v.flags & 1}|${v.role}|${mineTeam}`;
       if (key !== v.plateKey) {
         v.plateKey = key;
         const old = (v.plate.material as THREE.SpriteMaterial).map;
@@ -1470,7 +1457,7 @@ varying vec3 vWP;`)
         if (!mpose) v.cue = null;
       }
       if (now < v.warnUntil) mwarn = 0.5 + 0.5 * (1 - (v.warnUntil - now) / Math.max(0.1, v.cue?.wind ?? 0.5));
-      if (v.flags & 128) mwarn = Math.max(mwarn, 0.9); // a swarm animal crouching to bite
+      if (v.flags & 128) mwarn = Math.max(mwarn, 0.9); // a wild animal crouching to bite
       v.rig.setTint(0xffd23f); // wild animals glow yellow
       v.rig.update(dt, { speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & 32) !== 0, flee: v.flee, swim: false, t: now, pose: mpose, warn: mwarn });
       const mstars = (v.group as unknown as { stars?: THREE.Group }).stars;
@@ -1559,17 +1546,12 @@ varying vec3 vWP;`)
     });
 
     // underwater haze
-    const under = this.camera.position.y < WATER_Y && this.camera.position.x < GULAG_X - 400;
+    const under = this.camera.position.y < WATER_Y;
     if (under) {
       this.fog.color.setHex(0x2a6f86);
       this.fog.near = 2;
       this.fog.far = 30;
       (this.scene.background as THREE.Color).setHex(0x2a6f86);
-    } else if (this.gulagLook) {
-      this.fog.color.setHex(0x8a8f96);
-      this.fog.near = 40;
-      this.fog.far = 220;
-      (this.scene.background as THREE.Color).setHex(0x8a8f96);
     } else {
       this.fog.color.setHex(SKY_HORIZON);
       this.fog.near = 90;

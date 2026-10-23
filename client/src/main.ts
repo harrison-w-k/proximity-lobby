@@ -306,27 +306,6 @@ $('sens-reset').addEventListener('click', () => {
   setSensitivity(1, true);
 });
 
-// Field of view
-const fovInput = $<HTMLInputElement>('fov');
-function setFov(v: number, save: boolean) {
-  world.setFov(v);
-  $('fov-val').textContent = `${Math.round(v)}°`;
-  if (!save) return;
-  try {
-    localStorage.setItem('fov', String(v));
-  } catch {
-    /* storage unavailable */
-  }
-}
-try {
-  const saved = Number(localStorage.getItem('fov'));
-  fovInput.value = String(saved >= 60 && saved <= 110 ? saved : DEFAULT_FOV);
-} catch {
-  fovInput.value = String(DEFAULT_FOV);
-}
-setFov(Number(fovInput.value), false);
-fovInput.addEventListener('input', () => setFov(Number(fovInput.value), true));
-
 // Render resolution (internal height; 1080 = native)
 const resInput = $<HTMLInputElement>('res');
 function setRes(v: number, save: boolean) {
@@ -565,143 +544,12 @@ setInterval(() => {
 syncAudioControls();
 
 // ---- Account: profile photo ----
-const AVATAR_KEY = 'avatar';
-let avatarUrl: string | null = null;
-{
-  const saved = store.get(AVATAR_KEY);
-  if (saved && validAvatar(saved)) avatarUrl = saved;
-}
-const avatarPreview = $<HTMLCanvasElement>('avatar-preview');
-const avatarStatus = $('avatar-status');
-const avatarFile = $<HTMLInputElement>('avatar-file');
-
-function drawAvatarPreview() {
-  const g = avatarPreview.getContext('2d')!;
-  g.imageSmoothingEnabled = false;
-  g.clearRect(0, 0, 32, 32);
-  if (!avatarUrl) {
-    g.fillStyle = '#14338a';
-    g.fillRect(0, 0, 32, 32);
-    g.fillStyle = '#c9d4ff';
-    g.fillRect(14, 8, 4, 12); // a pixel "?"
-    g.fillRect(14, 23, 4, 3);
-    return;
-  }
-  const img = new Image();
-  img.onload = () => g.drawImage(img, 0, 0, 32, 32);
-  img.src = avatarUrl;
-}
-
-/** Centre-crop to a square, shrink to 32x32 and encode as a small JPEG. The original is never kept or sent. */
-async function makeAvatar(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
-  if (file.size > 10 * 1024 * 1024) throw new Error('That image is too large (10 MB max).');
-  const bmp = await createImageBitmap(file);
-  const side = Math.min(bmp.width, bmp.height);
-  const c = document.createElement('canvas');
-  c.width = c.height = 32;
-  const g = c.getContext('2d')!;
-  g.imageSmoothingEnabled = true;
-  g.imageSmoothingQuality = 'high';
-  g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 32, 32);
-  bmp.close();
-  for (const quality of [0.85, 0.7, 0.5]) {
-    const url = c.toDataURL('image/jpeg', quality);
-    if (validAvatar(url)) return url;
-  }
-  throw new Error('Could not shrink that image enough.');
-}
-
-function applyAvatar(url: string | null) {
-  avatarUrl = url;
-  if (url) store.set(AVATAR_KEY, url);
-  else {
-    try {
-      localStorage.removeItem(AVATAR_KEY);
-    } catch {
-      /* storage unavailable */
-    }
-  }
-  world.setSelfAvatar(url);
-  if (joined) net.send({ t: 'avatar', img: url });
-  drawAvatarPreview();
-}
-
-$('avatar-pick').addEventListener('click', () => avatarFile.click());
-$('avatar-clear').addEventListener('click', () => {
-  applyAvatar(null);
-  avatarStatus.textContent = 'Photo removed.';
-});
-avatarFile.addEventListener('change', async () => {
-  const file = avatarFile.files?.[0];
-  avatarFile.value = ''; // so choosing the same file again still fires
-  if (!file) return;
-  try {
-    applyAvatar(await makeAvatar(file));
-    avatarStatus.textContent = 'Photo updated. Look at yourself in third person (T) to see it.';
-  } catch (e) {
-    avatarStatus.textContent = e instanceof Error ? e.message : 'Could not use that image.';
-  }
-});
-
 function refreshAccount() {
   $('account-name').textContent = profileName || '(not signed in)';
 }
-world.setSelfAvatar(avatarUrl);
-drawAvatarPreview();
 
 // Settings tabs
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
-// ---------- character: colour and hat ----------
-let myLook: Look = { ...DEFAULT_LOOK };
-try {
-  const raw = JSON.parse(localStorage.getItem('look') ?? 'null');
-  if (raw && Number.isInteger(raw.c) && Number.isInteger(raw.h) && raw.c >= -1 && raw.c < LOOK_COLORS.length && raw.h >= 0 && raw.h < HATS.length) {
-    myLook = { c: raw.c, h: raw.h };
-  }
-} catch {
-  /* no saved look */
-}
-const swatches = $('look-colors');
-const hatList = $('look-hats');
-function paintLookMenu() {
-  swatches.querySelectorAll<HTMLElement>('.swatch').forEach((el) => el.classList.toggle('on', Number(el.dataset.c) === myLook.c));
-  hatList.querySelectorAll<HTMLElement>('.btn').forEach((el) => el.classList.toggle('active', Number(el.dataset.h) === myLook.h));
-}
-function applyLook(next: Look) {
-  myLook = next;
-  try {
-    localStorage.setItem('look', JSON.stringify(next));
-  } catch {
-    /* private mode */
-  }
-  world.setSelfLook(next);
-  if (joined) net.send({ t: 'look', c: next.c, h: next.h });
-  paintLookMenu();
-}
-for (const [i, col] of [{ name: 'Default', hex: -1 }, ...LOOK_COLORS].entries()) {
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = 'swatch';
-  el.title = col.name;
-  el.dataset.c = String(i - 1);
-  if (col.hex >= 0) el.style.background = `#${col.hex.toString(16).padStart(6, '0')}`;
-  else el.textContent = 'A';
-  el.addEventListener('click', () => applyLook({ ...myLook, c: i - 1 }));
-  swatches.appendChild(el);
-}
-HATS.forEach((name, h) => {
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = 'btn glass small';
-  el.dataset.h = String(h);
-  el.textContent = name;
-  el.addEventListener('click', () => applyLook({ ...myLook, h }));
-  hatList.appendChild(el);
-});
-paintLookMenu();
-world.setSelfLook(myLook);
-
 function showTab(name: string) {
   if (name !== 'audio') setTesting(false); // never leave "hear myself" running unseen
   tabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
@@ -957,14 +805,11 @@ net.onMessage = (m: ServerMsg) => {
       joined = true;
       myId = m.id;
       sfx.join();
-      if (avatarUrl) net.send({ t: 'avatar', img: avatarUrl }); // share our photo with the lobby
       world.orbit = false;
       world.setSelfId(m.id);
-      world.setSelfLook(myLook);
       world.setSelfAnimal(myAnimal, myPaint);
       net.send({ t: 'animal', a: myAnimal, paint: myPaint });
       net.send({ t: 'menter', animal: myAnimal, paint: myPaint }); // walk into the campus
-      net.send({ t: 'look', c: myLook.c, h: myLook.h });
       world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
       world.setItems(m.items);

@@ -1,4 +1,4 @@
-// Horde creatures (the PvE leveling engine) and the swarm animals that Horde Leaders command.
+// Horde creatures: the PvE leveling engine.
 import { Biome } from './terrain';
 
 export type Behavior = 'flee' | 'pack' | 'elite' | 'alpha' | 'skittish';
@@ -49,42 +49,13 @@ export const MOBS: MobDef[] = [
 ];
 export const MOB_BY_ID = new Map(MOBS.map((m) => [m.id, m]));
 
-// --- Gulag and swarm leaders -----------------------------------------------------------------
-
-export type SwarmKind = 'rat' | 'bird' | 'shoal';
-export interface SwarmDef {
-  id: SwarmKind;
-  name: string;
-  unit: string; // the MobDef-like id of its fodder
-  skill: { name: string; desc: string; cd: number };
-  biomes: Biome[]; // where the dead player can choose it
-  color: number;
-}
-export const SWARMS: SwarmDef[] = [
-  { id: 'rat', name: 'Rat King', unit: 'swarm_rat', skill: { name: 'Plague Bite', desc: 'Poison a player: damage over time.', cd: 12 }, biomes: [F, G, H], color: 0x6b5d4f },
-  { id: 'bird', name: 'Bird Swarm', unit: 'swarm_bird', skill: { name: 'Dive Bomb', desc: 'Blind everything near a target.', cd: 14 }, biomes: [F, G, H, W], color: 0x7c8aa0 },
-  { id: 'shoal', name: 'Shoal Master', unit: 'swarm_fish', skill: { name: 'Undertow', desc: 'Slow players in and near water.', cd: 12 }, biomes: [W], color: 0x5fa3c4 },
-];
-export const swarmChoices = (b: Biome): SwarmDef[] => SWARMS.filter((s) => s.biomes.includes(b));
-
-export const SWARM_UNITS: Record<string, MobDef> = {
-  swarm_rat: { id: 'swarm_rat', name: 'Swarm Rat', tier: 1, biomes: [], hp: 14, dmg: 1.8, speed: 7.5, r: 0.28, behavior: 'pack', group: [1, 1], meat: 0, color: 0x6b5d4f },
-  swarm_bird: { id: 'swarm_bird', name: 'Swarm Bird', tier: 1, biomes: [], hp: 10, dmg: 1.6, speed: 9, r: 0.25, behavior: 'pack', flies: true, group: [1, 1], meat: 0, color: 0x7c8aa0 },
-  swarm_fish: { id: 'swarm_fish', name: 'Swarm Fish', tier: 1, biomes: [], hp: 10, dmg: 1.6, speed: 8, r: 0.25, behavior: 'pack', flies: true, group: [1, 1], meat: 0, color: 0x5fa3c4 },
-};
-
 export function mobDef(id: string): MobDef {
-  return MOB_BY_ID.get(id) ?? SWARM_UNITS[id];
+  return MOB_BY_ID.get(id)!;
 }
 
-export const SWARM_BUDGET = 60;
-export const SWARM_MIN = 3;
 export const TIER_SHARE = [0, 1, 1.5, 2];
-export const LEADER_RESPAWN = 45;
-export const SWARM_DAMAGE_CAP = 0.3; // of a player's max health per 10 s
 
 // Position of each creature in snapshots (the wire sends a number, not the name).
-export const MOB_IDS: string[] = [...MOBS.map((m) => m.id), 'swarm_rat', 'swarm_bird', 'swarm_fish'];
+export const MOB_IDS: string[] = MOBS.map((m) => m.id);
 const MOB_INDEX = new Map(MOB_IDS.map((id, i) => [id, i]));
-export const WARDEN_INDEX = MOB_IDS.length;
-export const mobIndex = (id: string) => MOB_INDEX.get(id) ?? (id === 'warden' ? WARDEN_INDEX : 0);
+export const mobIndex = (id: string) => MOB_INDEX.get(id) ?? 0;

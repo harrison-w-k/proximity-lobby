@@ -21,8 +21,6 @@ const log: string[] = [];
 let lastPhase = -1;
 let maxMobs = 0;
 let maxAwake = 0;
-let gulagSeen = 0;
-let leadersSeen = 0;
 let maxLevel = 1;
 let ticks = 0;
 const checkpoints = [60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720];
@@ -37,8 +35,6 @@ while (!m.finished && m.time < MATCH_LEN + 150) {
   if (ticks % 30 === 0) {
     maxMobs = Math.max(maxMobs, m.mobs.length);
     maxAwake = Math.max(maxAwake, m.mobs.filter((x) => x.awake).length);
-    gulagSeen = Math.max(gulagSeen, m.fighters.filter((f) => f.role === 'gulag').length);
-    leadersSeen = Math.max(leadersSeen, m.fighters.filter((f) => f.role === 'leader').length);
     for (const f of m.fighters) {
       maxLevel = Math.max(maxLevel, f.level);
       assert.ok(Number.isFinite(f.x) && Number.isFinite(f.z) && Number.isFinite(f.hp), `finite state for ${f.name}`);
@@ -48,9 +44,8 @@ while (!m.finished && m.time < MATCH_LEN + 150) {
     const alive = m.fighters.filter((f) => f.role === 'alive');
     const lv = alive.map((f) => f.level).sort((a, b) => b - a);
     log.push(
-      `${checkpoints[cp]}s alive ${alive.length} gulag ${m.fighters.filter((f) => f.role === 'gulag').length} leaders ${m.fighters.filter((f) => f.role === 'leader').length} ` +
-        `mobs ${m.mobs.length} (awake ${m.mobs.filter((x) => x.awake).length}) levels top ${lv.slice(0, 4).join(',')} median ${lv[Math.floor(lv.length / 2)] ?? 0} ` +
-        `units ${m.mobs.filter((x) => x.owner && x.hp > 0).length}`,
+      `${checkpoints[cp]}s alive ${alive.length} out ${m.fighters.filter((f) => f.role === 'out').length} ` +
+        `mobs ${m.mobs.length} (awake ${m.mobs.filter((x) => x.awake).length}) levels top ${lv.slice(0, 4).join(',')} median ${lv[Math.floor(lv.length / 2)] ?? 0}`,
     );
     cp++;
   }
@@ -58,7 +53,7 @@ while (!m.finished && m.time < MATCH_LEN + 150) {
 const ms = Date.now() - t0;
 console.log(log.join('\n'));
 console.log(`finished=${m.finished} t=${m.time.toFixed(0)}s winnerTeam=${m.winnerTeam} wall ${ms}ms (${((m.time / (ms / 1000)) | 0)}x realtime)`);
-console.log(`max mobs ${maxMobs}, max awake ${maxAwake}, max gulag ${gulagSeen}, max leaders ${leadersSeen}, max level ${maxLevel}`);
+console.log(`max mobs ${maxMobs}, max awake ${maxAwake}, max level ${maxLevel}`);
 const snaps = sent.filter((x) => x.t === 'snap');
 console.log(`snapshots ${snaps.length}, avg size ${(JSON.stringify(snaps.slice(0, 200)).length / Math.min(200, snaps.length)) | 0} bytes`);
 console.log('results top 5', m.results.slice(0, 5).map((r) => `${r.place}.${r.name}(${r.animal} L${r.lvl} k${r.kills})`).join(' '));

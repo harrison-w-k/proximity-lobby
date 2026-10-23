@@ -1,9 +1,8 @@
 // Messages between the match server and its clients (carried on the same socket as the lobby).
 import type { StatKey, Stats } from './animals';
-import type { SwarmKind } from './mobs';
 
-export type Role = 'alive' | 'gulag' | 'leader' | 'out';
-export const ROLE_CODE: Record<Role, number> = { alive: 0, gulag: 1, leader: 2, out: 3 };
+export type Role = 'alive' | 'out';
+export const ROLE_CODE: Record<Role, number> = { alive: 0, out: 3 };
 
 export type ItemKind = 'morsel' | 'meat' | 'berry' | 'herb' | 'water' | 'mud' | 'honey' | 'feather' | 'tusk' | 'musk' | 'reed';
 export interface InvItem {
@@ -24,8 +23,6 @@ export type ClientMatchMsg =
   | { t: 'mevolve'; to: string } // evolve into this form (needs level 7 / 14)
   | { t: 'muse'; i: number } // use or eat the inventory slot
   | { t: 'mact'; a: 'harvest' | 'loot' | 'drink' | 'drop'; i?: number }
-  | { t: 'mcmd'; c: 'attack' | 'scatter' | 'guard' | 'skill' | 'frenzy'; yaw?: number }
-  | { t: 'mswarm'; k: SwarmKind }
   | { t: 'mguard'; on: 0 | 1 } // tap (on: 1) to parry: the guard stays up about half a second
   | { t: 'mdash'; x: number; z: number } // burst of speed toward (x, z), or where you face if both are 0
   | { t: 'mleave' };
@@ -40,8 +37,6 @@ export interface RosterEntry {
   bot: boolean;
   role: number; // ROLE_CODE
   paint?: [number, number]; // chosen colours
-  swarm?: SwarmKind;
-  tier?: number;
 }
 
 export interface QueueInfo {
@@ -88,8 +83,6 @@ export interface YouState {
   ability: string; // active item ability, '' if none
   channel: { k: string; left: number; total: number } | null;
   kills: number;
-  swarm?: { kind: SwarmKind; tier: number; units: number; want: number; order: string; eaten: number; next: number; respawn: number };
-  gulag?: { phase: 'wait' | 'duel' | 'done'; foe: string; left: number; choose: SwarmKind[] };
 }
 
 export interface Global {
@@ -100,7 +93,6 @@ export interface Global {
   ringAt: number; // match time it begins closing (0 if closing now / done)
   ringN: number; // which ring is next/closing (1..)
   alive: number;
-  leaders: number;
   top: [id: string, lvl: number][]; // hunted
   mig: number; // 1 during the migration stampede
 }
@@ -146,10 +138,8 @@ export type MatchEvent =
   | { k: 'alpha'; x: number; z: number }
   | { k: 'node'; id: number; until: number }
   | { k: 'toast'; to?: string; text: string }
-  | { k: 'disband' }
   | { k: 'proj'; id: number; x: number; z: number; tx: number; tz: number; kind: string }
   | { k: 'lure'; x: number; z: number }
-  | { k: 'gulag'; id: string; winner?: boolean };
 
 // flag bits in snapshots
 export const FL = {

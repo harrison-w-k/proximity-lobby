@@ -47,13 +47,13 @@ evolves at level 7 and level 14 into any form of the next stage (49 forms in all
 replaces your skill and refills your health. Fish always spawn in water and are slow on land.
 
 - **Sim** (`shared/arena/`): `terrain.ts` (seeded 700 m map, biomes, lakes, Poisson-placed resources), `animals.ts` (the 49 forms of the 7 evolution trees, stage budgets, skills),
-  `mobs.ts` (4 horde tiers, swarms), `match.ts` (authoritative 30 Hz match: phases, lava rings, XP, combat, items, hunted mark, Gulag, Horde Leaders),
+  `mobs.ts` (4 horde tiers), `match.ts` (authoritative 30 Hz match: phases, lava rings, XP, combat, items, hunted mark; the dead spectate),
   `bots.ts`, `director.ts` (the campus, the queue and the match lifecycle). The server owns everything; the client only predicts its own steps (`move.ts`).
 - **Client** (`client/src/arena/`): `scene.ts` (terrain, lava shader, instanced forests, animals, effects), `models.ts` (procedural animals),
   `hud.ts`, `arena.ts` (input, prediction, camera, proximity-voice rules), `menu.ts`.
-- **Controls**: WASD move, Space dash (every animal, 2.4 s cooldown, costs stamina), Left Alt toggles a free cursor (click the upgrade panel / swarm choices), Shift sprint, C sneak (halves voice range), LMB attack, Q skill, RMB parry (tap), X harvest, G pick up / eat (leaders), V fill pouch,
-  1-6 use item, Tab panel (1-5 spend a stat point, pick an evolution). Leaders: 1 attack, 2 scatter, 3 guard, Q swarm skill.
+- **Controls**: WASD move, Space dash (every animal, 2.4 s cooldown, costs stamina), Left Alt toggles a free cursor (click the upgrade panel), Shift sprint, C sneak (halves voice range), LMB attack, Q skill, RMB parry (tap), X harvest, G pick up / eat (leaders), V fill pouch,
+  1-6 use item, Tab panel (1-5 spend a stat point, pick an evolution).
 - **Squads**: friends who type the same squad code on the menu share a team (max 4): no friendly fire, shared win.
-- **Voice**: 10 m full / 40 m silent, 15 m for leaders, whisper when sneaking, muffled behind rocks/trees and underwater, separate Gulag channel.
+- **Voice**: 10 m full / 40 m silent, whisper when sneaking, muffled behind rocks/trees and underwater.
 - Matches run on both hosts (the Node server and the Cloudflare Durable Object, which stays awake while a queue or match is active). On Node, `MATCH_COUNTDOWN_MS` and `MATCH_BOTS=0` tune the queue.
 - Tests: `npm test` runs a full 20-bot match headlessly (`shared/arena/match.test.ts [seed]`) plus the campus and evolution tests.

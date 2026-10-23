@@ -517,7 +517,6 @@ const BIRDS: Record<string, BirdSpec> = {
   sparrow: { body: 0.1, c: 0x9b7653, belly: 0xe2d4bd, beak: 0xe6b84a, beakLen: 0.05, legs: 0.08, neck: 0.02, tail: 0.16, wing: 0.14 },
   duck: { body: 0.2, c: 0x6a8f5a, belly: 0xe6e0cc, beak: 0xf0b90a, beakLen: 0.13, legs: 0.1, neck: 0.12, tail: 0.1, wing: 0.22 },
   heron: { body: 0.2, c: 0x8da1b3, belly: 0xdfe6ec, beak: 0xe9a933, beakLen: 0.32, legs: 0.7, neck: 0.55, tail: 0.14, wing: 0.4 },
-  swarm_bird: { body: 0.09, c: 0x7c8aa0, belly: 0xdfe3ea, beak: 0xe6b84a, beakLen: 0.05, legs: 0.0, neck: 0.02, tail: 0.14, wing: 0.18 },
 };
 
 function buildBird(spec: BirdSpec): Built {
@@ -574,7 +573,6 @@ const FISH: Record<string, FishSpec> = {
   minnow: { len: 0.16, h: 0.05, c: 0xaebfce, belly: 0xe8eef3, fin: 0x8fa3b5 },
   perch: { len: 0.36, h: 0.13, c: 0x7aa24c, belly: 0xe2dca2, fin: 0xd9622e },
   pike: { len: 0.95, h: 0.15, c: 0x4f7a5a, belly: 0xd5d9b8, fin: 0x3d5e46 },
-  swarm_fish: { len: 0.22, h: 0.07, c: 0x5fa3c4, belly: 0xdcefff, fin: 0x3c82a8 },
 };
 function buildFish(f: FishSpec): THREE.Group {
   const g = new THREE.Group();
@@ -1039,33 +1037,9 @@ export function makePlayerRig(animal: string, paint?: Paint | null, key?: string
   return new QuadRig(b, radius);
 }
 
-/** A leader's model: the king of its swarm. */
-export function makeLeaderRig(kind: string, tier: number): Rig {
-  const s = 1 + (tier - 1) * 0.25;
-  if (kind === 'bird') {
-    const r = new BirdRig({ ...BIRDS.swarm_bird, body: 0.22, wing: 0.55, tail: 0.35, legs: 0.0 }, 1.5 * s);
-    return r;
-  }
-  if (kind === 'shoal') {
-    const r = new FishRig({ ...FISH.swarm_fish, len: 0.8, h: 0.2, c: 0x4a97c4 }, 1.4 * s);
-    return r;
-  }
-  const spec: QuadSpec = {
-    ...SPECS.rat,
-    len: 0.7, w: 0.3, h: 0.3, legLen: 0.1, legT: 0.08, head: { s: 0.24, snout: 0.16 }, fur: 0x5a4f46,
-    scale: 1.3 * s, tail: { len: 0.7, t: 0.04, c: 0xd9a89c }, eye: 0xff3030,
-    extras: (_t, head) => {
-      const c = crown();
-      c.position.set(0, 0.2, 0);
-      head.add(c);
-    },
-  };
-  return new QuadRig(buildQuad(spec, 77), 0.4);
-}
-
 const mobCache = new Map<string, () => Rig>();
 
-/** A cheap merged model for horde creatures (and the Warden). */
+/** A cheap merged model for horde creatures. */
 export function makeMobRig(id: string): Rig {
   let f = mobCache.get(id);
   if (!f) {
@@ -1090,23 +1064,19 @@ function factoryFor(id: string): () => Rig {
     case 'goat':
     case 'wildpig':
       return quad(SPECS[id], 1, SPECS[id].len / 2);
-    case 'swarm_rat':
-      return quad({ ...SPECS.rat, fur: 0x6b5d4f }, 1, 0.3);
     case 'beetle': {
       const g = buildBeetle();
       return () => new MergedRig(g.clone(), false, false, 1, 0.4, 0.2);
     }
     case 'sparrow':
     case 'duck':
-    case 'heron':
-    case 'swarm_bird': {
+    case 'heron': {
       const spec = BIRDS[id];
       return () => new BirdRig(spec, 1);
     }
     case 'minnow':
     case 'perch':
-    case 'pike':
-    case 'swarm_fish': {
+    case 'pike': {
       const spec = FISH[id];
       return () => new FishRig(spec, 1);
     }
@@ -1125,13 +1095,6 @@ function factoryFor(id: string): () => Rig {
     case 'alpha_gator': {
       const s: QuadSpec = { ...SPECS.croc, fur: 0x35502d, scale: 1.6 };
       return () => new QuadRig(buildQuad(s, 92), 1.6);
-    }
-    case 'warden': {
-      const s: QuadSpec = { ...SPECS.bear, fur: 0x2a2a30, belly: 0x1d1d22, eye: 0xff2222, scale: 1.25, extras: (torso) => {
-        torso.add(box(1.0, 0.1, 0.1, 0x9aa0a8, 0, 0.1, 0.2));
-        torso.add(box(0.8, 0.4, 0.55, 0x2a2a30, 0, 0.55, 0.4));
-      } };
-      return () => new QuadRig(buildQuad(s, 93), 1.2);
     }
   }
   return quad(SPECS.fox);

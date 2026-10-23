@@ -2,7 +2,6 @@
 import { ANIMAL_EMOJI } from './emoji';
 import { buildTreeCircle } from './treeView';
 import { ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, EVOLVE_LEVELS, type AnimalDef, type Skill, type StatKey } from '../../../shared/arena/animals';
-import { SWARMS } from '../../../shared/arena/mobs';
 import type { Global, InvItem, RosterEntry, YouState } from '../../../shared/arena/proto';
 import { MAP_RADIUS, Biome, type Terrain } from '../../../shared/arena/terrain';
 
@@ -105,12 +104,7 @@ const CSS = `
 .br-pick .opt b { display: block; font-size: 18px; color: #6a3410; }
 .br-pick .opt.chosen b { color: #1d3009; }
 .br-pick .t { font-size: 17px; color: #e8d7ad; margin-bottom: 4px; }
-.br-gulag { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 13vh; background: linear-gradient(rgba(14,8,6,.62), rgba(14,8,6,0) 60%); pointer-events: none; }
-.br-gulag h2 { font-size: 54px; margin: 0; color: #ff7a5e; letter-spacing: .12em; -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; text-shadow: 0 6px 0 rgba(0,0,0,.4); }
-.br-gulag p { font-size: 26px; margin: 8px 0; text-shadow: 0 2px 0 var(--ink); text-align: center; max-width: 600px; }
 .br-choice { display: flex; gap: 12px; margin-top: 10px; pointer-events: auto; }
-.br-leader { position: absolute; bottom: 160px; left: 50%; transform: translateX(-50%); width: min(540px, 92vw); padding: 10px 14px; text-align: center; font-size: 21px; line-height: 1.25; }
-.br-leader b { color: var(--amber); font-weight: 700; }
 .br-end { position: absolute; inset: 0; background: rgba(12,8,5,.84); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
 .br-end .box { width: min(740px, 94vw); max-height: 90vh; overflow: auto; padding: 22px 26px; }
 @keyframes brstamp { 0% { transform: rotate(-12deg) scale(3); opacity: 0; } 55% { transform: rotate(-12deg) scale(.88); opacity: 1; } 75% { transform: rotate(-12deg) scale(1.06); } 100% { transform: rotate(-12deg) scale(1); opacity: 1; } }
@@ -292,8 +286,6 @@ export class Hud {
   private lavaVig = el('div', 'br-lavavig');
   private blind = el('div', 'br-blind');
   private panel = el('div', 'br-panel wood');
-  private gulag = el('div', 'br-gulag');
-  private leader = el('div', 'br-leader wood');
   private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="x"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
   private callouts = el('div', 'br-callout');
   private streakEl = el('div', 'br-streak', '<b></b><span></span>');
@@ -323,11 +315,8 @@ export class Hud {
   private dollFrame = el('div', 'br-doll', '<div class="tag"></div>');
   private info = el('div', 'br-info wood');
   private infoKey = '';
-  private lastGulagKey = '';
-  private lastLeaderKey = '';
   onStat: (k: StatKey) => void = () => {};
   onEvolve: (to: string) => void = () => {};
-  onSwarm: (k: string) => void = () => {};
   onResume: () => void = () => {};
   onSettings: () => void = () => {};
   onLeave: () => void = () => {};
@@ -393,8 +382,6 @@ export class Hud {
     bottom.append(this.buffs, rows, bars);
 
     this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (3-hit combo) · tap RMB to PARRY: a hit in the half-second window stuns the attacker, a miss leaves you fumbling<br>Q skill · X harvest · V drink · 1-6 eat/use · Tab stats and evolving · Left Alt cursor';
-    this.gulag.hidden = true;
-    this.leader.hidden = true;
     this.panel.hidden = true;
     this.end.hidden = true;
     this.pause.hidden = true;
@@ -402,7 +389,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.evolveEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, this.gulag, this.leader, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.evolveEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -570,16 +557,16 @@ export class Hud {
   // --- the frame ----------------------------------------------------------------------------------
 
   private skillFor(def: AnimalDef, _you: YouState, slot: number): { skill: Skill | null; locked: string } {
-    return slot === 0 ? { skill: def.skill, locked: '' } : { skill: null, locked: '' }; // one signature skill: evolving replaces it
+    return slot === 0 ? { skill: def.skill, locked: '' } : slot === 1 ? { skill: def.skill2, locked: '' } : { skill: null, locked: '' };
   }
 
   render(c: HudCtx) {
     const { you, g, def } = c;
-    const role = you.role; // 0 alive, 1 gulag, 2 leader, 3 out
+    const role = you.role; // 0 alive, 3 out (spectating)
     const t = g.time;
     (this.root.querySelector('#br-ph') as HTMLElement).textContent = ['Recess', 'Study Hall', 'Pop Quiz', 'Final Exam', 'Graduation'][g.phase];
     (this.root.querySelector('#br-clock') as HTMLElement).textContent = fmt(t);
-    (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${g.alive} alive${g.leaders ? ` · ${g.leaders} leaders` : ''}`;
+    (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${g.alive} alive`;
     // lava status
     if (g.ringAt > t) {
       const left = g.ringAt - t;
@@ -610,7 +597,7 @@ export class Hud {
             ? 'A Tournament is running: press B to queue for the next one'
             : 'Nobody can be hurt here · press B to queue for the Tournament';
     }
-    const body = role === 0 || role === 1 || role === 2;
+    const body = role === 0;
     this.skillRow.parentElement!.parentElement!.style.display = role === 3 ? 'none' : '';
     // bars
     const hpPct = Math.max(0, Math.min(100, (you.hp / you.maxHp) * 100));
@@ -635,7 +622,7 @@ export class Hud {
     (this.xp.firstElementChild as HTMLElement).style.width = role === 0 ? `${Math.min(100, (you.xp / you.need) * 100)}%` : '0%';
     (this.xp.lastElementChild as HTMLElement).textContent = role === 0 ? (you.lvl >= 20 ? 'MAX' : `${you.xp} / ${you.need} XP`) : '';
     this.xp.style.display = role === 0 ? '' : 'none';
-    this.lvl.textContent = role === 2 ? `T${you.swarm?.tier ?? 1}` : role === 1 ? 'GULAG' : `LV ${you.lvl}`;
+    this.lvl.textContent = `LV ${you.lvl}`;
     this.lvl.classList.toggle('br-point', role === 0 && (you.pts > 0 || this.canEvolve(you)));
     this.evolveEl.hidden = !(role === 0 && this.canEvolve(you) && !c.panelOpen);
 
@@ -643,27 +630,21 @@ export class Hud {
     const buffs = you.buffs.map((b) => `<span>${b.replace(/_/g, ' ')}</span>`).join('') + (you.ability ? `<span>${you.ability}</span>` : '');
     if (this.buffs.innerHTML !== buffs) this.buffs.innerHTML = buffs;
 
-    // skill slots: an animal has one signature skill (Q); a horde leader has two
+    // skill slots: Q is the signature skill; stage 2 and 3 animals also have E
     for (let i = 0; i < 4; i++) {
       const e = this.skillEls[i];
-      e.root.style.display = i === 0 || (role === 2 && i === 1) ? '' : 'none';
+      e.root.style.display = i === 0 || (i === 1 && def.skill2) ? '' : 'none';
       let name = '';
       let ready = false;
       let locked = false;
-      if (role === 2) {
-        const sw = SWARMS.find((s) => s.id === you.swarm?.kind);
-        name = i === 0 ? (sw?.skill.name ?? 'Skill') : i === 1 ? (you.swarm && you.swarm.tier >= 3 ? 'Frenzy' : 'Tier III') : '';
-        locked = i > 1 || (i === 1 && !!you.swarm && you.swarm.tier < 3);
-      } else {
-        const s = this.skillFor(def, you, i);
-        name = s.skill?.name ?? s.locked;
-        locked = !s.skill;
-      }
+      const sk = this.skillFor(def, you, i);
+      name = sk.skill?.name ?? sk.locked;
+      locked = !sk.skill;
       const cd = you.cds[i];
       const max = Math.max(0.1, you.cdMax[i] || 1);
       ready = !locked && cd <= 0.05;
       e.name.textContent = name;
-      e.ic.textContent = role === 2 ? (i === 0 ? '🐀' : i === 1 ? '🔥' : '🔒') : skillIcon(this.skillFor(def, you, i).skill);
+      e.ic.textContent = skillIcon(this.skillFor(def, you, i).skill);
       e.root.classList.toggle('locked', locked);
       e.root.classList.toggle('ready', ready);
       e.cd.style.setProperty('--p', locked ? '0%' : `${Math.min(100, (cd / max) * 100)}%`);
@@ -716,8 +697,6 @@ export class Hud {
 
     this.renderInfo(you, def, role);
     this.renderPanel(c);
-    this.renderGulag(c);
-    this.renderLeader(c);
     this.blind.style.opacity = you.buffs.includes('blind') ? '0.8' : '0';
   }
 
@@ -770,53 +749,6 @@ export class Hud {
       this.panel.append(box);
     }
     this.panel.append(el('div', 'br-pick', '<div class="t">Keys: 1-5 spend a point · Tab closes</div>'));
-  }
-
-  private renderGulag(c: HudCtx) {
-    const y = c.you;
-    const on = y.role === 1 && !!y.gulag;
-    this.gulag.hidden = !on;
-    if (!on || !y.gulag) return;
-    const gu = y.gulag;
-    const key = `${gu.phase}|${gu.foe}|${Math.ceil(gu.left)}|${gu.choose.join()}`;
-    if (key === this.lastGulagKey) return;
-    this.lastGulagKey = key;
-    const picked = c.roster.get(c.myId)?.swarm;
-    this.gulag.innerHTML = '';
-    this.gulag.append(el('h2', '', 'THE GULAG'));
-    this.gulag.append(
-      el(
-        'p',
-        '',
-        gu.phase === 'duel'
-          ? `Duel vs <b style="color:var(--amber)">${gu.foe}</b> · ${Math.ceil(gu.left)}s<br>Equal stats. Win to lead a bigger swarm.`
-          : 'Waiting for an opponent. If nobody comes, you face the Headmaster.<br>Detention voice chat is separate from the match.',
-      ),
-    );
-    const row = el('div', 'br-choice');
-    for (const k of gu.choose) {
-      const sw = SWARMS.find((s) => s.id === k)!;
-      const b = el<HTMLButtonElement>('button', `br-btn ${picked === k ? '' : 'wood'}`, `${sw.name} — ${sw.skill.name}`);
-      b.addEventListener('click', () => this.onSwarm(k));
-      row.append(b);
-    }
-    this.gulag.append(el('p', '', 'Choose your swarm:'), row);
-  }
-
-  private renderLeader(c: HudCtx) {
-    const y = c.you;
-    const on = y.role === 2 && !!y.swarm;
-    this.leader.hidden = !on;
-    if (!on || !y.swarm) return;
-    const s = y.swarm;
-    const sw = SWARMS.find((x) => x.id === s.kind)!;
-    const key = JSON.stringify(s);
-    if (key === this.lastLeaderKey) return;
-    this.lastLeaderKey = key;
-    const prog = s.next ? `${s.eaten}/${s.next} eaten to grow` : 'Max tier';
-    this.leader.innerHTML =
-      `<b>${sw.name}</b> · Tier ${s.tier} · swarm ${s.units}/${s.want} · order: <b>${s.order}</b><br>` +
-      (s.respawn > 0 ? `Your leader fell. Back in <b>${Math.ceil(s.respawn)}s</b>` : `1 attack · 2 scatter · 3 guard · Q ${sw.skill.name} · G eat food · ${prog}`);
   }
 
   // --- end / pause -----------------------------------------------------------------------------------
@@ -976,9 +908,9 @@ export class Hud {
     const cls = CLASS_BY_ID.get(def.cls)!;
     this.dollFrame.style.display = role === 3 ? 'none' : '';
     this.info.style.display = role === 3 ? 'none' : '';
-    const form = role === 2 ? 'Horde Leader' : role === 1 ? 'In Detention' : '';
+    const form = '';
     (this.dollFrame.querySelector('.tag') as HTMLElement).textContent = '';
-    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.evolve.length, role, you.swarm?.tier]);
+    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.evolve.length, role]);
     if (key === this.infoKey) return;
     this.infoKey = key;
     const rows = STAT_KEYS.map((k) => {
@@ -986,7 +918,7 @@ export class Hud {
       return `<span>${STAT_NAMES[k]}</span><i style="width:${Math.min(100, (v / 50) * 100)}%"></i><em>${v}</em>`;
     }).join('');
     this.info.innerHTML =
-      `<div class="hd"><span class="em">${EMOJI[def.id] ?? '🐾'}</span><div><b>${def.name}</b><small>${cls.icon} ${cls.name} · ${role === 2 ? `Tier ${you.swarm?.tier ?? 1}` : `Lv ${you.lvl}`}${form ? ` · ${form}` : ''}</small></div></div>` +
+      `<div class="hd"><span class="em">${EMOJI[def.id] ?? '🐾'}</span><div><b>${def.name}</b><small>${cls.icon} ${cls.name} · Lv ${you.lvl}${form ? ` · ${form}` : ''}</small></div></div>` +
       `<div class="st">${rows}</div>` +
       `<div class="pk">${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^[-−]\s?/, '')}</div>`).join('')}</div>`;
   }

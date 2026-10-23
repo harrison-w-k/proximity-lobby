@@ -416,8 +416,6 @@ export class Lobby {
       case 'mevolve':
       case 'muse':
       case 'mact':
-      case 'mcmd':
-      case 'mswarm':
       case 'mdash':
       case 'mguard':
       case 'mleave': {

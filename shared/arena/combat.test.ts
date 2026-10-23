@@ -264,4 +264,19 @@ void ({} as Fighter);
   assert.equal(off.jy, 0, 'and falls to the ground when it walks off');
 }
 
+// 10. death is final: there is no Gulag and no swarm, the dead just spectate
+{
+  const { m, a, b } = fresh();
+  b.hp = 1;
+  m.hurt(b, 99999, a, { kind: 'bite', blockable: true });
+  assert.equal(b.role, 'out', 'a fallen player is out');
+  assert.equal(b.team === a.team, false);
+  assert.ok(m.mobs.every((x) => x.def.id !== 'swarm_rat'), 'no swarm animals');
+  const hp = b.hp;
+  m.hurt(b, 50, a, { kind: 'bite' });
+  assert.equal(b.hp, hp, 'and cannot be hurt again');
+  ticks(m, 30);
+  assert.equal(b.role, 'out', 'and stays out');
+}
+
 console.log('combat tests passed');

@@ -711,7 +711,7 @@
     <div class="panel box" role="dialog" aria-label="Settings">
       <header class="panel-head">
         <div>
-          <div class="eyebrow">Proximity Lobby</div>
+          <div class="eyebrow">Animal Battle Royale</div>
           <h1>Settings</h1>
         </div>
         <div class="esc-hint"><span class="key">Esc</span> to resume</div>
@@ -722,7 +722,6 @@
           <button class="tab active" type="button" data-tab="gameplay">Gameplay</button>
           <button class="tab" type="button" data-tab="audio">Audio</button>
           <button class="tab" type="button" data-tab="controls">Controls</button>
-          <button class="tab" type="button" data-tab="character">Character</button>
           <button class="tab" type="button" data-tab="account">Account</button>
         </nav>
 
@@ -741,16 +740,6 @@
           </div>
 
           <h3 class="group-title" style="margin-top:22px">View</h3>
-          <div class="setting">
-            <div class="setting-head">
-              <div>
-                <div class="setting-title">Field of view</div>
-                <p class="setting-desc">Wider shows more of the island; narrower zooms in.</p>
-              </div>
-              <div class="setting-val" id="fov-val">75&deg;</div>
-            </div>
-            <input id="fov" type="range" min="60" max="110" step="1" value="75" aria-label="Field of view" />
-          </div>
           <div class="setting">
             <div class="setting-head">
               <div>
@@ -830,40 +819,20 @@
           <h3 class="group-title">Movement</h3>
           <div class="binds">
             <div class="bind"><span>Move</span><span class="keys"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span></span></div>
-            <div class="bind"><span>Jump</span><span class="keys"><span class="key">Space</span></span></div>
-            <div class="bind"><span>Sprint</span><span class="keys"><span class="key">Shift</span></span></div>
+            <div class="bind"><span>Jump (clears low rocks)</span><span class="keys"><span class="key">Space</span></span></div>
+            <div class="bind"><span>Sprint (forward only)</span><span class="keys"><span class="key">Hold Shift</span></span></div>
+            <div class="bind"><span>Dash</span><span class="keys"><span class="key">Tap Shift</span></span></div>
             <div class="bind"><span>Crouch</span><span class="keys"><span class="key">C</span></span></div>
-            <div class="bind"><span>Slide: while sprinting, then</span><span class="keys"><span class="key">C</span></span></div>
-            <div class="bind"><span>Vault or climb: press jump next to a wall</span><span class="keys"><span class="key">Space</span></span></div>
-            <div class="bind"><span>Grab a ledge: hold in the air near a wall, then Space or W to pull up</span><span class="keys"><span class="key">E</span></span></div>
-            <div class="bind"><span>Let go of a ledge</span><span class="keys"><span class="key">C</span><span class="key">S</span></span></div>
             <div class="bind"><span>Look around</span><span class="keys"><span class="key">Mouse</span></span></div>
-            <div class="bind"><span>Camera: over the shoulder, in front, first person</span><span class="keys"><span class="key">T</span></span></div>
           </div>
-          <h3 class="group-title" style="margin-top:22px">Social</h3>
+          <h3 class="group-title" style="margin-top:22px">Combat</h3>
           <div class="binds">
-            <div class="bind"><span>Pick up / set down an item</span><span class="keys"><span class="key">F</span></span></div>
-            <div class="bind"><span>Aim a throw: hold left click to charge, release to throw</span><span class="keys"><span class="key">R</span></span></div>
-            <div class="bind"><span>Text chat</span><span class="keys"><span class="key">Enter</span></span></div>
-            <div class="bind"><span>Private message</span><span class="keys"><code>/msg @name hello</code></span></div>
-            <div class="bind"><span>Reply to the last private message</span><span class="keys"><code>/r hello</code></span></div>
+            <div class="bind"><span>Attack (a three-hit combo)</span><span class="keys"><span class="key">Left click</span></span></div>
+            <div class="bind"><span>Parry: tap just before a hit lands</span><span class="keys"><span class="key">Right click</span></span></div>
+            <div class="bind"><span>Skills</span><span class="keys"><span class="key">Q</span><span class="key">E</span></span></div>
+            <div class="bind"><span>Evolve / spend points</span><span class="keys"><span class="key">Tab</span></span></div>
             <div class="bind"><span>Mute microphone</span><span class="keys"><span class="key">M</span></span></div>
-            <div class="bind"><span>Player volume (while looking at them)</span><span class="keys"><span class="key">Scroll</span></span></div>
-            <div class="bind"><span>Settings</span><span class="keys"><span class="key">Esc</span></span></div>
-          </div>
-        </section>
-
-        <section class="pane" data-pane="character" hidden>
-          <h3 class="group-title">Appearance</h3>
-          <div class="setting">
-            <div class="setting-title">Colour scheme</div>
-            <p class="setting-desc">The colour of your clay body. Everyone in the lobby sees it. Press T to look at yourself.</p>
-            <div id="look-colors" class="swatches"></div>
-          </div>
-          <div class="setting">
-            <div class="setting-title">Hat</div>
-            <p class="setting-desc">Pick something to wear on your head.</p>
-            <div id="look-hats" class="hatlist"></div>
+            <div class="bind"><span>Menu</span><span class="keys"><span class="key">Esc</span></span></div>
           </div>
         </section>
 
@@ -874,24 +843,11 @@
             <p class="setting-desc">Other players see this name above your head.</p>
           </div>
 
-          <h3 class="group-title" style="margin-top:22px">Profile photo</h3>
-          <div class="setting avatar-row">
-            <canvas id="avatar-preview" width="32" height="32" aria-label="Your profile photo"></canvas>
-            <div>
-              <p class="setting-desc">Shown on the face of your character for everyone in the lobby. It is shrunk to 32&times;32 pixels in your browser; the original never leaves your device.</p>
-              <div class="test-row">
-                <button id="avatar-pick" class="btn primary small" type="button">Choose photo</button>
-                <button id="avatar-clear" class="btn glass small" type="button">Remove</button>
-              </div>
-              <p class="note" id="avatar-status"></p>
-            </div>
-          </div>
-          <input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
         </section>
       </div>
 
       <footer class="panel-foot">
-        <button id="leave-btn" class="btn danger" type="button">Leave lobby</button>
+        <button id="leave-btn" class="btn danger" type="button">Leave game</button>
         <button id="resume-btn" class="btn primary" type="button">Resume</button>
       </footer>
     </div>

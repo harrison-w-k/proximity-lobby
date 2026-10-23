@@ -1,7 +1,7 @@
 // The paper doll: a small live model of your own animal in the corner of the screen, like the
 // player in Minecraft's inventory. It plays the same animations as the animal in the world.
 import * as THREE from 'three';
-import { makeLeaderRig, makePlayerRig, type Rig, type RigState } from './models';
+import { makePlayerRig, type Rig, type RigState } from './models';
 
 export interface Rect {
   x: number; // CSS pixels from the left
@@ -30,13 +30,13 @@ export class Doll {
     this.scene.add(floor);
   }
 
-  /** Rebuild the model when the animal (or a leader's form) changes. */
-  set(animal: string, role: number, swarm: string | undefined, tier: number, paint?: [number, number], who?: string) {
-    const key = `${animal}|${role}|${swarm}|${tier}|${paint?.join(',') ?? ''}`;
+  /** Rebuild the model when the animal (or its colours) changes. */
+  set(animal: string, paint?: [number, number], who?: string) {
+    const key = `${animal}|${paint?.join(',') ?? ''}`;
     if (key === this.key) return;
     this.key = key;
     if (this.rig) this.scene.remove(this.rig.root);
-    this.rig = role === 2 ? makeLeaderRig(swarm ?? 'rat', tier) : makePlayerRig(animal, paint, who);
+    this.rig = makePlayerRig(animal, paint, who);
     this.scene.add(this.rig.root);
     // frame the whole animal, whatever its size
     const box = new THREE.Box3().setFromObject(this.rig.root);

@@ -180,7 +180,7 @@ export class BrMenu {
     this.root.hidden = true;
     const panel = document.createElement('div');
     panel.className = 'panel wood';
-    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Everyone starts small and evolves twice. Dead players fight in Detention and come back leading a swarm.</div>';
+    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Everyone starts small and evolves twice. Fall and you are out: you spectate until the match ends.</div>';
 
     // the stage: a spotlit model on the left, its details on the right
     const stage = document.createElement('div');

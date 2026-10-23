@@ -1,7 +1,6 @@
 // AI fighters. They fill empty slots (so a match is always 20 animals) and take over for anyone
 // who leaves. They play by the same rules and through the same Input a human uses.
 import { STAT_KEYS, evolveOptions, type Stats } from './animals';
-import { swarmChoices } from './mobs';
 import { WATER_Y } from './terrain';
 import type { Fighter, Match, Mob } from './match';
 import { ringAt, RINGS } from './match';
@@ -126,7 +125,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   const i = f.input;
   if (f.role === 'out') return;
   // every so often a bot simply stops paying attention
-  if (m.time > s.nextDaze && f.role !== 'gulag') {
+  if (m.time > s.nextDaze) {
     s.dazeUntil = m.time + 0.5 + m.rnd() * 1.2;
     s.nextDaze = s.dazeUntil + 4 + m.rnd() * 8;
   }
@@ -135,8 +134,6 @@ export function botThink(m: Match, f: Fighter, dt: number) {
     i.s++;
     return;
   }
-  if (f.role === 'gulag') return gulagBot(m, f, s);
-  if (f.role === 'leader') return leaderBot(m, f, s);
   if (f.hp <= 0) return;
   botGuard(m, f, s);
 
@@ -193,7 +190,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   }
 
   // wildlife on our tail: fight it if we can win, otherwise outrun it
-  const chasers = m.mobs.filter((o) => o.hp > 0 && !o.owner && o.state === 'attack' && o.target === f && dist(o, f) < 16);
+  const chasers = m.mobs.filter((o) => o.hp > 0 && o.state === 'attack' && o.target === f && dist(o, f) < 16);
   if (chasers.length) {
     const totalHp = chasers.reduce((a, o) => a + o.hp, 0);
     const theirDps = chasers.reduce((a, o) => a + o.def.dmg / 1.1, 0);
@@ -319,7 +316,7 @@ function pickFarmTarget(m: Match, f: Fighter): Mob | null {
   let best: Mob | null = null;
   let bs = -Infinity;
   for (const o of m.mobs) {
-    if (o.hp <= 0 || o.owner || o.warden) continue;
+    if (o.hp <= 0) continue;
     if (o.def.tier > maxTier || (o.def.tier < minTier && f.level >= 12 && o.def.tier === 1)) continue;
     if (o.def.behavior === 'alpha' && (f.hp < f.maxHp * 0.7 || f.level < 14)) continue;
     const d = dist(o, f);
@@ -393,81 +390,6 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
     if (use && m.rnd() < 0.1) m.castSkill(f, slot, yaw);
   }
 }
-
-function gulagBot(m: Match, f: Fighter, s: Mem) {
-  if (f.duel) botGuard(m, f, s);
-  if (!f.swarmPick) {
-    const opts = swarmChoices(f.deathBiome);
-    m.chooseSwarm(f, opts[Math.floor(m.rnd() * opts.length)].id);
-  }
-  const i = f.input;
-  if (!f.duel) {
-    // pace around the pen
-    if (m.time > s.wanderUntil) {
-      s.wanderX = 1430 + (m.rnd() - 0.5) * 24;
-      s.wanderZ = (m.rnd() - 0.5) * 24;
-      s.wanderUntil = m.time + 3 + m.rnd() * 4;
-    }
-    i.at = false;
-    goTo(m, f, s, s.wanderX, s.wanderZ);
-    return;
-  }
-  const foe: Fighter | Mob | null = f.duel.warden ?? (f.duel.a === f ? f.duel.b : f.duel.a);
-  if (!foe || f.defeated) {
-    stop(f);
-    return;
-  }
-  fight(m, f, s, foe, false);
-}
-
-function leaderBot(m: Match, f: Fighter, s: Mem) {
-  if (f.hp <= 0) return;
-  const i = f.input;
-  const enemies = nearbyEnemies(m, f, 90);
-  if (m.time >= s.nextOrder) {
-    s.nextOrder = m.time + 4 + m.rnd() * 6;
-    const e = enemies[0];
-    if (e && f.order !== 'attack') m.command(f, 'attack');
-    else if (!e && f.order === 'attack') m.command(f, 'free');
-  }
-  const e = enemies[0];
-  const safe = safeRadius(m);
-  const rr = Math.hypot(f.x, f.z);
-  if (rr > safe - 8) {
-    goTo(m, f, s, (f.x / rr) * (safe - 25), (f.z / rr) * (safe - 25), true);
-    return;
-  }
-  if (e) {
-    const d = dist(e, f);
-    if (d > 14) goTo(m, f, s, e.x, e.z, false);
-    else {
-      // keep out of reach while the swarm bites
-      const dx = f.x - e.x;
-      const dz = f.z - e.z;
-      const l = Math.hypot(dx, dz) || 1;
-      goTo(m, f, s, f.x + (dx / l) * 6, f.z + (dz / l) * 6, false);
-    }
-    i.at = false;
-    if (m.time >= f.cdAt[0] && d < 24 && m.rnd() < 0.2) m.castSkill(f, 0, Math.atan2(e.x - f.x, e.z - f.z));
-    if (f.tier >= 3 && m.time >= f.cdAt[1] && d < 24 && m.rnd() < 0.1) m.castSkill(f, 1, 0);
-    return;
-  }
-  // look for food to grow
-  const drop = m.drops.find((d) => dist(d, f) < 40);
-  if (drop) {
-    const d = goTo(m, f, s, drop.x, drop.z);
-    if (d < 2.5) m.startLoot(f);
-    return;
-  }
-  if (m.time > s.wanderUntil || dist(f, { x: s.wanderX, z: s.wanderZ }) < 3) {
-    const a = m.rnd() * Math.PI * 2;
-    s.wanderX = Math.cos(a) * (m.rnd() * (safe - 30));
-    s.wanderZ = Math.sin(a) * (m.rnd() * (safe - 30));
-    s.wanderUntil = m.time + 12;
-  }
-  goTo(m, f, s, s.wanderX, s.wanderZ);
-}
-
 export const _internal = { WATER_Y };
 
 /** See an attack winding up in front of us and raise the guard just before it lands: a parry. */
