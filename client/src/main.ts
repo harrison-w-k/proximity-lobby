@@ -95,7 +95,10 @@ function refreshAnimalUi() {
   refreshStage();
   const a = ANIMAL_BY_ID.get(myAnimal);
   const chip = document.getElementById('animal-chip');
-  if (chip && a) chip.textContent = `${ANIMAL_EMOJI[a.id] ?? '🐾'} ${a.name} · change`;
+  if (chip && a) {
+    chip.textContent = `${ANIMAL_EMOJI[a.id] ?? '🐾'} ${a.name}`;
+    chip.title = 'Change your animal';
+  }
   const label = document.getElementById('join-animal-name');
   if (label && a) label.textContent = `${a.name}: ${a.role}. ${a.blurb}`;
   document.querySelectorAll<HTMLElement>('#join-animals .an').forEach((b) => b.classList.toggle('on', b.dataset.id === myAnimal));
@@ -196,12 +199,13 @@ const names = new Map<string, string>(); // other players: id -> name
 function updateHud() {
   const others = names.size;
   const linked = voice?.connectedCount() ?? 0;
-  $('players').textContent = `Players ${others + 1}/${MAX_PLAYERS} · Voice links ${linked}/${others}`;
+  $('players').textContent = `👥 ${others + 1}/${MAX_PLAYERS} players`;
+  $('players').title = `Voice links ${linked}/${others}`;
   const mic = $('mic');
   mic.classList.toggle('off', !voice?.hasMic || voice.muted);
-  if (!voice?.hasMic) mic.textContent = '🎤 No mic — listening only';
-  else if (voice.muted) mic.textContent = '🔇 Muted (M to unmute)';
-  else mic.textContent = '🎤 Live (M to mute)';
+  if (!voice?.hasMic) mic.textContent = '🎧 Listening only';
+  else if (voice.muted) mic.textContent = '🔇 Muted [M]';
+  else mic.textContent = '🎤 Live [M]';
 }
 setInterval(() => joined && updateHud(), 500);
 
@@ -931,6 +935,7 @@ const resendBtn = $<HTMLButtonElement>('resend-btn');
 const forgotBtn = $<HTMLButtonElement>('forgot-btn');
 const toggleBtn = $<HTMLButtonElement>('toggle-btn');
 const signoutBtn = $<HTMLButtonElement>('signout-btn');
+const googleBtn = $<HTMLButtonElement>('google-btn');
 const status = $('status');
 
 try {
@@ -979,6 +984,7 @@ function render() {
   show(forgotBtn, mode === 'login');
   show(resendBtn, mode === 'confirm');
   show(signoutBtn, mode === 'in');
+  show($('oauth'), mode === 'login' || mode === 'signup');
   show(toggleBtn, mode === 'login' || mode === 'signup' || mode === 'confirm');
   toggleBtn.textContent =
     mode === 'login' ? 'Need an account? Sign up' : mode === 'signup' ? 'Already have an account? Log in' : 'Back to log in';
@@ -1051,6 +1057,17 @@ resendBtn.addEventListener('click', async () => {
   else setStatus('Sent again. Check your inbox (and spam).', true);
 });
 signoutBtn.addEventListener('click', () => void supabase!.auth.signOut());
+// Google sign-in goes through Supabase: it redirects to Google and back here, and onAuthStateChange picks the session up.
+// The signup trigger names the profile from the Google email, exactly as for email accounts.
+googleBtn.addEventListener('click', async () => {
+  googleBtn.disabled = true;
+  setStatus('Opening Google…', true);
+  const { error } = await supabase!.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${location.origin}/` } });
+  if (error) {
+    googleBtn.disabled = false;
+    setStatus(/provider is not enabled|unsupported provider/i.test(error.message) ? 'Google sign-in is not switched on for this game yet.' : friendly(error.message));
+  }
+});
 
 async function enterLobby(name: string, token?: string) {
   joinBtn.disabled = true;

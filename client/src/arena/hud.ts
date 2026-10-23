@@ -224,6 +224,25 @@ const CSS = `
   25% { transform: rotate(-2deg) scale(1.04) translateX(10px); filter: blur(4px); } 45% { transform: rotate(1.6deg) scale(1.04) translateY(8px); filter: blur(3px) hue-rotate(-15deg); }
   65% { transform: rotate(-1.2deg) scale(1.03); filter: blur(2px); } 85% { transform: rotate(.6deg) scale(1.01); filter: blur(1px); } 100% { transform: none; filter: none; }
 }
+
+/* ---- layout: one region each, nothing stacked on anything else ----
+   left column: your animal, then the status chips, then your stats at the bottom
+   centre: the zone banner at the top, the hotbar at the bottom
+   right column: the minimap, the kill feed under it, the chat and the key hints at the bottom */
+#hud { top: 246px !important; left: 14px !important; width: 168px; gap: 6px !important; }
+#hud .chip, #hud .br-btn { width: 100%; justify-content: flex-start; box-sizing: border-box; padding: 2px 12px !important; font-size: 16px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud .br-btn { justify-content: center; display: flex; align-items: center; min-height: 34px; margin-top: 4px; font-size: 15px !important; letter-spacing: 0 !important; text-transform: none !important; }
+.br-feed { left: auto !important; right: 14px !important; top: 214px !important; width: 300px !important; align-items: flex-end; text-align: right; }
+.br-help { right: 14px !important; bottom: 14px !important; max-width: 280px !important; font-size: 14px !important; line-height: 1.3 !important; opacity: .8 !important; padding: 6px 10px; background: rgba(18,12,7,.55); border-radius: 12px; }
+.br-help b { color: var(--amber); }
+#chat { left: auto !important; right: 14px !important; bottom: 150px !important; width: min(320px, 40vw) !important; }
+#chat-log { font-size: 17px !important; max-height: 210px !important; justify-content: flex-end; }
+.br-info { width: 260px !important; }
+.br-callout, .br-streak { z-index: 3; }
+.br-banner { width: min(860px, 92vw); white-space: normal !important; }
+.br-banner small { display: block; white-space: normal; font-size: 20px; line-height: 1.2; letter-spacing: 0; margin-top: 6px; }
+@media (max-width: 1100px) { .br-help { display: none; } #chat { bottom: 14px !important; } }
+@media (max-height: 620px) { .br-doll { transform: scale(.8); transform-origin: top left; } #hud { top: 180px !important; } .br-info .pk { display: none; } }
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = ''): T => {
@@ -381,7 +400,7 @@ export class Hud {
     rows.append(this.skillRow, el('div', '', '&nbsp;'), this.invRow);
     bottom.append(this.buffs, rows, bars);
 
-    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (a chain of 3 to 5 strikes, different for every evolved form) · tap RMB to PARRY: a hit in the half-second window stuns the attacker, a miss leaves you fumbling<br>Q skill · X harvest · V drink · 1-6 eat/use · Tab stats and evolving · Left Alt cursor';
+    this.help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> dash<br><b>LMB</b> attack chain · <b>RMB</b> parry<br><b>Q</b>/<b>E</b> skills · <b>1-6</b> items · <b>Tab</b> evolve<br><b>Alt</b> cursor · <b>F3</b> network';
     this.panel.hidden = true;
     this.end.hidden = true;
     this.pause.hidden = true;

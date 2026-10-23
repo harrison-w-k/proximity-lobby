@@ -560,7 +560,7 @@
     #spar .cap span { color: var(--cream); }
 
     /* the big spotlit animal on the front screen */
-    #join-stage { --acc: #e8a23a; position: relative; margin-top: 22px; height: clamp(260px, 48vh, 470px); border: 4px solid var(--ink); border-radius: 24px; overflow: hidden;
+    #join-stage { --acc: #e8a23a; position: relative; margin-top: 22px; height: clamp(220px, calc(100vh - 470px), 420px); border: 4px solid var(--ink); border-radius: 24px; overflow: hidden;
       background: radial-gradient(ellipse at 50% 108%, rgba(255,240,190,.5), rgba(0,0,0,0) 55%), radial-gradient(ellipse at 50% 40%, #2fa9a3, #0a3236 78%);
       box-shadow: inset 0 0 0 3px #e6b94a, 0 8px 0 rgba(0,0,0,.45), 0 0 40px rgba(0,0,0,.35); }
     #join-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -644,6 +644,16 @@
     .setting, .pl-row, .bind { border-radius: 0; }
     input[type=text], input[type=email], input[type=password], select { border-radius: 0; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%); }
     #spar .mv { border-radius: 0; }
+  
+    /* ---------- google sign-in ---------- */
+    #oauth { display: flex; flex-direction: column; gap: 10px; }
+    #oauth[hidden] { display: none; }
+    .btn.google { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 46px; color: #1f1f1f; background: #fff; border: 3px solid var(--ink);
+      box-shadow: 0 4px 0 var(--ink); font-family: var(--font-body); font-size: 17px; font-weight: 700; text-shadow: none; }
+    .btn.google:hover:not(:disabled) { background: #f3f3f3; filter: none; }
+    .btn.google:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); background: #e8e8e8; }
+    #oauth .or { display: flex; align-items: center; gap: 10px; color: #ecdcb2; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; }
+    #oauth .or::before, #oauth .or::after { content: ''; flex: 1; height: 2px; background: rgba(236,220,178,.3); }
   </style>
 </head>
 <body>
@@ -673,6 +683,10 @@
       <h2 id="card-title">Welcome</h2>
       <p id="join-note">Your username is the part of your email before the @, and other players will see it. Your email itself is never sent to the server.</p>
       <p id="who" hidden></p>
+      <div id="oauth" hidden>
+        <button id="google-btn" class="btn google" type="button"><svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.5 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7a14.5 14.5 0 0 1 0-9.4l-7.9-6.1a24 24 0 0 0 0 21.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg><span>Continue with Google</span></button>
+        <div class="or"><span>or use your email</span></div>
+      </div>
       <input id="auth-username" type="text" placeholder="Username (3-16 characters)" autocomplete="username" minlength="3" maxlength="16" hidden />
       <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
       <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" minlength="6" hidden />

@@ -2,6 +2,7 @@
 // horde creatures are merged into a single mesh so hundreds of them stay cheap to draw.
 import * as THREE from 'three';
 import { toonMat } from './toon';
+import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
@@ -1175,6 +1176,9 @@ function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
 for (const id of ['house_cat', 'bobcat', 'lynx', 'cheetah', 'panther', 'tiger', 'lion', 'fox', 'gecko', 'monitor', 'komodo', 'cobra', 'croc']) if (PS[id]) PS[id].slit = true;
 
 export function makePlayerRig(animal: string, paint?: Paint | null, key?: string): Rig {
+  const def0 = ANIMAL_BY_ID.get(animal);
+  if (BUG_KINDS.has(animal)) return makeBugRig(animal, paint, def0 ? SIZE[def0.size].radius : 0.5);
+  if (REAL_FISH.has(animal)) return makeRealFishRig(animal, paint, def0 ? SIZE[def0.size].radius : 0.5);
   const fish = FISH_FORMS[animal];
   if (fish) return new FishRig(fish.spec, fish.scale);
   const spec = PS[animal] ?? PS.house_cat;

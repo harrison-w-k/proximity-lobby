@@ -16,11 +16,13 @@ const CSS = `
 #br-menu { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 14px; background: radial-gradient(circle at 50% 28%, rgba(60,92,38,.82), rgba(10,8,4,.94)); animation: brfade .25s ease-out; }
 #br-menu[hidden] { display: none; }
 @keyframes brfade { from { opacity: 0; } }
-#br-menu .panel { width: min(1120px, 100%); max-height: 96vh; overflow: auto; padding: 16px 22px 18px; display: flex; flex-direction: column; gap: 10px; animation: brpanel .35s ease-out; }
+#br-menu .panel { width: min(1120px, 100%); max-height: min(96vh, 940px); overflow: hidden; padding: 16px 22px 14px; display: flex; flex-direction: column; gap: 10px; animation: brpanel .35s ease-out; }
 @keyframes brpanel { from { opacity: 0; transform: translateY(26px) scale(.98); } }
 #br-menu h2, #br-menu .show .name b { font-family: 'Limelight', 'Poiret One', Georgia, serif; font-weight: 400; }
 #br-menu h2 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); text-shadow: 0 4px 0 var(--ink); }
 #br-menu .sub { font-size: 19px; color: #ecdcb2; line-height: 1.2; }
+#br-menu .mbody { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 0 6px 6px 0; }
+#br-menu .mfoot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 3px solid var(--ink); }
 #br-menu .stage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 #br-menu .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; align-items: center; }
 #br-menu .side .tree { padding: 6px 0 26px; }
@@ -29,7 +31,11 @@ const CSS = `
 #br-menu .more > summary { cursor: pointer; font-weight: 700; color: var(--amber); font-size: 17px; padding: 3px 0; }
 #br-menu .more[open] > summary { margin-bottom: 6px; }
 #br-menu .more > div + div { margin-top: 8px; }
-#br-menu .show { position: relative; height: clamp(340px, 52vh, 470px); border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
+#br-menu details.sec { background: rgba(0,0,0,.2); border-radius: 12px; padding: 4px 14px 8px; }
+#br-menu details.sec > summary { cursor: pointer; font-weight: 700; font-size: 19px; color: var(--amber); padding: 4px 0; }
+#br-menu details.sec > summary span { color: var(--cream); font-weight: 600; margin-left: 8px; }
+#br-menu details.sec[open] > summary { margin-bottom: 6px; }
+#br-menu .show { position: relative; height: clamp(280px, 42vh, 440px); border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
   background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#14595c, #092e31);
   box-shadow: inset 0 0 0 3px #5fb8b0, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
 #br-menu .show::before { content: ''; position: absolute; left: 50%; top: -10%; width: 70%; height: 120%; transform: translateX(-50%); background: conic-gradient(from 160deg at 50% 0, transparent 0 20%, rgba(255,238,180,.22) 25% 35%, transparent 40% 100%); pointer-events: none; mix-blend-mode: screen; }
@@ -97,7 +103,10 @@ const CSS = `
 #br-menu .dropinfo .x { color: #ff9a82; }
 #br-menu .dropinfo .fit { color: #ffd77a; }
 @media (max-width: 960px) { #br-menu .drop { grid-template-columns: repeat(3, 1fr); } #br-menu .dropinfo { grid-template-columns: 1fr; } }
-#br-menu .roster { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding: 8px 2px 4px; }
+#br-menu .roster { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; padding: 8px 2px 4px; }
+#br-menu .roster .tile { padding: 3px 2px 4px; }
+#br-menu .roster .tile .em { font-size: 28px; }
+#br-menu .roster .tile small { display: none; }
 #br-menu .tile { position: relative; padding: 6px 4px 5px; text-align: center; border-radius: 14px; border: 3px solid var(--ink); cursor: pointer; font-family: var(--font); color: #0b3b3f;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 3px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s, box-shadow .12s, filter .12s; animation: brtile .45s ease-out both; }
 #br-menu .tile:hover { transform: translateY(-6px) scale(1.06); filter: brightness(1.06); }
@@ -151,6 +160,7 @@ export class BrMenu {
   private paintTitle = document.createElement('div');
   private dropBox = document.createElement('div');
   private dropInfo = document.createElement('div');
+  private dropSum = document.createElement('span');
   private focus = STARTERS[0].id;
   private q: QueueInfo | null = null;
   private tiles = new Map<string, HTMLElement>();
@@ -189,8 +199,22 @@ export class BrMenu {
     this.root.hidden = true;
     const panel = document.createElement('div');
     panel.className = 'panel wood';
-    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 scholars of the wild, one campus, a lava line that never stops closing in. Level up on the hordes, then hunt each other. Everyone starts small and evolves twice. Fall and you are out: you spectate until the match ends.</div>';
+    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 animals, one campus, a lava line that keeps closing in. Level up on the hordes, evolve twice, outlast everyone.</div>';
 
+    // everything scrolls in the body; the queue buttons stay put in the footer
+    const mbody = document.createElement('div');
+    mbody.className = 'mbody';
+    const mfoot = document.createElement('div');
+    mfoot.className = 'mfoot';
+    const section = (title: string, summary: HTMLElement | null, ...kids: HTMLElement[]) => {
+      const d = document.createElement('details');
+      d.className = 'sec';
+      const sm = document.createElement('summary');
+      sm.append(title);
+      if (summary) sm.append(summary);
+      d.append(sm, ...kids);
+      return d;
+    };
     // the stage: a spotlit model on the left, its details on the right
     const stage = document.createElement('div');
     stage.className = 'stage';
@@ -211,7 +235,6 @@ export class BrMenu {
     side.className = 'side';
     side.append(this.treeHead, this.treeBox, this.detail);
     stage.append(show, side);
-    panel.append(stage);
     const roster = document.createElement('div');
     roster.className = 'roster';
     STARTERS.forEach((a, i) => {
@@ -219,7 +242,7 @@ export class BrMenu {
       this.tiles.set(a.id, t);
       roster.append(t);
     });
-    panel.append(roster);
+    mbody.append(roster, stage);
 
     // fur colours for the animal in the spotlight
     this.paintTitle.className = 'sub';
@@ -227,7 +250,7 @@ export class BrMenu {
     const paintNote = document.createElement('div');
     paintNote.className = 'paintnote';
     paintNote.textContent = 'Unpainted animals get a shade of their own, so no two players look the same. Colours are saved for each animal.';
-    panel.append(this.paintTitle, this.paintBox, paintNote);
+    mbody.append(section('🎨 Colours', null, this.paintTitle, this.paintBox, paintNote));
     this.refreshPaint();
 
     // where to drop onto the map
@@ -242,7 +265,7 @@ export class BrMenu {
     dropTitle.innerHTML = '<b>Where do you drop?</b> Pick the ground that suits your build.';
     this.dropBox.className = 'drop';
     this.dropInfo.className = 'dropinfo';
-    panel.append(dropTitle, this.dropBox, this.dropInfo);
+    mbody.append(section('📍 Where you drop:', this.dropSum, dropTitle, this.dropBox, this.dropInfo));
     this.refreshSpawn();
 
     const row = document.createElement('div');
@@ -279,12 +302,13 @@ export class BrMenu {
     book.addEventListener('click', () => (this.guide ??= new Guidebook()).open());
     row.append(this.team, dice, book, this.queueBtn, this.leaveBtn, close);
     this.status.className = 'status';
-    panel.append(row, this.status);
+    mfoot.append(row, this.status);
     const help = document.createElement('div');
     help.className = 'sub';
     help.style.fontSize = '16px';
     help.innerHTML = '<span class="kb">Arrow keys move the spotlight · Enter picks</span><br>Friends who enter the same squad code share a team (up to 4): no friendly fire, a shared win. Empty slots are filled with AI animals.<br><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack · tap <b>RMB</b> to parry (a hit inside the half-second window stuns the attacker for 1.5 s; a miss leaves you fumbling for 1.5 s and the parry takes 3 s to return) · <b>Q</b> skill · <b>Tab</b> upgrades and evolving · <b>Left Alt</b> cursor.';
-    panel.append(help);
+    mbody.append(section('🎮 Controls and squads', null, help));
+    panel.append(mbody, mfoot);
     this.root.append(panel);
     document.body.append(this.root);
 
@@ -476,6 +500,7 @@ export class BrMenu {
       }),
     );
     const c = SPAWN_BY_ID.get(this.spawn)!;
+    this.dropSum.textContent = `${c.icon} ${c.name}`;
     const fit = best && a ? (best.id === this.spawn ? `<div class="fit">★ A great pick for ${a.name}: ${best.why}</div>` : `<div class="fit">★ ${a.name} does best in the ${SPAWN_BY_ID.get(best.id)!.name}: ${best.why}</div>`) : '';
     this.dropInfo.innerHTML =
       `<div><h4>${c.icon} ${c.name}</h4>${c.blurb}${fit}</div>` +
@@ -526,7 +551,7 @@ export class BrMenu {
     if (!a) return;
     const tree = TREE_BY_ID.get(a.tree)!;
     this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · evolves at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}. Click a form to see it.`;
-    this.treeBox.replaceChildren(buildTreeCircle({ tree: tree.id, focus: this.focus, onPick: (id) => this.bringUp(id), size: 350 }));
+    this.treeBox.replaceChildren(buildTreeCircle({ tree: tree.id, focus: this.focus, onPick: (id) => this.bringUp(id), size: 290 }));
   }
 
   open() {
