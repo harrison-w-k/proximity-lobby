@@ -342,7 +342,7 @@ export class Arena {
       }
       this.hud.setCampus(this.campus);
       this.d.onStart(this.campus);
-      if (this.campus) this.hud.announce('WELCOME TO CAMPUS', 'Farm the herds, evolve at level 7 and 14, and spar freely: nobody can be hurt here. Press B to queue for the Tournament.', 6500);
+      if (this.campus) this.hud.announce('WELCOME TO CAMPUS', 'Farm the herds, evolve at level 5 and 10, and spar freely: nobody can be hurt here. Press B to queue for the Tournament.', 6500);
       else this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
     }, 60);
   }

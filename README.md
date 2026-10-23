@@ -43,7 +43,7 @@ evolution path. Press **B** (or the Tournament button) to queue; 25 s after the 
 animals fill the slots. When it ends you walk back onto the campus.
 
 Everyone starts as a small stage 1 animal from one of **seven evolution trees** (cats, canines, mustelids, bears, reptiles, bugs, fish) and
-evolves at level 7 and level 14 into any form of the next stage (49 forms in all). Evolving takes 3 s standing still, a hit cancels it,
+evolves at level 5 and level 10 into any form of the next stage (49 forms in all). Evolving takes 3 s standing still, a hit cancels it,
 replaces your skill and refills your health. Fish always spawn in water and are slow on land.
 
 - **Sim** (`shared/arena/`): `terrain.ts` (seeded 700 m map, biomes, lakes, Poisson-placed resources), `animals.ts` (the 49 forms of the 7 evolution trees, stage budgets, skills),

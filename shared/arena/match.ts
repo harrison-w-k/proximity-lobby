@@ -352,8 +352,8 @@ export class Match {
     this.scatterMorsels(400);
     if (this.campus) {
       // farming has to be worth it for the whole evolution path, so every tier of horde is out from the start
-      for (let i = 0; i < 70; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
-      for (let i = 0; i < 34; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 0);
+      for (let i = 0; i < 110; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
+      for (let i = 0; i < 50; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 0);
     }
     this.startTeams = new Set(this.fighters.map((f) => f.team)).size;
     for (const f of this.fighters) if (!f.bot) this.humans.add(f.id);
@@ -445,7 +445,7 @@ export class Match {
 
   private populateStart() {
     // tier 1 hordes everywhere, plus a few beside each spawn so nobody starts hungry
-    for (let i = 0; i < 95; i++) this.spawnWild(1, MAP_RADIUS - 25, 0);
+    for (let i = 0; i < 170; i++) this.spawnWild(1, MAP_RADIUS - 25, 0);
     for (const f of this.fighters) {
       if (this.fighters.some((o) => o !== f && o.team === f.team && o.id < f.id)) continue;
       for (let k = 0; k < 3; k++) {
@@ -1641,9 +1641,9 @@ export class Match {
     const area = Math.pow(Math.min(1, ring / (MAP_RADIUS - 6)), 2);
     const inner = ring - 6; // never spawn on the lava's edge
     const targets: [number, number, number][] = [
-      [1, Math.max(16, Math.round((this.time < 240 ? 330 : 260) * area)), Math.min(inner, MAP_RADIUS - 25)],
-      [2, this.time > 90 ? Math.max(8, Math.round(150 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.7)],
-      [3, this.time > 90 ? Math.max(4, Math.round(34 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.5)],
+      [1, Math.max(16, Math.round((this.time < 240 ? 500 : 400) * area)), Math.min(inner, MAP_RADIUS - 25)],
+      [2, this.time > 90 ? Math.max(12, Math.round(230 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.7)],
+      [3, this.time > 90 ? Math.max(6, Math.round(55 * area)) : 0, Math.min(inner, MAP_RADIUS * 0.5)],
     ];
     // late in the match there must still be food to heal on: keep spawning, closer to the players when the ring is small
     const avoid = Math.min(70, Math.max(10, inner * 0.3));
@@ -2140,8 +2140,8 @@ export class Match {
     if (this.migrating > 0) this.migrating = Math.max(0, this.migrating - DT);
     // the mid-tier hordes arrive at the start of the Farm phase
     if (this.time >= PHASE_AT[1] && this.time < PHASE_AT[1] + DT * 1.5) {
-      for (let i = 0; i < 38; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 40);
-      for (let i = 0; i < 26; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 40);
+      for (let i = 0; i < 60; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 40);
+      for (let i = 0; i < 40; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 40);
     }
   }
 

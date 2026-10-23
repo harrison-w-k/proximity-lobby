@@ -10,7 +10,7 @@ export const STAT_NAMES: Record<StatKey, string> = { hp: 'Health', atk: 'Attack'
 export const MAX_LEVEL = 20;
 
 /** XP needed to go from level L to L+1. */
-export const xpNeed = (L: number) => Math.round(60 * Math.pow(L, 1.35));
+export const xpNeed = (L: number) => Math.round(40 * Math.pow(L, 1.25));
 
 /** XP a horde creature of a tier pays a player of level L. */
 export const HORDE_XP = [0, 30, 85, 320, 2000];
@@ -91,10 +91,10 @@ const pas = (id: string, name: string, desc: string, mods: Mods): Skill => ({ id
 
 
 // --- the seven evolution trees ---------------------------------------------------------------------
-// Everyone starts as a small stage 1 animal and evolves twice (level 7, level 14), into any form of their tree.
+// Everyone starts as a small stage 1 animal and evolves twice (level 5, level 10), into any form of their tree.
 // Every form at a stage has the same stat budget; each skill trades power for a cooldown or a weakness.
 
-export const EVOLVE_LEVELS = [7, 14] as const; // to stage 2, to stage 3
+export const EVOLVE_LEVELS = [5, 10] as const; // to stage 2, to stage 3
 export const STAGE_BUDGET = [100, 160, 230] as const;
 export const EVOLVE_TIME = 3; // seconds standing still; a hit cancels it
 

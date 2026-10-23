@@ -32,13 +32,13 @@ for (const a of ANIMALS) {
 }
 assert.equal(SKILL_BY_ID.size, skillIds.size);
 
-// evolving: stage 2 from level 7, stage 3 from level 14, into any form of the next stage in the tree
+// evolving: stage 2 from level 5, stage 3 from level 10, into any form of the next stage in the tree
 const cat = ANIMAL_BY_ID.get('house_cat')!;
 assert.equal(evolveOptions(cat, EVOLVE_LEVELS[0] - 1).length, 0, 'too low to evolve');
-assert.deepEqual(evolveOptions(cat, 7).map((a) => a.id).sort(), ['bobcat', 'lynx']);
+assert.deepEqual(evolveOptions(cat, 5).map((a) => a.id).sort(), ['bobcat', 'lynx']);
 const lynx = ANIMAL_BY_ID.get('lynx')!;
-assert.equal(evolveOptions(lynx, 13).length, 0);
-assert.deepEqual(evolveOptions(lynx, 14).map((a) => a.id).sort(), ['cheetah', 'lion', 'panther', 'tiger'], 'any final form of the tree');
+assert.equal(evolveOptions(lynx, 9).length, 0);
+assert.deepEqual(evolveOptions(lynx, 10).map((a) => a.id).sort(), ['cheetah', 'lion', 'panther', 'tiger'], 'any final form of the tree');
 assert.equal(evolveOptions(ANIMAL_BY_ID.get('tiger')!, 20).length, 0, 'final forms do not evolve');
 
 for (const c of CLASSES) {

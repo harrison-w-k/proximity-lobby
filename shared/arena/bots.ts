@@ -1,6 +1,6 @@
 // AI fighters. They fill empty slots (so a match is always 20 animals) and take over for anyone
 // who leaves. They play by the same rules and through the same Input a human uses.
-import { STAT_KEYS, evolveOptions, type Stats } from './animals';
+import { EVOLVE_LEVELS, STAT_KEYS, evolveOptions, type Stats } from './animals';
 import { WATER_Y } from './terrain';
 import type { Fighter, Match, Mob } from './match';
 import { ringAt, RINGS } from './match';
@@ -47,7 +47,7 @@ function memOf(m: Match, f: Fighter): Mem {
   if (!s) {
     s = {
       style: m.rnd(), focus: null, retarget: 0, wanderX: f.x, wanderZ: f.z, wanderUntil: 0, lastX: f.x, lastZ: f.z, stuckAt: 0, detourUntil: 0, detourSign: 1,
-      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.02 + m.rnd() * 0.08, dazeUntil: 0, nextDaze: m.time + 3 + m.rnd() * 6, wobble: m.rnd() * 6,
+      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.01 + m.rnd() * 0.04, dazeUntil: 0, nextDaze: m.time + 3 + m.rnd() * 6, wobble: m.rnd() * 6,
     };
     mem.set(f, s);
   }
@@ -126,8 +126,8 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   if (f.role === 'out') return;
   // every so often a bot simply stops paying attention
   if (m.time > s.nextDaze) {
-    s.dazeUntil = m.time + 0.5 + m.rnd() * 1.2;
-    s.nextDaze = s.dazeUntil + 4 + m.rnd() * 8;
+    s.dazeUntil = m.time + 0.8 + m.rnd() * 1.8;
+    s.nextDaze = s.dazeUntil + 2 + m.rnd() * 5;
   }
   if (m.time < s.dazeUntil && f.hp > 0) {
     stop(f);
@@ -143,7 +143,7 @@ export function botThink(m: Match, f: Fighter, dt: number) {
     m.spendStat(f, k);
   }
   // evolve as soon as it is possible and nobody is close
-  if (!f.chan && f.level >= 7 && f.swing === null) {
+  if (!f.chan && f.level >= EVOLVE_LEVELS[0] && f.swing === null) {
     const opts = evolveOptions(f.def, f.level);
     if (opts.length && !m.fighters.some((o) => o !== f && o.team !== f.team && o.role === 'alive' && dist(o, f) < 28)) m.evolve(f, opts[Math.floor(m.rnd() * opts.length)].id);
   }
@@ -222,12 +222,12 @@ export function botThink(m: Match, f: Fighter, dt: number) {
 
   // 3. fight a player?
   const endgame = m.time > 480; // when the ring is small everyone has to fight
-  const wantsFight = endgame || ((m.time > 240 || f.level >= 9) && s.style < 0.85);
+  const wantsFight = endgame || ((m.time > 360 || f.level >= 13) && s.style < 0.55);
   if (closest && wantsFight) {
     const ratio = (f.level + 1) / (closest.level + 1);
     const hpOk = f.hp > f.maxHp * 0.35;
-    const stronger = ratio > 0.75 + s.style * 0.4;
-    if (hpOk && (stronger || dist(closest, f) < 7)) {
+    const stronger = ratio > 1.1 + s.style * 0.5;
+    if (hpOk && (stronger || dist(closest, f) < 4)) {
       s.focus = closest;
       return fight(m, f, s, closest, false);
     }
@@ -349,8 +349,8 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
     }
   }
   const yaw = Math.atan2(t.x - f.x, t.z - f.z);
-  i.yaw = yaw + (m.rnd() - 0.5) * 0.9; // poor aim
-  i.at = d < reach + 0.5 && m.rnd() < 0.85;
+  i.yaw = yaw + (m.rnd() - 0.5) * 1.4; // poor aim
+  i.at = d < reach + 0.5 && m.rnd() < 0.5;
   // skills
   if (m.time < s.nextAct - 1.3) return;
   const sk = m.slotSkills(f);
@@ -387,7 +387,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
         use = false;
         break;
     }
-    if (use && m.rnd() < 0.1) m.castSkill(f, slot, yaw);
+    if (use && m.rnd() < 0.04) m.castSkill(f, slot, yaw);
   }
 }
 export const _internal = { WATER_Y };
@@ -414,7 +414,7 @@ function botGuard(m: Match, f: Fighter, s: Mem) {
     }
   }
   // sharper players parry more often; cautious ones guard more
-  if (threat && m.rnd() < 0.12 + (1 - s.style) * 0.1) {
+  if (threat && m.rnd() < 0.05 + (1 - s.style) * 0.05) {
     m.setGuard(f, true);
     s.guardUntil = m.time + 0.5;
   }

@@ -20,7 +20,7 @@ export type ClientMatchMsg =
   | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
   | { t: 'mskill'; i: number; yaw: number } // use the skill in slot 0..3 (Q E R F)
   | { t: 'mstat'; k: StatKey }
-  | { t: 'mevolve'; to: string } // evolve into this form (needs level 7 / 14)
+  | { t: 'mevolve'; to: string } // evolve into this form (needs level 5 / 10)
   | { t: 'muse'; i: number } // use or eat the inventory slot
   | { t: 'mact'; a: 'harvest' | 'loot' | 'drink' | 'drop'; i?: number }
   | { t: 'mguard'; on: 0 | 1 } // tap (on: 1) to parry: the guard stays up about half a second
@@ -59,7 +59,7 @@ export interface YouState {
   need: number;
   pts: number;
   alloc: Stats;
-  evolve: string[]; // forms you can evolve into right now (empty until level 7 / 14)
+  evolve: string[]; // forms you can evolve into right now (empty until level 5 / 10)
   cds: number[]; // seconds left for slots Q E R F
   cdMax: number[];
   dash: number; // seconds until you can dash again
