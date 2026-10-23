@@ -6,7 +6,7 @@
   <title>Utopia Academy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Limelight&family=Poiret+One&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Bangers&family=Limelight&family=Poiret+One&display=swap" />
   <link rel="icon" href="data:," />
   <style>
     /* Base layout rules; the Aero theme block at the end of this stylesheet restyles all of it. */
@@ -656,7 +656,7 @@
     #oauth .or::before, #oauth .or::after { content: ''; flex: 1; height: 2px; background: rgba(236,220,178,.3); }
   </style>
 </head>
-<body>
+<body class="portal">
   <canvas id="scene"></canvas>
   <div id="crosshair" hidden></div>
   <div id="pickup-hint" hidden></div>
@@ -666,7 +666,8 @@
   <!-- ===== main screen ===== -->
   <div id="join" class="overlay">
     <div class="hero">
-      <div class="eyebrow">Open enrollment &middot; Proximity voice</div>
+      <div class="portal-ring" aria-hidden="true"></div>
+      <div class="eyebrow">Interdimensional enrollment &middot; Proximity voice</div>
       <h1><span>Utopia</span><span class="l2">Academy</span></h1>
       <p class="tagline">Welcome to campus. Walk up and say hello: voices get louder as you get closer, and fade as people drift apart.</p>
       <div id="join-stage">

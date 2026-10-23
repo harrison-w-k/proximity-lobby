@@ -300,8 +300,8 @@ export class Arena {
     this.roster = new Map(m.roster.map((r) => [r.id, r]));
     // the map takes a moment to build: say so first
     this.loading = document.createElement('div');
-    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#2fa9a3,#0a3236 70%);color:#f7edd3;font-family:Josefin Sans,"Trebuchet MS",sans-serif;font-weight:700;font-size:28px;text-shadow:0 3px 0 #0b3b3f';
-    this.loading.innerHTML = `<div style="font-size:72px;animation:brbob 1s ease-in-out infinite alternate">${ANIMAL_EMOJI[this.def.id] ?? '🐾'}</div><div>Generating the wilds…</div><div style="font-size:17px;font-weight:500;color:#f3b43c">${this.def.name} · ${this.def.role}</div><style>@keyframes brbob{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-14px) rotate(6deg)}}</style>`;
+    this.loading.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 60%,#2f8a2a,#04110b 72%);color:#e9ffd8;font-family:Bangers,Impact,sans-serif;letter-spacing:.08em;font-size:34px;text-shadow:0 3px 0 #04110b,0 0 24px rgba(139,255,74,.7)';
+    this.loading.innerHTML = `<div style="font-size:72px;animation:brbob 1s ease-in-out infinite alternate">${ANIMAL_EMOJI[this.def.id] ?? '🐾'}</div><div>Opening a portal to the wilds…</div><div style="font-size:17px;font-weight:500;color:#f3b43c">${this.def.name} · ${this.def.role}</div><style>@keyframes brbob{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-14px) rotate(6deg)}}</style>`;
     document.body.append(this.loading);
     setTimeout(() => {
       try {

@@ -1,3 +1,4 @@
+import './theme.css';
 import { DEFAULT_LOOK, HATS, LOOK_COLORS, type Look } from '../../shared/look';
 import { initTouch, isTouchDevice } from './touch';
 import { Net } from './net';
