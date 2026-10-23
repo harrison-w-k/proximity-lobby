@@ -241,14 +241,14 @@ const SKILL_ICON: Record<string, string> = {
 const skillIcon = (s: { id: string; fx?: { k: string } } | null) => (s ? (SKILL_ICON[s.id] ?? (s.fx ? (FX_ICON[s.fx.k] ?? '✨') : '⭐')) : '🔒');
 const EMOJI = ANIMAL_EMOJI;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const ITEM_NAMES: Record<string, string> = {
+export const ITEM_NAMES: Record<string, string> = {
   meat: 'Meat', berry: 'Berries', herb: 'Herb', water: 'Water', mud: 'Mud', honey: 'Honeycomb', feather: 'Feather', tusk: 'Tusk', musk: 'Musk', reed: 'Reed',
 };
-const ITEM_HINTS: Record<string, string> = {
+export const ITEM_HINTS: Record<string, string> = {
   meat: 'Heals over time. Spoils.', berry: 'Small heal and stamina.', herb: 'Cures bleed, short speed boost.', water: 'Restores stamina. Refill at water.',
   mud: 'Less lava damage for a while.', honey: 'Throw to lure hordes.', feather: 'Glide over lava briefly.', tusk: 'Your next hits cause bleed.', musk: 'Hide your trail, pause the hunted mark.', reed: 'Hide underwater.',
 };
-const ITEM_ICON: Record<string, string> = { meat: '🍖', berry: '🍒', herb: '🌿', water: '💧', mud: '🟤', honey: '🍯', feather: '🪶', tusk: '🦷', musk: '🧪', reed: '🌾' };
+export const ITEM_ICON: Record<string, string> = { meat: '🍖', berry: '🍒', herb: '🌿', water: '💧', mud: '🟤', honey: '🍯', feather: '🪶', tusk: '🦷', musk: '🧪', reed: '🌾' };
 export const itemLabel = (k: string) => ITEM_NAMES[k] ?? k;
 
 export interface HudCtx {
@@ -381,7 +381,7 @@ export class Hud {
     rows.append(this.skillRow, el('div', '', '&nbsp;'), this.invRow);
     bottom.append(this.buffs, rows, bars);
 
-    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (3-hit combo) · tap RMB to PARRY: a hit in the half-second window stuns the attacker, a miss leaves you fumbling<br>Q skill · X harvest · V drink · 1-6 eat/use · Tab stats and evolving · Left Alt cursor';
+    this.help.innerHTML = 'WASD move · Space jump · tap Shift dash (hold = sprint) · C sneak<br>LMB attack (a chain of 3 to 5 strikes, different for every evolved form) · tap RMB to PARRY: a hit in the half-second window stuns the attacker, a miss leaves you fumbling<br>Q skill · X harvest · V drink · 1-6 eat/use · Tab stats and evolving · Left Alt cursor';
     this.panel.hidden = true;
     this.end.hidden = true;
     this.pause.hidden = true;
@@ -836,9 +836,17 @@ export class Hud {
     this.reticle.classList.toggle('parry', guarding || you.guard);
     this.reticle.classList.toggle('counter', you.counter > 0);
     this.reticle.classList.toggle('wind', !!you.wind);
-    const pips = this.reticle.querySelectorAll('.br-pips i');
+    // one pip per strike in this animal's chain (3 to 5); square red ones are the heavy strikes
+    const pipBox = this.reticle.querySelector('.br-pips') as HTMLElement;
+    const len = you.comboLen || 3;
+    const heavy = you.comboHeavy ?? 4;
+    const key = `${len}:${heavy}`;
+    if (pipBox.dataset.k !== key) {
+      pipBox.dataset.k = key;
+      pipBox.innerHTML = Array.from({ length: len }, (_, i) => `<i${heavy & (1 << i) ? ' class="heavy"' : ''}></i>`).join('');
+    }
     // `combo` is the swing that comes next; light the ones already thrown in this chain
-    pips.forEach((p, i) => p.classList.toggle('on', i < you.combo));
+    pipBox.querySelectorAll('i').forEach((p, i) => p.classList.toggle('on', i < you.combo));
     (this.reticle.querySelector('.br-guardtag') as HTMLElement).textContent = guarding || you.guard ? 'PARRY' : fumbled ? 'FUMBLED' : you.parryCd > 0 ? `parry ${you.parryCd.toFixed(1)}s` : '';
     this.sta.classList.toggle('empty', you.sta < 8);
   }

@@ -1,7 +1,7 @@
 // Sparring in the lobby: your animal's attack and two signature skills, with the full wind-up animations,
 // but nobody can be hurt. Damage numbers pop up and everyone shrugs it off.
 import { ANIMAL_BY_ID } from '../../../shared/arena/animals';
-import { COMBO } from '../../../shared/arena/combat';
+import { comboOf } from '../../../shared/arena/combat';
 import { STRIKE_TIME, type Cue } from './anim';
 
 export type Slot = 'a' | 'q' | 'x';
@@ -40,10 +40,11 @@ export function makeMove(animal: string, slot: Slot, combo: number, now: number)
   if (!def) return null;
   const atk = def.stats.atk;
   if (slot === 'a') {
-    const c = COMBO[combo % COMBO.length];
-    const heavy = combo % COMBO.length === 2;
+    const seq = comboOf(animal);
+    const c = seq[combo % seq.length];
+    const heavy = c.heavy;
     return {
-      cue: { kind: 'swing', animal, combo: combo % COMBO.length, heavy, skill: '', fx: '', start: now, wind: c.wind * 1.2, strike: STRIKE_TIME * 1.2, rec: c.rec * 1.2 },
+      cue: { kind: 'swing', animal, combo: combo % seq.length, heavy, move: c.kind, skill: '', fx: '', start: now, wind: c.wind * 1.2, strike: STRIKE_TIME * 1.2, rec: c.rec * 1.2 },
       shape: { k: 'cone', range: 2.8, arc: heavy ? 130 : 100 },
       dmg: Math.round(atk * (heavy ? 1.7 : 1.1)),
       wind: c.wind * 1.2,

@@ -47,9 +47,11 @@ export type ClientMsg =
   | { t: 'throw'; id: number; f: Flight } // throw the item you carry
   | { t: 'shove'; id: number; vx: number; vz: number } // walk into a loose item and push it
   | { t: 'signal'; to: string; data: unknown }
+  | { t: 'ping'; n: number } // the client's clock; echoed back so it can measure round-trip time
   | ClientMatchMsg;
 
 export type ServerMsg =
+  | { t: 'pong'; n: number }
   | {
       t: 'welcome';
       id: string;

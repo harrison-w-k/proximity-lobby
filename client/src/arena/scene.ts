@@ -919,7 +919,8 @@ varying vec3 vWP;`)
   }
 
   /** Server says where the other fighters are. */
-  applyFighters(list: [string, number, number, number, number, number, number, number][], now: number) {
+  applyFighters(list: [string, number, number, number, number, number, number, number][], _arenaClock?: number) {
+    const now = this.clock; // the scene's own clock: the arena's runs at a different speed during hit-stop
     for (const [id, x, z, yaw, hp, lvl, flags, jy] of list) {
       const v = this.fighters.get(id);
       if (!v) continue;
@@ -966,7 +967,8 @@ varying vec3 vWP;`)
     for (const v of this.fighters.values()) v.self = v.id === id;
   }
 
-  applyMobs(list: [number, number, number, number, number, number, number][], now: number) {
+  applyMobs(list: [number, number, number, number, number, number, number][], _arenaClock?: number) {
+    const now = this.clock;
     for (const [id, def, x, z, yaw, hp, flags] of list) {
       let v = this.mobs.get(id);
       if (!v) {
@@ -1076,7 +1078,8 @@ varying vec3 vWP;`)
     return g;
   }
 
-  applyDrops(list: [number, string, number, number, number][], now: number) {
+  applyDrops(list: [number, string, number, number, number][], _arenaClock?: number) {
+    const now = this.clock;
     for (const [id, kind, x, z] of list) {
       let d = this.drops.get(id);
       if (!d) {
@@ -1470,7 +1473,9 @@ varying vec3 vWP;`)
     }
 
     for (const [id, v] of this.mobs) {
-      if (now - v.seen > 0.6) {
+      // animals beyond 25 m are only updated when they change (or every 0.3 s), so they get longer before they count as gone
+      const away = Math.hypot(v.x - this.camera.position.x, v.z - this.camera.position.z);
+      if (now - v.seen > (away < 25 ? 0.6 : away < 50 ? 1.0 : 1.4)) {
         if (v.shadow) this.scene.remove(v.shadow);
         this.mobs.delete(id);
         if (Math.hypot(v.x - this.camera.position.x, v.z - this.camera.position.z) < 45) this.mobFall(v);

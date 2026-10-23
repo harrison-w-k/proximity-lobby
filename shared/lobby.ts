@@ -215,6 +215,9 @@ export class Lobby {
     if (typeof msg !== 'object' || msg === null) return; // e.g. the JSON text "null" or "5"
 
     switch (msg.t) {
+      case 'ping':
+        if (typeof msg.n === 'number') this.send(c, { t: 'pong', n: msg.n });
+        break;
       case 'join': {
         if (c.joined || c.closed) return;
         if (this.conns.size >= MAX_PLAYERS) {

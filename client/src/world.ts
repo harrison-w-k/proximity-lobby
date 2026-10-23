@@ -12,7 +12,7 @@ import * as T from './textures';
 import { makePlayerRig, type Rig } from './arena/models';
 import { poseFor, type Cue } from './arena/anim';
 import { ANIMAL_BY_ID, derive, emptyStats, sumMods } from '../../shared/arena/animals';
-import { DASH_COOLDOWN, DASH_SPEED, DASH_TIME } from '../../shared/arena/combat';
+import { DASH_COOLDOWN, DASH_SPEED, DASH_TIME, comboOf } from '../../shared/arena/combat';
 import { GRAVITY as MATCH_GRAVITY, JUMP_V } from '../../shared/arena/move';
 import { inShape, makeMove, type Move, type Slot } from './arena/sparring';
 import { ANIMAL_EMOJI } from './arena/emoji';
@@ -1769,11 +1769,12 @@ export class World {
   cast(slot: Slot): boolean {
     if (!this.selfAnimal || this.cdLeft[slot] > 0 || this.ragdollT > 0 || this.holding !== null) return false;
     if (slot === 'a' && this.clock - this.comboAt > 1.3) this.combo = 0;
+    const chain = comboOf(this.selfAnimal).length;
     const used = this.combo;
     const mv = makeMove(this.selfAnimal, slot, used, this.clock);
     if (!mv) return false;
     if (slot === 'a') {
-      this.combo = (this.combo + 1) % 3;
+      this.combo = (this.combo + 1) % chain;
       this.comboAt = this.clock;
     }
     this.cdLeft[slot] = this.cdMax[slot] = mv.cooldown;

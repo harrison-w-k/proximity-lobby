@@ -15,7 +15,7 @@ import {
   type ServerMatchMsg, type YouState,
 } from './proto';
 import { classSkill } from './animals';
-import { COMBO, COMBO_RESET, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW } from './combat';
+import { COMBO, COMBO_RESET, comboOf, heavyMask, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { SPAWN_BY_ID, type SpawnId } from './spawn';
 import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
@@ -23,6 +23,11 @@ import { botThink } from './bots';
 
 export const TICK_HZ = 30;
 export const DT = 1 / TICK_HZ;
+const MAX_QUEUED_STEPS = 120; // about 4 s of movement steps: a stall is replayed, not dropped
+const CATCHUP_MAX = 1.5; // s of extra movement a player may bank to catch up after a stall
+const STALL_GAP = 0.15; // s without a step from a connected player: the network stalled (idle players still send every ~0.1 s)
+const MOB_REFRESH = 0.3; // s: the longest a mob beyond MOB_NEAR goes without an update (the client keeps them 1.0 to 1.4 s)
+const MOB_NEAR = 25; // m: animals this close to you are sent every tick
 export const PHASE_NAMES = ['Recess', 'Study Hall', 'Pop Quiz', 'Final Exam', 'Graduation'];
 export const PHASE_AT = [0, 90, 240, 420, 600];
 export const MATCH_LEN = 720;
@@ -189,6 +194,7 @@ export interface Fighter extends Body {
   moving: boolean;
   sprinting: boolean;
   cmds: { s: number; dt: number; dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }[];
+  catchUp: number; // seconds a stall cost the player, spent on draining the backlog faster than real time
   ack: number;
   lastCmd: number;
   lastInputAt: number;
@@ -316,6 +322,9 @@ export class Match {
   results: { id: string; name: string; animal: string; lvl: number; kills: number; place: number; dmg: number }[] = [];
   private nextMob = 1;
   private nextDrop = 1;
+  /** What each human was last told about each distant mob, so unchanged ones are not resent every tick. */
+  private mobSent = new Map<string, Map<number, { t: number; x: number; z: number; yaw: number; hp: number; fl: number }>>();
+  private snapN = 0;
   private nextProj = 1;
   private nextPack = 1;
   private events: { e: MatchEvent; x?: number; z?: number }[] = [];
@@ -374,7 +383,7 @@ export class Match {
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, deathX: 0, deathZ: 0,
      
-      moving: false, sprinting: false, cmds: [], ack: 0, lastCmd: 0, lastInputAt: 0, walkSpeed: 0, holdUntil: 0, holdDps: 0, bornAt: 0,
+      moving: false, sprinting: false, cmds: [], catchUp: 0, ack: 0, lastCmd: 0, lastInputAt: 0, walkSpeed: 0, holdUntil: 0, holdDps: 0, bornAt: 0,
     };
     this.recompute(f, true);
     // everyone starts with an empty water pouch
@@ -569,6 +578,10 @@ export class Match {
     switch (msg.t) {
       case 'min': {
         if (!(msg.s > f.lastCmd) || !Number.isFinite(msg.s)) return;
+        // After a stall the queued steps arrive in a burst. The time the server spent waiting is credited to the player
+        // (once, never more than they actually lost), so they catch up instead of being dragged back. Flooding gains nothing.
+        const gap = this.time - f.lastInputAt;
+        if (f.lastCmd > 0 && gap > STALL_GAP) f.catchUp = Math.min(CATCHUP_MAX, f.catchUp + Math.min(gap, 2) * 0.9);
         f.lastCmd = msg.s;
         f.lastInputAt = this.time;
         const i = f.input;
@@ -579,7 +592,7 @@ export class Match {
         const dtm = Number.isFinite(msg.dt) ? Math.max(0, Math.min(0.1, msg.dt / 1000)) : 0;
         if (dtm > 0) {
           f.cmds.push({ s: msg.s, dt: dtm, dx: Number.isFinite(msg.x) ? msg.x * k : 0, dz: Number.isFinite(msg.z) ? msg.z * k : 0, sprint: msg.sp === 1, crouch: msg.cr === 1, jump: msg.j === 1 });
-          if (f.cmds.length > 12) f.cmds.shift();
+          if (f.cmds.length > MAX_QUEUED_STEPS) f.cmds.shift(); // a long stall is kept, not thrown away: dropped steps are what rubberbanding is
         } else if (f.cmds.length) f.cmds.push({ s: msg.s, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false, jump: false });
         else f.ack = msg.s;
         break;
@@ -928,8 +941,9 @@ export class Match {
   /** Start the next swing of the combo. The damage lands after the wind-up, so it can be read and answered. */
   private basicAttack(f: Fighter) {
     if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.chan || f.guarding) return;
-    const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0;
-    const c = COMBO[combo];
+    const seq = comboOf(f.def.id);
+    const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % seq.length : 0;
+    const c = seq[combo];
     const free = this.hasFree(f);
     if (!free) {
       if (f.sta < c.cost) return; // too tired to swing
@@ -941,16 +955,16 @@ export class Match {
     f.comboAt = this.time;
     f.lastCombat = this.time;
     f.atkFlash = wind + 0.2;
-    f.swing = { at: this.time + wind, start: this.time, kind: 'basic', combo, heavy: combo === 2, yaw: f.yaw, wind };
+    f.swing = { at: this.time + wind, start: this.time, kind: 'basic', combo, heavy: c.heavy, yaw: f.yaw, wind };
     f.atkAt = this.time + (c.wind + c.rec) / rof;
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
-    this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: combo === 2, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
+    this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: c.heavy, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw, s: c.kind, rc: c.rec }, f.x, f.z);
     this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
   }
 
   /** An instant basic attack on one animal: what a dash turns into when it runs into something. */
   private strikeNow(f: Fighter, b: Body) {
-    const c = COMBO[0];
+    const c = comboOf(f.def.id)[0];
     f.swing = null;
     f.combo = 0;
     f.comboAt = this.time;
@@ -958,7 +972,7 @@ export class Match {
     f.atkAt = this.time + c.rec;
     f.atkFlash = 0.3;
     const reach = f.dv.reach * c.reach;
-    this.emit({ k: 'swing', id: f.id, c: 0, w: 0.05, h: false, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw }, f.x, f.z);
+    this.emit({ k: 'swing', id: f.id, c: 0, w: 0.05, h: false, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw, s: c.kind, rc: c.rec }, f.x, f.z);
     this.hurt(b, f.dv.dmg * c.dmg * this.dmgMult(f, b), f, { kind: 'bite', blockable: true });
     if (this.lastResult === 'hit') {
       if (f.mods.bleedOnHit > 0) this.statusTo(f, b, [{ s: 'bleed', dur: f.mods.bleedOnHit, dps: 0.2 }], f.dv.dmg);
@@ -979,7 +993,7 @@ export class Match {
       if (sw.skill && sw.fx) this.fireSkill(f, sw.skill, sw.fx, f.yaw);
       return;
     }
-    const c = COMBO[sw.combo];
+    const c = comboOf(f.def.id)[sw.combo] ?? COMBO[0];
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
     const bs = this.bodies(f.x, f.z, reach, (b) => b !== f && this.canHit(f, b)).filter((b) => this.inCone(f, b, reach, c.arc));
     bs.sort((a, b) => dist(a, f) - dist(b, f));
@@ -994,8 +1008,42 @@ export class Match {
         this.statusTo(f, b, [{ s: 'bleed', dur: 5, dps: 0.3 }], f.dv.dmg);
       }
       if (sw.heavy && b.kind === 'f') (b as Fighter).slow = { until: this.time + 0.8, f: 0.5 };
+      if (c.fx && b.hp > 0) this.strikeFx(f, b, c.fx);
     }
     if (f.subUntil > this.time && bs.length) f.subUntil = 0;
+  }
+
+  /** The extra effect a strike carries (bleed, slow, a shove, or knocking the target's own swing out). */
+  private strikeFx(f: Fighter, b: Body, fx: 'bleed' | 'slow' | 'knock' | 'stagger') {
+    switch (fx) {
+      case 'bleed':
+        this.statusTo(f, b, [{ s: 'bleed', dur: 2.5, dps: 0.18 }], f.dv.dmg);
+        break;
+      case 'slow':
+        this.statusTo(f, b, [{ s: 'slow', dur: 1.2, f: 0.4 }], f.dv.dmg);
+        break;
+      case 'knock': {
+        const dx = b.x - f.x;
+        const dz = b.z - f.z;
+        const l = Math.hypot(dx, dz) || 1;
+        stepPos(this.terrain, b, dx / l, dz / l, 1.8, b.r, MAP_BOUND);
+        break;
+      }
+      case 'stagger':
+        // knocks the target's attack out of its wind-up, without locking it down: it can still move
+        if (b.kind === 'f') {
+          const t = b as Fighter;
+          if (t.swing && !t.swing.heavy) {
+            t.swing = null;
+            t.atkAt = Math.max(t.atkAt, this.time + 0.45);
+          }
+        } else {
+          const m = b as Mob;
+          m.strikeAt = 0;
+          m.stunUntil = Math.max(m.stunUntil, this.time + 0.3);
+        }
+        break;
+    }
   }
 
   // --- guard, parry -------------------------------------------------------------------------
@@ -1993,7 +2041,13 @@ export class Match {
     } else {
       // humans send timed steps; run as many as the clock allows so nobody outruns the server
       let spent = 0;
-      const budget = dt * 1.35;
+      // while a stall's worth of steps is queued, drain it faster, paid for from the time the stall cost the player
+      let budget = dt * 1.35;
+      if (f.cmds.length > 2) {
+        const extra = Math.min(dt * 0.9, f.catchUp);
+        budget += extra;
+        f.catchUp -= extra;
+      }
       while (f.cmds.length && spent < budget - 1e-6) {
         const c = f.cmds[0];
         const take = Math.min(c.dt, budget - spent);
@@ -2280,7 +2334,7 @@ export class Match {
       x: r1(f.x), z: r1(f.z), hp: Math.max(0, Math.round(f.hp)), maxHp: f.maxHp, sta: Math.round(f.sta), maxSta: f.dv.maxSta,
       lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, evolve: f.role === 'alive' ? evolveOptions(f.def, f.level).map((a) => a.id) : [],
       cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN * (1 + f.mods.dashCd), inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
-      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, parryCd: Math.max(0, Math.round((f.guardCd - t) * 10) / 10), guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % 3 : 0, counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
+      jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, parryCd: Math.max(0, Math.round((f.guardCd - t) * 10) / 10), guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % comboOf(f.def.id).length : 0, comboLen: comboOf(f.def.id).length, comboHeavy: heavyMask(comboOf(f.def.id)), counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
       noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };
@@ -2325,7 +2379,11 @@ export class Match {
         if (d < 110) nearMobs.push({ m: o, d });
       }
       nearMobs.sort((a, b) => a.d - b.d);
-      for (const { m: o } of nearMobs.slice(0, 140)) {
+      // Animals within 25 m are sent every tick. The ring beyond is where most of the wildlife is, and most of
+      // it is standing still, so those animals are only resent when they change, or every 0.3 s to stay alive.
+      let sentMobs = this.mobSent.get(id);
+      if (!sentMobs) this.mobSent.set(id, (sentMobs = new Map()));
+      for (const { m: o, d } of nearMobs.slice(0, 140)) {
         let fl = 0;
         if (o.state === 'attack') fl |= 1;
         if (o.state === 'flee') fl |= 2;
@@ -2333,7 +2391,25 @@ export class Match {
         if (o.hurtFlash > 0) fl |= 8;
         if (o.stunUntil > this.time) fl |= 32;
         if (o.strikeAt) fl |= 128; // winding up a bite
-        m.push([o.id, mobIndex(o.def.id), r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), fl]);
+        const x = r1(o.x);
+        const z = r1(o.z);
+        const yaw = Math.round(o.yaw * 100) / 100;
+        const hp = Math.round((o.hp / o.maxHp) * 100);
+        if (d > MOB_NEAR) {
+          const last = sentMobs.get(o.id);
+          if (last) {
+            const age = this.time - last.t;
+            const moved = Math.abs(x - last.x) + Math.abs(z - last.z) > 0.35 || Math.abs(yaw - last.yaw) > 0.2;
+            const due = age >= MOB_REFRESH || hp !== last.hp || fl !== last.fl || (moved && age >= (d > 80 ? 0.133 : 0.066));
+            if (!due) continue;
+          }
+          sentMobs.set(o.id, { t: this.time, x, z, yaw, hp, fl });
+        }
+        m.push([o.id, mobIndex(o.def.id), x, z, yaw, hp, fl]);
+      }
+      if (this.snapN % 60 === 0) {
+        const live = new Set(this.mobs.map((o) => o.id));
+        for (const k of sentMobs.keys()) if (!live.has(k)) sentMobs.delete(k);
       }
       const d: [number, string, number, number, number][] = [];
       for (const dr of this.drops) {
@@ -2354,6 +2430,7 @@ export class Match {
       }
       this.host.send(id, { t: 'snap', ack: me.bot ? me.input.s : me.ack, you, g, f, m, d, ev });
     }
+    this.snapN++;
     this.events.length = 0;
   }
 }

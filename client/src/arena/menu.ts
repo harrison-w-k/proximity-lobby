@@ -10,6 +10,7 @@ import type { QueueInfo } from '../../../shared/arena/proto';
 import type { Net } from '../net';
 import type { Sfx } from '../sfx';
 import { Showcase } from './showcase';
+import { Guidebook } from './guidebook';
 
 const CSS = `
 #br-menu { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 14px; background: radial-gradient(circle at 50% 28%, rgba(60,92,38,.82), rgba(10,8,4,.94)); animation: brfade .25s ease-out; }
@@ -20,8 +21,15 @@ const CSS = `
 #br-menu h2, #br-menu .show .name b { font-family: 'Limelight', 'Poiret One', Georgia, serif; font-weight: 400; }
 #br-menu h2 { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--amber); text-shadow: 0 4px 0 var(--ink); }
 #br-menu .sub { font-size: 19px; color: #ecdcb2; line-height: 1.2; }
-#br-menu .stage { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
-#br-menu .show { position: relative; height: 300px; border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
+#br-menu .stage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+#br-menu .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; align-items: center; }
+#br-menu .side .tree { padding: 6px 0 26px; }
+#br-menu .side .detail { width: 100%; }
+#br-menu .more { background: rgba(0,0,0,.22); border-radius: 12px; padding: 4px 12px; }
+#br-menu .more > summary { cursor: pointer; font-weight: 700; color: var(--amber); font-size: 17px; padding: 3px 0; }
+#br-menu .more[open] > summary { margin-bottom: 6px; }
+#br-menu .more > div + div { margin-top: 8px; }
+#br-menu .show { position: relative; height: clamp(340px, 52vh, 470px); border-radius: 18px; border: 4px solid var(--ink); overflow: hidden;
   background: radial-gradient(ellipse at 50% 72%, rgba(255,214,120,.5), rgba(255,170,60,.12) 38%, transparent 62%), linear-gradient(#14595c, #092e31);
   box-shadow: inset 0 0 0 3px #5fb8b0, inset 0 -30px 60px rgba(0,0,0,.45), 0 6px 0 rgba(0,0,0,.4); }
 #br-menu .show::before { content: ''; position: absolute; left: 50%; top: -10%; width: 70%; height: 120%; transform: translateX(-50%); background: conic-gradient(from 160deg at 50% 0, transparent 0 20%, rgba(255,238,180,.22) 25% 35%, transparent 40% 100%); pointer-events: none; mix-blend-mode: screen; }
@@ -135,7 +143,7 @@ export class BrMenu {
   private queueBtn!: HTMLButtonElement;
   private leaveBtn!: HTMLButtonElement;
   private team!: HTMLInputElement;
-  private sel = 'wolf';
+  private sel = STARTERS[0].id;
   private spawn: SpawnId = 'any';
   private paintBox = document.createElement('div');
   private treeHead = document.createElement('div');
@@ -143,10 +151,11 @@ export class BrMenu {
   private paintTitle = document.createElement('div');
   private dropBox = document.createElement('div');
   private dropInfo = document.createElement('div');
-  private focus = 'wolf';
+  private focus = STARTERS[0].id;
   private q: QueueInfo | null = null;
   private tiles = new Map<string, HTMLElement>();
   private showcase = new Showcase();
+  private guide?: Guidebook;
   private nameEl = document.createElement('div');
   private flashEl = document.createElement('div');
   private pickEl = document.createElement('div');
@@ -174,7 +183,7 @@ export class BrMenu {
     } catch {
       /* storage unavailable */
     }
-    if (!ANIMAL_BY_ID.has(this.sel)) this.sel = 'wolf';
+    if (!ANIMAL_BY_ID.has(this.sel)) this.sel = STARTERS[0].id;
     this.focus = this.sel;
     this.root.id = 'br-menu';
     this.root.hidden = true;
@@ -195,12 +204,14 @@ export class BrMenu {
     this.show = show;
     show.append(this.showcase.canvas, this.flashEl, this.nameEl, this.pickEl, this.hintEl);
     this.detail.className = 'detail';
-    stage.append(show, this.detail);
-    panel.append(stage);
-
+    // the evolution tree sits beside the model, with just a short summary under it
     this.treeHead.className = 'treehead';
     this.treeBox.className = 'tree';
-    panel.append(this.treeHead, this.treeBox);
+    const side = document.createElement('div');
+    side.className = 'side';
+    side.append(this.treeHead, this.treeBox, this.detail);
+    stage.append(show, side);
+    panel.append(stage);
     const roster = document.createElement('div');
     roster.className = 'roster';
     STARTERS.forEach((a, i) => {
@@ -262,7 +273,11 @@ export class BrMenu {
       const ids = STARTERS.map((x) => x.id);
       this.choose(ids[Math.floor(Math.random() * ids.length)]);
     });
-    row.append(this.team, dice, this.queueBtn, this.leaveBtn, close);
+    const book = document.createElement('button');
+    book.className = 'br-btn wood';
+    book.textContent = '📖 Guidebook';
+    book.addEventListener('click', () => (this.guide ??= new Guidebook()).open());
+    row.append(this.team, dice, book, this.queueBtn, this.leaveBtn, close);
     this.status.className = 'status';
     panel.append(row, this.status);
     const help = document.createElement('div');
@@ -287,7 +302,7 @@ export class BrMenu {
     this.leaveBtn.addEventListener('click', () => this.net.send({ t: 'mqx' }));
     close.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', (e) => {
-      if (e.code === 'Escape') this.close();
+      if (e.code === 'Escape' && !this.guide?.isOpen) this.close();
       const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT';
       if (!typing) {
         if (e.code === 'ArrowRight') this.step(1, 0);
@@ -489,9 +504,9 @@ export class BrMenu {
     this.detail.innerHTML =
       `<div class="role"><b>${a.role}</b> · stage ${a.stage} · ${a.size} · ${a.swim === 'water' ? 'fish: spawns in water, slow on land' : a.swim === 'semi' ? 'strong swimmer' : 'land animal'}${a.stage > 1 ? ` · evolve at level ${EVOLVE_LEVELS[a.stage - 2]}` : ''}</div>` +
       `<div class="blurb">${a.blurb}</div>` +
-      `<div class="bars">${rows}</div>` +
+      `<details class="more"><summary>Stats and abilities</summary><div class="bars">${rows}</div>` +
       `<div class="skills"><div><b>${a.skill.name}</b> (Q): ${a.skill.desc}</div><div class="inn"><b>${a.innate.name}</b> (passive): ${a.innate.desc}</div></div>` +
-      `<div class="perks"><div><h4>${cls.icon} ${cls.name} gives</h4>${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}</div><div><h4>and costs</h4>${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^-\s?/, '')}</div>`).join('')}<div class="d">− ${a.weakness}</div></div></div>`;
+      `<div class="perks"><div><h4>${cls.icon} ${cls.name} gives</h4>${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}</div><div><h4>and costs</h4>${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^-\s?/, '')}</div>`).join('')}<div class="d">− ${a.weakness}</div></div></div></details>`;
     this.detail.querySelectorAll<HTMLElement>(':scope > *').forEach((el, i) => el.style.setProperty('--i', String(i)));
     // let the stat bars grow into place
     requestAnimationFrame(() =>
@@ -510,8 +525,8 @@ export class BrMenu {
     const a = ANIMAL_BY_ID.get(this.focus);
     if (!a) return;
     const tree = TREE_BY_ID.get(a.tree)!;
-    this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · ${tree.blurb}. Evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]} into any form of the next ring: click one to preview it.`;
-    this.treeBox.replaceChildren(buildTreeCircle({ tree: tree.id, focus: this.focus, onPick: (id) => this.bringUp(id), size: 440 }));
+    this.treeHead.innerHTML = `<b>${tree.icon} ${tree.name}</b> · evolves at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}. Click a form to see it.`;
+    this.treeBox.replaceChildren(buildTreeCircle({ tree: tree.id, focus: this.focus, onPick: (id) => this.bringUp(id), size: 350 }));
   }
 
   open() {

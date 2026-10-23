@@ -75,6 +75,18 @@ function part(geo: THREE.BufferGeometry, color: number, sx: number, sy: number, 
   m.position.set(x, y, z);
   return m;
 }
+const UP = new THREE.Vector3(0, 1, 0);
+/** A tapering limb segment from `a` (the wide end, nearer the body) to `b`, so joints line up without gaps. */
+function limb(a: THREE.Vector3, b: THREE.Vector3, r: number, color: number): THREE.Mesh {
+  const d = a.clone().sub(b);
+  const len = Math.max(0.001, d.length());
+  const m = part(LEG, color, r / 0.62, len, r / 0.62);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(UP, d.normalize());
+  return m;
+}
+const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+
 /** A faceted chunk sized like a box of w x h x d: used for everything small. */
 const box = (w: number, h: number, d: number, c: number, x = 0, y = 0, z = 0) => part(ICO0, c, w * 0.62, h * 0.62, d * 0.62, x, y, z);
 /** A lumpy low-poly ellipsoid for torsos and heads. */
@@ -126,6 +138,7 @@ interface QuadSpec {
   earC?: number;
   tail?: { len: number; t: number; c?: number; up?: number };
   eye?: number;
+  slit?: boolean; // a vertical slit pupil (cats, foxes, most reptiles)
   crawl?: boolean;
   scale?: number;
   extras?: (torso: THREE.Group, head: THREE.Group, r: () => number) => void;
@@ -166,21 +179,36 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   head.add(box(hs * 0.7, hs * 0.5, hs * 0.5, spec.fur, 0, -hs * 0.18, hs * 0.18)); // cheeks
   const sn = spec.head.snout;
   const snH = spec.head.snoutH ?? hs * 0.5;
-  head.add(acc(spike(Math.max(hs * 0.32, snH * 0.7), sn + hs * 0.1, spec.head.snoutC ?? spec.fur, 1, 0, -hs * 0.1, hs * 0.5 + sn / 2 - 0.02)));
-  head.add(box(hs * 0.2, hs * 0.14, hs * 0.14, 0x16120f, 0, -hs * 0.04, hs * 0.5 + sn)); // nose
-  for (const sx of [-1, 1]) head.add(box(hs * 0.05, hs * 0.045, hs * 0.04, 0x000000, sx * hs * 0.05, -hs * 0.035, hs * 0.5 + sn + hs * 0.06)); // nostrils
-  if (sn > 0.04) head.add(lump(hs * 0.4, hs * 0.2, sn + hs * 0.35, spec.belly ?? spec.fur, 0, -hs * 0.27, hs * 0.38 + sn * 0.4)); // the jaw
-  head.add(lump(hs * 0.34, hs * 0.26, hs * 0.4, spec.head.snoutC ?? spec.fur, 0, -hs * 0.08, hs * 0.5 + sn * 0.18)); // the muzzle pad
-  const eyeC = spec.eye ?? 0x111111;
-  // eyes: a white ball, a dark pupil looking forward and a glint, so they read as alive
+  const snC = spec.head.snoutC ?? spec.fur;
+  // a forehead and brow mass, so the muzzle joins the skull with a proper stop instead of sticking out of it
+  head.add(lump(hs * 0.66, hs * 0.26, hs * 0.58, spec.fur, 0, hs * 0.22, hs * 0.26));
+  if (sn > 0.12) {
+    // a muzzle that tapers: a thick root, a narrower tip, and the nose on the end
+    const rootW = Math.max(hs * 0.5, snH * 0.95);
+    head.add(acc(lump(rootW, snH * 0.85, sn * 0.62 + hs * 0.36, snC, 0, -hs * 0.1, hs * 0.5 + sn * 0.18)));
+    head.add(acc(lump(rootW * 0.68, snH * 0.62, sn * 0.55 + hs * 0.16, snC, 0, -hs * 0.12, hs * 0.5 + sn * 0.64)));
+  } else {
+    head.add(acc(lump(hs * 0.52, hs * 0.38, hs * 0.36 + sn, snC, 0, -hs * 0.1, hs * 0.5 + sn * 0.3)));
+  }
+  const noseZ = hs * 0.5 + sn * (sn > 0.12 ? 0.96 : 0.6) + hs * 0.14;
+  head.add(ball(hs * 0.13, hs * 0.1, hs * 0.09, 0x16120f, 0, -hs * 0.03, noseZ)); // the nose
+  for (const sx of [-1, 1]) head.add(box(hs * 0.04, hs * 0.04, hs * 0.03, 0x000000, sx * hs * 0.05, -hs * 0.045, noseZ + hs * 0.05)); // nostrils
+  if (sn > 0.04) head.add(lump(hs * 0.42, hs * 0.2, sn + hs * 0.4, spec.belly ?? spec.fur, 0, -hs * 0.29, hs * 0.38 + sn * 0.4)); // the jaw
+  const eyeC = spec.eye ?? 0x3a2412;
+  // eyes: an iris, a pupil (a slit for cats and most reptiles), a glint and an upper lid, set a little to the sides
   const eyes: THREE.Object3D[] = [];
   for (const sx of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(sx * hs * 0.32, hs * 0.14, hs * 0.44);
-    eye.add(ball(hs * 0.1, hs * 0.115, hs * 0.07, 0xf4f1e6), ball(hs * 0.075, hs * 0.09, hs * 0.05, eyeC, sx * -hs * 0.01, 0, hs * 0.04), box(hs * 0.06, hs * 0.08, hs * 0.04, 0x050505, sx * -hs * 0.01, 0, hs * 0.07), box(hs * 0.03, hs * 0.03, hs * 0.03, 0xffffff, sx * hs * 0.02, hs * 0.035, hs * 0.09));
-    const brow = box(hs * 0.24, hs * 0.07, hs * 0.14, spec.fur, 0, hs * 0.11, hs * 0.01); // a brow ridge shades the eye
-    brow.rotation.z = sx * -0.25;
-    eye.add(brow);
+    eye.position.set(sx * hs * 0.31, hs * 0.15, hs * 0.4);
+    eye.rotation.y = sx * 0.32;
+    eye.add(ball(hs * 0.12, hs * 0.125, hs * 0.06, 0x120d0a, 0, 0, -hs * 0.01)); // a dark socket rim
+    eye.add(ball(hs * 0.095, hs * 0.105, hs * 0.055, eyeC, 0, 0, hs * 0.015)); // the iris
+    if (spec.slit) eye.add(ball(hs * 0.026, hs * 0.095, hs * 0.04, 0x040404, 0, 0, hs * 0.045));
+    else eye.add(ball(hs * 0.058, hs * 0.068, hs * 0.04, 0x040404, 0, 0, hs * 0.045));
+    eye.add(ball(hs * 0.022, hs * 0.022, hs * 0.02, 0xffffff, sx * -hs * 0.02, hs * 0.038, hs * 0.07)); // the glint
+    const lid = ball(hs * 0.125, hs * 0.06, hs * 0.075, spec.fur, 0, hs * 0.07, hs * 0.012); // the upper lid shades the eye
+    lid.rotation.z = sx * -0.18;
+    eye.add(lid);
     head.add(eye);
     eyes.push(eye);
   }
@@ -222,24 +250,41 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   }
   torso.add(head);
 
-  // legs pivot at the hip so they can swing
+  // Legs pivot at the hip so they can swing. Each is built from joined segments (shoulder or haunch, upper limb, joint,
+  // lower limb, paw) that start inside the body, so nothing dangles. Hind legs bend forward at the knee and back at the hock.
   const legs: THREE.Group[] = [];
   const lx = spec.w / 2 - spec.legT * 0.4;
   const lz = spec.len / 2 - spec.legT * 0.9;
+  const L = spec.legLen;
+  const T = spec.legT;
+  const rise = T * 0.5; // the pivot sits this far up inside the body
   for (const [sx, sz] of [[1, 1], [-1, -1], [-1, 1], [1, -1]] as const) {
     const g = new THREE.Group();
-    g.position.set(sx * lx, hip, sz * lz);
+    g.position.set(sx * lx, hip + rise, sz * lz);
+    const front = sz > 0;
+    const bottom = -(L + rise);
+    const o = v3(0, 0, 0);
+    const pawY = bottom + T * 0.38;
+    const paw = acc(lump(T * 1.35, T * 0.8, T * 2.2, spec.paw ?? spec.fur, 0, pawY, T * 0.4), 2);
     if (spec.crawl) {
-      g.add(part(LEG, spec.fur, spec.legT * 1.5, spec.legLen * 0.9, spec.legT * 1.5, sx * spec.legT * 0.4, -spec.legLen * 0.45, 0));
-      g.rotation.z = sx * 0.25;
+      // a sprawler: short, thick, nearly straight limbs (the walk cycle splays them outward)
+      g.add(lump(Math.min(T * 2.0, spec.w * 0.5), T * 2.0, Math.min(T * 2.2, spec.len * 0.2), spec.fur, 0, 0, 0));
+      const k = v3(0, bottom * 0.5, 0);
+      g.add(limb(o, k, T * 1.0, spec.fur), ball(T * 0.85, T * 0.85, T * 0.85, spec.fur, 0, k.y, 0), limb(k, v3(0, bottom + T * 0.3, 0), T * 0.78, spec.fur));
+    } else if (front) {
+      // shoulder, a long upper arm to the elbow, then a straighter forearm
+      g.add(lump(Math.min(T * 2.3, spec.w * 0.5), Math.min(T * 2.8, spec.h * 0.95), Math.min(T * 2.6, spec.len * 0.26), spec.fur, 0, T * 0.15, 0));
+      const e = v3(0, bottom * 0.5, -L * 0.05);
+      const w = v3(0, bottom * 0.9, L * 0.02);
+      g.add(limb(o, e, T * 1.1, spec.fur), ball(T * 0.82, T * 0.82, T * 0.82, spec.fur, 0, e.y, e.z), limb(e, w, T * 0.8, spec.fur), limb(w, v3(0, bottom + T * 0.3, T * 0.12), T * 0.6, spec.fur));
     } else {
-      // a thick thigh and a thinner, slightly bent shin
-      g.add(part(LEG, spec.fur, spec.legT * 1.8, spec.legLen * 0.58, spec.legT * 1.8, 0, -spec.legLen * 0.28, 0));
-      const shin = part(LEG, spec.fur, spec.legT * 1.05, spec.legLen * 0.52, spec.legT * 1.05, 0, -spec.legLen * 0.74, -spec.legT * 0.12);
-      shin.rotation.x = 0.22;
-      g.add(shin);
-      g.add(acc(lump(spec.legT * 1.3, spec.legT * 0.75, spec.legT * 2.1, spec.paw ?? spec.fur, 0, -spec.legLen + spec.legT * 0.25, spec.legT * 0.35), 2));
+      // haunch, thigh forward to the knee, shin back to the hock, then a slim foot
+      g.add(lump(Math.min(T * 2.7, spec.w * 0.56), Math.min(T * 3.2, spec.h * 1.05), Math.min(T * 3.3, spec.len * 0.3), spec.fur, 0, T * 0.1, -T * 0.25));
+      const k = v3(0, bottom * 0.5, L * 0.2);
+      const h = v3(0, bottom * 0.84, -L * 0.1);
+      g.add(limb(o, k, T * 1.2, spec.fur), ball(T * 0.88, T * 0.88, T * 0.88, spec.fur, 0, k.y, k.z), limb(k, h, T * 0.88, spec.fur), ball(T * 0.62, T * 0.62, T * 0.62, spec.fur, 0, h.y, h.z), limb(h, v3(0, bottom + T * 0.3, L * 0.02), T * 0.56, spec.fur));
     }
+    g.add(paw);
     root.add(g);
     legs.push(g);
   }
@@ -267,6 +312,64 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   spec.extras?.(torso, head, r);
   if (spec.scale) root.scale.setScalar(spec.scale);
   return { root, legs, head, tail, torso, eyes, ears, hip, spec };
+}
+
+/**
+ * Merge the many small meshes of each articulated part (torso, head, tail, each leg and eye) into one vertex-coloured
+ * mesh and one outline mesh, so an animal costs about a dozen draw calls instead of well over a hundred. The parts stay
+ * separate nodes, so legs, head, tail, eyes and ears still move. Returns the materials the rig must flash and glow.
+ */
+function bakeQuad(b: Built): Mat[] {
+  b.root.updateMatrixWorld(true);
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const roots: THREE.Object3D[] = [b.torso, b.head, ...(b.tail ? [b.tail] : []), ...b.legs, ...b.eyes];
+  const keep = new Set<THREE.Object3D>([...roots, ...b.ears.map((e) => e.o)]);
+  for (const R of roots) {
+    const inv = new THREE.Matrix4().copy(R.matrixWorld).invert();
+    const body: THREE.BufferGeometry[] = [];
+    const hull: THREE.BufferGeometry[] = [];
+    const found: THREE.Mesh[] = [];
+    const walk = (o: THREE.Object3D) => {
+      for (const c of o.children) {
+        if (keep.has(c)) continue; // another articulated part
+        if (c instanceof THREE.Mesh) found.push(c);
+        walk(c);
+      }
+    };
+    walk(R);
+    for (const c of found) {
+      const m = c.material as Mat;
+      const g0 = c.geometry.index ? c.geometry.toNonIndexed() : c.geometry.clone();
+      const rel = new THREE.Matrix4().multiplyMatrices(inv, c.matrixWorld);
+      if (Math.max(c.scale.x, c.scale.y, c.scale.z) >= 0.07) {
+        const og = new THREE.BufferGeometry();
+        og.setAttribute('position', g0.attributes.position.clone());
+        og.scale(1.09, 1.09, 1.09);
+        og.applyMatrix4(rel);
+        hull.push(og);
+      }
+      if (m.flatShading) g0.computeVertexNormals(); // non-indexed, so every face keeps its own flat normal
+      g0.deleteAttribute('uv');
+      const n = g0.attributes.position.count;
+      const col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        col[i * 3] = m.color.r;
+        col[i * 3 + 1] = m.color.g;
+        col[i * 3 + 2] = m.color.b;
+      }
+      g0.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      g0.applyMatrix4(rel);
+      body.push(g0);
+    }
+    if (!body.length) continue;
+    const merged = mergeGeometries(body, false);
+    if (!merged) continue;
+    for (const c of found) c.parent?.remove(c);
+    R.add(new THREE.Mesh(merged, material));
+    const hullMerged = hull.length ? mergeGeometries(hull, false) : null;
+    if (hullMerged) R.add(new THREE.Mesh(hullMerged, OUTLINE));
+  }
+  return [material];
 }
 
 class QuadRig implements Rig {
@@ -300,16 +403,15 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
+    this.mats = bakeQuad(b);
+    // whatever is left (the ears, which flick on their own) gets its own material and outline as before
     const parts: THREE.Mesh[] = [];
     b.root.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
-        parts.push(o);
-        // each rig needs its own materials so a hit can flash one animal
-        o.material = (o.material as Mat).clone();
-        this.mats.push(o.material as Mat);
-      }
+      if (o instanceof THREE.Mesh && o.material !== OUTLINE && !this.mats.includes(o.material as Mat)) parts.push(o);
     });
     for (const o of parts) {
+      o.material = (o.material as Mat).clone(); // each rig needs its own materials so a hit can flash one animal
+      this.mats.push(o.material as Mat);
       if (Math.max(o.scale.x, o.scale.y, o.scale.z) < 0.07) continue; // tiny parts need no outline
       const ol = new THREE.Mesh(o.geometry, OUTLINE);
       ol.scale.setScalar(1.09);
@@ -468,7 +570,7 @@ const SPECS: Record<string, QuadSpec> = {
   mouse: { len: 0.2, w: 0.1, h: 0.1, legLen: 0.04, legT: 0.03, fur: 0xa6968a, head: { s: 0.09, snout: 0.05 }, ears: 'round', earS: 0.7, tail: { len: 0.2, t: 0.015, c: 0xd9b8a8 }, eye: 0x000000 },
   rat: { len: 0.32, w: 0.14, h: 0.14, legLen: 0.05, legT: 0.04, fur: 0x4a4540, head: { s: 0.11, snout: 0.08 }, ears: 'round', earS: 0.6, tail: { len: 0.32, t: 0.02, c: 0xc99c94 }, eye: 0xdd2222 },
   rabbit: { len: 0.42, w: 0.2, h: 0.22, legLen: 0.12, legT: 0.07, fur: 0xc3b6a2, belly: 0xefe9dd, head: { s: 0.16, snout: 0.06 }, ears: 'long', earS: 1, tail: { len: 0.09, t: 0.09, c: 0xffffff } },
-  fox: { len: 0.8, w: 0.26, h: 0.3, legLen: 0.32, legT: 0.08, fur: 0xd2762c, belly: 0xf2e6d6, paw: 0x3a2517, head: { s: 0.23, snout: 0.2, snoutC: 0xe8a468 }, ears: 'point', earS: 0.6, tail: { len: 0.6, t: 0.16, c: 0xdc8a3d, up: -0.1 }, extras: (_t, h) => h.add(box(0.1, 0.1, 0.1, 0xffffff, 0, -0.18, 0.2)) },
+  fox: { len: 0.8, w: 0.26, h: 0.3, legLen: 0.32, legT: 0.08, fur: 0xd2762c, belly: 0xf2e6d6, paw: 0x3a2517, head: { s: 0.23, snout: 0.2, snoutC: 0xe8a468 }, ears: 'point', earS: 0.6, tail: { len: 0.6, t: 0.16, c: 0xdc8a3d, up: -0.1 },  },
   goat: { len: 0.95, w: 0.36, h: 0.46, legLen: 0.5, legT: 0.1, fur: 0xe2dccf, belly: 0xf0ece3, paw: 0x3b332b, head: { s: 0.26, snout: 0.18 }, ears: 'long', earS: 0.8, tail: { len: 0.15, t: 0.06 }, extras: (_t, h) => { for (const sx of [-1, 1]) { const horn = cone(0.04, 0.36, 0x6b5a45, sx * 0.1, 0.28, -0.05); horn.rotation.x = -0.5; horn.rotation.z = -sx * 0.3; h.add(horn); } h.add(cone(0.04, 0.16, 0xe2dccf, 0, -0.25, 0.1)); } },
   wildpig: { len: 1.0, w: 0.5, h: 0.52, legLen: 0.32, legT: 0.13, fur: 0x5b4636, belly: 0x483526, paw: 0x241a12, head: { s: 0.38, snout: 0.26, snoutC: 0x7e6552 }, ears: 'point', earS: 0.5, tail: { len: 0.14, t: 0.05 }, extras: (_t, h) => { for (const sx of [-1, 1]) { const t = cone(0.04, 0.22, 0xf2eee0, sx * 0.13, -0.1, 0.45); t.rotation.x = -0.9; h.add(t); } } },
 };
@@ -920,8 +1022,11 @@ PS.wolverine = {
 PS.raccoon = {
   ...SPECS.badger, fur: 0x77757a, belly: 0xb0aeb2, paw: 0x3a383c, scale: 0.9, tail: { len: 0.55, t: 0.14, c: 0x9a989c },
   extras: (_t, head) => {
-    head.add(box(0.34, 0.1, 0.05, 0x1c1a1e, 0, 0.08, 0.28));
-    head.add(box(0.1, 0.1, 0.05, 0xf4f2f0, 0, -0.02, 0.38));
+    // a bandit mask around the eyes and a pale stripe down the nose
+    const hs = 0.28;
+    for (const sx of [-1, 1]) head.add(ball(hs * 0.2, hs * 0.15, hs * 0.1, 0x1c1a1e, sx * hs * 0.3, hs * 0.15, hs * 0.33));
+    head.add(ball(hs * 0.36, hs * 0.07, hs * 0.08, 0x1c1a1e, 0, hs * 0.14, hs * 0.36));
+    head.add(ball(hs * 0.07, hs * 0.22, hs * 0.05, 0xf4f2f0, 0, hs * 0.2, hs * 0.46));
   },
 };
 PS.black_bear = { ...SPECS.bear, fur: 0x23211f, belly: 0x1a1816, paw: 0x0e0d0c, scale: 0.8, head: { s: 0.52, snout: 0.3, snoutC: 0x9a7a56, drop: 0.12 }, extras: undefined };
@@ -1056,6 +1161,9 @@ function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
 }
 
 /** An articulated model for something a player controls. `key` (a player id) gives an unpainted animal its own shade. */
+// vertical slit pupils: the cats, foxes and most reptiles
+for (const id of ['house_cat', 'bobcat', 'lynx', 'cheetah', 'panther', 'tiger', 'lion', 'fox', 'gecko', 'monitor', 'komodo', 'cobra', 'croc']) if (PS[id]) PS[id].slit = true;
+
 export function makePlayerRig(animal: string, paint?: Paint | null, key?: string): Rig {
   const fish = FISH_FORMS[animal];
   if (fish) return new FishRig(fish.spec, fish.scale);

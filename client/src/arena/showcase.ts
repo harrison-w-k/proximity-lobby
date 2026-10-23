@@ -2,7 +2,7 @@
 // then shows off its moves (walk, a three-hit combo, its two signature skills, a guard, a jump).
 import * as THREE from 'three';
 import { ANIMAL_BY_ID } from '../../../shared/arena/animals';
-import { COMBO } from '../../../shared/arena/combat';
+import { COMBO, comboOf } from '../../../shared/arena/combat';
 import { STRIKE_TIME, poseFor, type Cue } from './anim';
 import { makePlayerRig, type Rig, type RigState } from './models';
 
@@ -166,8 +166,8 @@ export class Showcase {
     const def = ANIMAL_BY_ID.get(animal);
     if (!def) return null;
     if (kind === 'swing') {
-      const c = COMBO[combo];
-      return { kind: 'swing', animal, combo, heavy: combo === 2, skill: '', fx: '', start: now, wind: c.wind * 1.6, strike: STRIKE_TIME * 1.4, rec: c.rec * 1.4 };
+      const c = comboOf(animal)[combo] ?? COMBO[0];
+      return { kind: 'swing', animal, combo, heavy: c.heavy, move: c.kind, skill: '', fx: '', start: now, wind: c.wind * 1.6, strike: STRIKE_TIME * 1.4, rec: c.rec * 1.4 };
     }
     const sk = def.skill; // one signature skill
     const fx = sk.fx;
@@ -179,11 +179,11 @@ export class Showcase {
 
   private buildSteps() {
     const a = this.animal;
+    // the whole chain of strikes this animal uses, one after another
+    const swings = comboOf(a).map((c, i) => ({ name: `swing${i}`, len: (c.wind + c.rec) * 1.5 + 0.35, cue: (an: string, n: number) => this.cueFor(an, 'swing', i, 0, n) }));
     this.steps = [
       { name: 'walk', len: 2.2, speed: 4.5 },
-      { name: 'swing0', len: 0.95, cue: (an, n) => this.cueFor(an, 'swing', 0, 0, n) },
-      { name: 'swing1', len: 0.95, cue: (an, n) => this.cueFor(an, 'swing', 1, 0, n) },
-      { name: 'swing2', len: 1.5, cue: (an, n) => this.cueFor(an, 'swing', 2, 0, n) },
+      ...swings,
       { name: 'idle', len: 0.7 },
       { name: 'skill0', len: 1.7, cue: (an, n) => this.cueFor(an, 'skill', 0, 0, n) },
       { name: 'guard', len: 1.4, guard: true },

@@ -1,6 +1,9 @@
 // Attack and skill animation. Every animal moves differently, and every move has three clear
 // parts so it can be read and answered: a WIND-UP (the telegraph), a fast STRIKE, then a RECOVERY.
 import { SKILL_BY_ID } from '../../../shared/arena/animals';
+import { CUSTOM_COMBO_IDS } from '../../../shared/arena/combat';
+
+const HAS_OWN_CHAIN = new Set(CUSTOM_COMBO_IDS);
 
 export interface Pose {
   y: number; // body offset up
@@ -26,7 +29,8 @@ export const STYLE: Record<string, Style> = { house_cat: 'swipe', bobcat: 'swipe
 export interface Cue {
   kind: 'swing' | 'skill' | 'parry' | 'flex';
   animal: string;
-  combo: number; // 0..2 for swings
+  combo: number; // which strike of the chain this is (0 = the first)
+  move?: string; // the strike type (claw, bite, slam...); animals with their own chain animate by it
   heavy: boolean;
   skill: string; // skill id
   fx: string; // skill effect kind
@@ -93,6 +97,7 @@ export function poseFor(c: Cue, now: number): Pose | null {
     return k >= 1 ? null : p;
   }
   if (c.kind === 'skill') return skillPose(c, ph, p);
+  if (c.move && HAS_OWN_CHAIN.has(c.animal)) return strikePose(c, ph, p);
   const style = STYLE[c.animal] ?? 'bite';
   const big = c.animal === 'bear' || c.animal === 'gorilla' ? 1.25 : c.animal === 'croc' || c.animal === 'hippo' ? 1.1 : 1;
   switch (style) {
@@ -201,6 +206,102 @@ export function poseFor(c: Cue, now: number): Pose | null {
         p.ry = ph.stage === 'strike' ? TAU * ph.k : -0.4 * w;
         p.z = -0.1 * w + 0.4 * s;
       }
+      break;
+  }
+  return p;
+}
+
+/** The body language of each strike type. Forms with their own chain animate by this, so every strike reads differently. */
+function strikePose(c: Cue, ph: Phase, p: Pose): Pose {
+  const { w, s } = ph;
+  const odd = c.combo % 2 === 1 ? -1 : 1;
+  const leg = (side: 1 | -1, v: number) => (side === 1 ? (p.fl = v) : (p.fr = v));
+  const winding = ph.stage === 'wind' ? 1 : 0;
+  switch (c.move) {
+    case 'claw':
+      // a raised paw, then a raking swipe across the body
+      leg(odd === 1 ? 1 : -1, -1.5 * w + 0.7 * s);
+      p.rz = 0.16 * odd * w - 0.1 * odd * s;
+      p.ry = -0.5 * odd * s + 0.14 * odd * w;
+      p.z = -0.1 * w + 0.32 * s;
+      p.hx = 0.12 * s;
+      break;
+    case 'rake': {
+      // both forepaws scratching in quick alternation
+      const flick = Math.sin(ph.k * TAU * 1.5);
+      p.fl = -0.9 * w + 0.9 * s * flick;
+      p.fr = -0.9 * w - 0.9 * s * flick;
+      p.z = -0.06 * w + 0.28 * s;
+      p.ry = 0.2 * odd * s;
+      p.hx = 0.1 * s;
+      break;
+    }
+    case 'bite':
+      // jaws wide, then a snap with a twist of the head
+      p.hx = -0.35 * w + 0.7 * s;
+      p.hy = 0.3 * odd * w - 0.3 * odd * s;
+      p.z = -0.12 * w + 0.45 * s;
+      p.rx = -0.12 * w + 0.1 * s;
+      p.fl = p.fr = -0.2 * w;
+      break;
+    case 'lunge':
+      // crouch low, then spring jaws-first across the gap
+      p.y = -0.24 * w + 0.14 * s;
+      p.rx = -0.36 * w + 0.46 * s;
+      p.z = -0.3 * w + 0.95 * s;
+      p.hx = -0.2 * w + 0.7 * s;
+      p.bl = p.br = 0.7 * w + 0.8 * s;
+      p.fl = p.fr = 0.2 * w - 1.0 * s;
+      p.tail = 0.5 * w;
+      break;
+    case 'jab':
+      // a short, fast thrust: sting, stab or peck
+      p.z = -0.22 * w + 0.62 * s;
+      p.hx = -0.3 * w + 0.5 * s;
+      p.rx = -0.1 * w + 0.08 * s;
+      p.hy = 0.2 * odd * s;
+      p.tail = -0.6 * w;
+      break;
+    case 'sweep':
+      // wind the tail back, then spin the whole body round
+      p.tail = -1.1 * w + 0.9 * s;
+      p.ry = ph.stage === 'strike' ? TAU * 0.9 * ph.k * odd : -0.5 * odd * w;
+      p.y = -0.05 * w;
+      p.z = -0.08 * w + 0.3 * s;
+      break;
+    case 'rend':
+      // both forelimbs up, then tearing down
+      p.rx = -0.35 * w + 0.22 * s;
+      p.y = 0.1 * w - 0.12 * s;
+      p.fl = p.fr = -1.35 * w + 1.05 * s;
+      p.hx = -0.25 * w + 0.5 * s;
+      p.z = -0.1 * w + 0.32 * s;
+      break;
+    case 'slam':
+      // rear up on the hind legs and crash both paws down
+      p.rx = -0.62 * w + 0.38 * s;
+      p.y = 0.14 * w - 0.1 * s;
+      p.z = -0.12 * w + 0.5 * s;
+      p.fl = p.fr = -1.75 * w + 0.85 * s;
+      p.hx = -0.3 * w + 0.35 * s;
+      p.sc = 1 + 0.06 * w;
+      break;
+    case 'ram':
+      // head down, scraping the ground, then a charge
+      p.hx = 0.7 * w - 0.95 * s;
+      p.rx = 0.22 * w - 0.12 * s;
+      p.y = -0.16 * w;
+      p.fl = p.fr = -0.8 * Math.abs(Math.sin(ph.k * 18)) * winding;
+      p.z = -0.2 * w + 1.15 * s;
+      p.bl = p.br = 0.5 * s;
+      break;
+    case 'toss':
+      // head dipped low, then a heave upward that flings the target
+      p.hx = 0.6 * w - 1.0 * s;
+      p.rx = 0.12 * w - 0.3 * s;
+      p.y = -0.1 * w + 0.12 * s;
+      p.fl = p.fr = 0.4 * w - 1.1 * s;
+      p.z = -0.12 * w + 0.4 * s;
       break;
   }
   return p;

@@ -45,6 +45,7 @@ const peerOf = (ws: WebSocket): Peer => ({
 export class LobbyDO extends DurableObject<Env> {
   private lobby: Lobby;
   private sessions = new Map<WebSocket, Session>();
+  private savedKey = new WeakMap<WebSocket, string>();
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -100,7 +101,13 @@ export class LobbyDO extends DurableObject<Env> {
     }
     await this.lobby.handle(session, message);
     try {
-      ws.serializeAttachment(this.lobby.save(session));
+      // Rewriting the attachment on every message (about 30 a second per player) is wasted work: do it only when it changed.
+      const saved = this.lobby.save(session);
+      const key = JSON.stringify(saved);
+      if (this.savedKey.get(ws) !== key) {
+        this.savedKey.set(ws, key);
+        ws.serializeAttachment(saved);
+      }
     } catch {
       // closed during handling (e.g. lobby full)
     }

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
-import { COMBO, COMBO_RESET, PARRY_WINDOW } from '../../../shared/arena/combat';
+import { COMBO, COMBO_RESET, PARRY_WINDOW, comboOf, type StrikeKind } from '../../../shared/arena/combat';
 import { JUMP_COST, JUMP_V, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
@@ -91,6 +91,14 @@ export class Arena {
   private lastYawSent = 0;
   private lastAtSent = 0;
   private clock = 0;
+  // F3 network readout
+  private netEl: HTMLDivElement | null = null;
+  private netShow = false;
+  private netGaps: number[] = [];
+  private netLast = 0;
+  private netSnaps = 0;
+  private netAt = 0;
+  private netBytes = 0;
   private visYaw = 0;
   private corr = { x: 0, z: 0 }; // a server correction, eased out over a few frames instead of snapping
   private ty = NaN; // smoothed camera height target
@@ -364,6 +372,10 @@ export class Arena {
     this.you = you;
     this.g = m.g;
     this.snapAt = this.clock;
+    const tNow = performance.now();
+    if (this.netLast) this.netGaps.push(tNow - this.netLast);
+    this.netLast = tNow;
+    this.netSnaps++;
     this.drops = m.d;
     const sc = this.scene;
     sc.applyFighters(m.f, this.clock);
@@ -482,7 +494,7 @@ export class Arena {
         const hostile = this.isHostile(e.id);
         const own = e.id === this.myId;
         // our own swing already started when we pressed the button
-        if (!(own && this.clock - this.localSwingAt < 0.35)) sc.cue(e.id, { kind: 'swing', combo: e.c, heavy: e.h, skill: '', fx: '', wind: e.w, rec: e.c === 2 ? 0.55 : 0.26 });
+        if (!(own && this.clock - this.localSwingAt < 0.35)) sc.cue(e.id, { kind: 'swing', combo: e.c, heavy: e.h, move: e.s as StrikeKind, skill: '', fx: '', wind: e.w, rec: e.rc ?? (e.c === 2 ? 0.55 : 0.26) });
         sc.telegraph(e.x, e.z, e.yaw, { shape: 'arc', r: e.r, arc: e.a, width: 0 }, e.w, hostile, e.h);
         if (hostile) this.nearSfx(e.x, e.z, () => this.d.sfx.windup(e.h), 22);
         break;
@@ -703,6 +715,9 @@ export class Arena {
   }
 
   private teardown() {
+    this.netEl?.remove();
+    this.netEl = null;
+    this.netShow = false;
     const w = this.d.world;
     w.external = undefined;
     w.inputEnabled = true;
@@ -751,6 +766,11 @@ export class Arena {
     if (e.code === 'Tab') {
       e.preventDefault();
       this.panelOpen = !this.panelOpen;
+      return;
+    }
+    if (e.code === 'F3') {
+      e.preventDefault();
+      this.toggleNetStats();
       return;
     }
     if (!this.hasControl()) return;
@@ -895,13 +915,14 @@ export class Arena {
         // start our own swing animation the instant the button goes down (the server confirms it a moment later)
         if (this.guardHeld && this.clock > this.guardEnds && !you.guard) this.guardHeld = false;
         if (inp.at && !this.guardHeld && !you.wind && this.clock > this.nextSwing && !you.buffs.includes('stunned') && !you.buffs.includes('fumbled') && (you.sta >= 5 || you.role === 2)) {
-          const combo = this.clock - this.localComboAt < COMBO_RESET ? (this.localCombo + 1) % 3 : 0;
-          const c = COMBO[combo];
+          const seq = comboOf(this.def.id);
+          const combo = this.clock - this.localComboAt < COMBO_RESET ? (this.localCombo + 1) % seq.length : 0;
+          const c = seq[combo] ?? COMBO[0];
           this.localCombo = combo;
           this.localComboAt = this.clock;
           this.localSwingAt = this.clock;
           this.nextSwing = this.clock + c.wind + c.rec;
-          if (you.role !== 2) sc.cue(this.myId, { kind: 'swing', combo, heavy: combo === 2, skill: '', fx: '', wind: c.wind, rec: c.rec });
+          if (you.role !== 2) sc.cue(this.myId, { kind: 'swing', combo, heavy: c.heavy, move: c.kind, skill: '', fx: '', wind: c.wind, rec: c.rec });
           this.d.sfx.swing();
         }
         let flags = 0;
@@ -937,6 +958,7 @@ export class Arena {
     }
 
     this.updateCamera(dt, you);
+    this.netTick();
     sc.update(dtWorld, this.myTeam, g?.time ?? 0);
     // the paper doll copies our animal's animation
     if (you && you.role !== 3) {
@@ -1006,6 +1028,42 @@ export class Arena {
   }
   private hasCrouch() {
     return this.keys.has('KeyC');
+  }
+
+  private toggleNetStats() {
+    this.netShow = !this.netShow;
+    if (this.netShow && !this.netEl) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;top:8px;right:8px;z-index:40;padding:6px 10px;border-radius:6px;background:rgba(8,12,24,.78);color:#cfe;font:12px/1.5 ui-monospace,Consolas,monospace;pointer-events:none;white-space:pre';
+      document.body.appendChild(el);
+      this.netEl = el;
+    }
+    if (this.netEl) this.netEl.style.display = this.netShow ? '' : 'none';
+    this.netAt = 0;
+  }
+
+  /** The F3 readout: ping, how steadily snapshots arrive, how much data, and how far the server pulls you back. */
+  private netTick() {
+    if (!this.netShow || !this.netEl) return;
+    const now = performance.now();
+    if (now - this.netAt < 500) return;
+    const span = this.netAt ? (now - this.netAt) / 1000 : 1;
+    const gaps = this.netGaps;
+    const worst = gaps.length ? Math.max(...gaps) : 0;
+    const kb = (this.d.net.bytesIn - this.netBytes) / 1024 / span;
+    const rate = this.netSnaps / span;
+    const corr = Math.hypot(this.corr.x, this.corr.z);
+    const bad = worst > 200 || this.d.net.rtt > 150;
+    this.netEl.style.color = bad ? '#ffb3a0' : '#cfe';
+    this.netEl.textContent =
+      `ping   ${this.d.net.rtt.toFixed(0)} ms\n` +
+      `snaps  ${rate.toFixed(0)}/s   worst gap ${worst.toFixed(0)} ms\n` +
+      `data   ${kb.toFixed(0)} KB/s\n` +
+      `queued ${this.pending.length} steps   pull-back ${corr.toFixed(2)} m`;
+    this.netGaps = [];
+    this.netSnaps = 0;
+    this.netBytes = this.d.net.bytesIn;
+    this.netAt = now;
   }
 
   private updateCamera(dt: number, you: YouState | null) {

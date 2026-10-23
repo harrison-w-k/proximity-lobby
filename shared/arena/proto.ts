@@ -71,7 +71,9 @@ export interface YouState {
   guard: boolean;
   wind: boolean; // winding up an attack
   guardAge: number; // seconds since the guard went up
-  combo: number; // 0..2: which swing of the combo comes next
+  combo: number; // which swing of the chain comes next
+  comboLen: number; // strikes in this animal's chain (3 to 5)
+  comboHeavy: number; // bit mask of the heavy strikes in the chain
   counter: number; // seconds left of the counter-attack bonus after a parry
   inv: (InvItem | null)[];
   role: number;
@@ -118,7 +120,7 @@ export type MatchEvent =
   | { k: 'mobhit'; x: number; z: number; n: number }
   | { k: 'skill'; id: string; s: string; x: number; z: number; yaw: number; r?: number; w?: number } // a skill was started (w = seconds of wind-up)
   | { k: 'strike'; id: string; s: string; x: number; z: number; yaw: number } // the skill lands
-  | { k: 'swing'; id: string; c: number; w: number; h: boolean; r: number; a: number; x: number; z: number; yaw: number } // a basic attack winds up
+  | { k: 'swing'; id: string; c: number; w: number; h: boolean; r: number; a: number; x: number; z: number; yaw: number; s: string; rc: number } // a basic attack winds up: s = the strike type, rc = its recovery
   | { k: 'mswing'; id: number; x: number; z: number; yaw: number; w: number; r: number; big: boolean } // a boss winds up
   | { k: 'whiff'; id: string; x: number; z: number } // a parry that caught nothing
   | { k: 'evolving'; id: string; to: string; x: number; z: number } // started to evolve
