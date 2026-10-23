@@ -165,12 +165,19 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
   torso.position.y = hip + spec.h / 2 - 0.04;
   root.add(torso);
   const belly = spec.belly ?? spec.fur;
+  // each species gets its own slightly wrong proportions (a deterministic pick, so it always looks the same)
+  const q = rnd(seed * 7 + 13);
+  const bellyK = spec.crawl ? 0 : q() < 0.7 ? 0.25 + q() * 0.3 : 0; // a round, low-slung belly
+  const hipK = 1 + q() * 0.4; // big hind quarters
+  const frontK = 0.85 + q() * 0.5; // front limbs thicker or thinner than the back ones
+  const hindK = 0.85 + q() * 0.5;
+  if (bellyK > 0) torso.add(acc(lump(spec.w * 1.1, spec.h * (0.5 + bellyK), spec.len * 0.52, belly, 0, -spec.h * (0.26 + bellyK * 0.3), -spec.len * 0.04)));
   torso.add(lump(spec.w * 0.92, spec.h * 0.9, spec.len * 0.92, spec.fur));
   torso.add(acc(lump(spec.w * 0.94, spec.h * 0.5, spec.len * 0.86, belly, 0, -spec.h * 0.3, 0)));
   // shoulders and haunches a little fuller than the middle
   torso.add(lump(spec.w * 1.08, spec.h * 1.16, spec.len * 0.44, spec.fur, 0, spec.h * 0.02, spec.len * 0.27)); // a deep chest
   torso.add(lump(spec.head.s * 0.72, spec.head.s * 0.8, spec.head.s * 0.95, spec.fur, 0, spec.h * 0.2, spec.len / 2 + spec.head.s * 0.02)); // the neck
-  torso.add(lump(spec.w * 1.06, spec.h * 1.0, spec.len * 0.4, spec.fur, 0, 0, -spec.len * 0.3));
+  torso.add(lump(spec.w * 1.06 * hipK, spec.h * 1.0 * hipK, spec.len * 0.4, spec.fur, 0, 0, -spec.len * 0.3));
 
   // head
   const head = new THREE.Group();
@@ -264,6 +271,7 @@ function buildQuad(spec: QuadSpec, seed: number): Built {
     const g = new THREE.Group();
     g.position.set(sx * lx, hip + rise, sz * lz);
     const front = sz > 0;
+    const T = spec.legT * (front ? frontK : hindK) * (0.9 + q() * 0.3); // each limb a little different
     const bottom = -(L + rise);
     const o = v3(0, 0, 0);
     const pawY = bottom + T * 0.38;
