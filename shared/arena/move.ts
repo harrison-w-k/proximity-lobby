@@ -81,18 +81,22 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
 export const JUMP_V = 8.8; // m/s upward: about 1.6 m high, a bit under 0.75 s in the air
 export const GRAVITY = 24;
 export const JUMP_COST = 8; // stamina
+/** A bird's soar: the fall is capped at this speed while it glides, and it moves this much faster than on the ground. */
+export const SOAR_FALL = 1.5; // m/s
+export const SOAR_SPEED = 1.5;
 
 /**
  * Advance the vertical motion of a jump. `jy` is the height above the ground, `floor` the top of the rock you are over
  * (0 on the bare ground): you stand on it, land on it, and fall when you walk off it.
  */
-export function stepVertical(s: { jy: number; jv: number }, dt: number, floor = 0) {
+export function stepVertical(s: { jy: number; jv: number }, dt: number, floor = 0, glide = false) {
   if (s.jy <= floor + 1e-3 && s.jv <= 0) {
     s.jy = floor;
     s.jv = 0;
     return;
   }
   s.jv -= GRAVITY * dt;
+  if (glide && s.jv < -SOAR_FALL) s.jv = -SOAR_FALL; // gliding: wings out, so the fall is slow
   s.jy += s.jv * dt;
   if (s.jy <= floor && s.jv <= 0) {
     s.jy = floor;

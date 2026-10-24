@@ -44,7 +44,8 @@ export type Effect =
   | { k: 'buff'; dur: number; speed?: number; dmg?: number; dr?: number; reflect?: number; free?: boolean; rof?: number }
   | { k: 'heal'; pct: number; sta?: boolean }
   | { k: 'grab'; dur: number; dps: number; range: number }
-  | { k: 'submerge'; dur: number };
+  | { k: 'submerge'; dur: number }
+  | { k: 'soar'; dur: number; lift: number }; // a bird's boost: up into the air, then a long glide (no real flight)
 
 export interface Mods {
   hp?: number; // +fraction of max health
@@ -90,8 +91,9 @@ const act = (id: string, name: string, desc: string, cd: number, fx: Effect, cos
 const pas = (id: string, name: string, desc: string, mods: Mods): Skill => ({ id, name, desc, mods });
 
 
-// --- the seven evolution trees ---------------------------------------------------------------------
-// Everyone starts as a small stage 1 animal and evolves twice (level 5, level 10), into any form of their tree.
+// --- the eight evolution trees ---------------------------------------------------------------------
+// Everyone starts as a small stage 1 animal and evolves twice (level 5, level 10). Each tree has three stage 2 forms, and each of those
+// has two final forms of its own: a path only ever leads to the forms that branch from it.
 // Every form at a stage has the same stat budget; each skill trades power for a cooldown or a weakness.
 
 export const EVOLVE_LEVELS = [5, 10] as const; // to stage 2, to stage 3
@@ -110,6 +112,7 @@ export interface AnimalDef {
   landMul: number; // speed on land (1 for everything but fish)
   weakness: string;
   blurb: string;
+  from: string | null; // the form this one evolves from (null for a starter)
   innate: Skill; // a passive that comes with the form
   skill: Skill; // the signature skill, on Q. Evolving replaces it.
   skill2: Skill | null; // stage 2 and 3 forms carry a second move, on E
@@ -154,7 +157,7 @@ const FORMS: AnimalDef[] = [];
 const form = (f: FormIn) =>
   FORMS.push({
     id: f.id, name: f.name, tree: f.tree, stage: f.stage, size: f.size, role: f.role, stats: split(STAGE_BUDGET[f.stage - 1], f.w),
-    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, innate: f.passive, skill: f.skill, skill2: null, cls: f.cls,
+    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, from: null, innate: f.passive, skill: f.skill, skill2: null, cls: f.cls,
   });
 const slow = (dur: number, f: number): Status => ({ s: 'slow', dur, f });
 const bleed = (dur: number, dps: number): Status => ({ s: 'bleed', dur, dps });
@@ -372,6 +375,161 @@ form({ id: 'angler', name: 'Anglerfish', tree: 'fish', stage: 3, size: 'medium',
   passive: pas('glow', 'Deep Glow', '+20% senses range.', { senses: 0.2 }),
   skill: act('lure_light', 'Lure', 'A glowing light: everything within 14 m is marked and slowed.', 18, { k: 'aoe', r: 14, dmg: 0.4, st: [mark(4), slow(3, 0.5)] }) });
 
+// ---- more stage 2 and stage 3 forms: every tree has three stage 2 forms with two final forms each ----
+const SOAR = act('soar', 'Soar', 'Beat your wings and rise, then glide a long way: no real flight, and you come down at the end.', 40, { k: 'soar', dur: 5, lift: 15 }, 10);
+
+// Cats
+form({ id: 'ocelot', name: 'Ocelot', tree: 'cats', stage: 2, size: 'medium', role: 'Climber', w: [18, 22, 24, 16, 20], cls: 'skirmisher',
+  blurb: 'A spotted night climber that drops on its prey.', weak: 'Light and thin',
+  passive: pas('treetop', 'Treetop Stalker', '+20% damage from a bush, +10% senses.', { ambush: 0.2, senses: 0.1 }),
+  skill: act('drop_strike', 'Drop Strike', 'A diving leap that lands hard and knocks back.', 11, { k: 'dash', dist: 6, dmg: 1.5, knock: 1.5 }, 10) });
+form({ id: 'leopard', name: 'Leopard', tree: 'cats', stage: 3, size: 'medium', role: 'Branch hunter', w: [16, 26, 24, 16, 18], cls: 'ambusher',
+  blurb: 'Hides in the branches and strikes without a sound.', weak: 'Easy to find in the open',
+  passive: pas('rosette_cloak', 'Rosette Cloak', 'Hordes notice you 35% less. +20% damage from a bush.', { stealth: 0.35, ambush: 0.2 }),
+  skill: act('leopard_pounce', 'Branch Pounce', 'A pounce that leaves the target bleeding.', 14, { k: 'dash', dist: 7, dmg: 1.7, st: [bleed(4, 0.3)] }, 12) });
+form({ id: 'snow_leopard', name: 'Snow Leopard', tree: 'cats', stage: 3, size: 'medium', role: 'Mountain ghost', w: [18, 22, 22, 20, 18], cls: 'hunter',
+  blurb: 'A pale ghost with a huge leap.', weak: 'Thin on damage',
+  passive: pas('thick_coat', 'Thick Coat', '+12% health, 8% damage reduction.', { hp: 0.12, dr: 0.08 }),
+  skill: act('ghost_leap', 'Ghost Leap', 'A very long leap you cannot be hit during.', 13, { k: 'dash', dist: 10, dmg: 0.8, iframes: 0.5 }, 12) });
+
+// Canines and scavengers
+form({ id: 'dingo', name: 'Dingo', tree: 'canines', stage: 2, size: 'medium', role: 'Outback runner', w: [20, 22, 24, 18, 16], cls: 'skirmisher',
+  blurb: 'Lean, wary and always on the move.', weak: 'Light bite',
+  passive: pas('lean_runner', 'Lean Runner', '+6% speed, stamina recovers 30% faster.', { speed: 0.06, stamRegen: 0.3 }),
+  skill: act('outback_dash', 'Outback Dash', 'For 4 s: +30% speed that costs no stamina.', 16, { k: 'buff', dur: 4, speed: 0.3, free: true }) });
+form({ id: 'arctic_wolf', name: 'Arctic Wolf', tree: 'canines', stage: 3, size: 'medium', role: 'Frost hunter', w: [22, 24, 22, 18, 14], cls: 'hunter',
+  blurb: 'A white wolf whose howl chills the air.', weak: 'Short on senses',
+  passive: pas('frost_pelt', 'Frost Pelt', '+10% health, 5% damage reduction.', { hp: 0.1, dr: 0.05 }),
+  skill: act('frost_howl', 'Frost Howl', 'A chilling howl: enemies within 20 m are slowed for 3 s.', 18, { k: 'aoe', r: 20, dmg: 0, st: [slow(3, 0.5)] }) });
+form({ id: 'maned_wolf', name: 'Maned Wolf', tree: 'canines', stage: 3, size: 'medium', role: 'Stilt hunter', w: [16, 22, 26, 16, 24], cls: 'skirmisher',
+  blurb: 'Long legs, sharp ears and a pounce that marks its prey.', weak: 'Fragile',
+  passive: pas('long_legs', 'Long Legs', '+25% senses range. Hordes notice you 20% less.', { senses: 0.25, stealth: 0.2 }),
+  skill: act('pounce_hunt', 'Pounce Hunt', 'A leap that marks the target for 4 s.', 12, { k: 'dash', dist: 7, dmg: 1.4, st: [mark(4)] }, 10) });
+
+// Mustelids
+form({ id: 'fisher', name: 'Fisher', tree: 'mustelids', stage: 2, size: 'medium', role: 'Tree hunter', w: [20, 24, 22, 16, 18], cls: 'brawler',
+  blurb: 'A dark, quick hunter that takes on anything.', weak: 'Average defence',
+  passive: pas('fisher_fury', 'Fisher Fury', '+8% damage, +15% XP from hunting.', { dmg: 0.08, preyXp: 0.15 }),
+  skill: act('quick_snap', 'Quick Snap', 'A very fast bite.', 6, { k: 'cone', range: 2.2, arc: 70, dmg: 1.0 }) });
+form({ id: 'skunk', name: 'Skunk', tree: 'mustelids', stage: 3, size: 'medium', role: 'Sprayer', w: [22, 18, 16, 22, 22], cls: 'guardian',
+  blurb: 'Nobody wants to be near it.', weak: 'Weak damage',
+  passive: pas('warning_colours', 'Warning Colours', '12% reflect. Hordes notice you 10% less.', { reflect: 0.12, stealth: 0.1 }),
+  skill: act('stink_spray', 'Stink Spray', 'A foul cloud in front: damages, blinds and slows.', 14, { k: 'cone', range: 4, arc: 80, dmg: 0.7, st: [blind(3), slow(3, 0.4)] }) });
+form({ id: 'tayra', name: 'Tayra', tree: 'mustelids', stage: 3, size: 'medium', role: 'Canopy raider', w: [18, 24, 26, 18, 14], cls: 'skirmisher',
+  blurb: 'Races along branches and over fallen logs.', weak: 'Light build',
+  passive: pas('tree_runner', 'Tree Runner', '+8% speed, +5% damage.', { speed: 0.08, dmg: 0.05 }),
+  skill: act('canopy_dash', 'Canopy Dash', 'A long dash you cannot be hit during.', 11, { k: 'dash', dist: 9, dmg: 0.9, iframes: 0.4 }, 10) });
+
+// Bears
+form({ id: 'sun_bear', name: 'Sun Bear', tree: 'bears', stage: 2, size: 'medium', role: 'Climber', w: [22, 22, 20, 18, 18], cls: 'skirmisher',
+  blurb: 'The smallest bear, with a very long tongue and a short temper.', weak: 'Low health for a bear',
+  passive: pas('honey_tongue', 'Honey Tongue', 'Food heals 40% more. +4% speed.', { eatBoost: 0.4, speed: 0.04 }),
+  skill: act('bear_rush', 'Claw Rush', 'A quick rush with raking claws.', 9, { k: 'dash', dist: 5, dmg: 1.2 }, 9) });
+form({ id: 'moon_bear', name: 'Moon Bear', tree: 'bears', stage: 3, size: 'medium', role: 'Guard', w: [24, 22, 16, 20, 18], cls: 'guardian',
+  blurb: 'A pale crescent on a dark coat, and a swipe that rings ears.', weak: 'Slow',
+  passive: pas('crescent_guard', 'Crescent Guard', '8% damage reduction, +8% health.', { dr: 0.08, hp: 0.08 }),
+  skill: act('moon_swipe', 'Moon Swipe', 'A wide swipe that stuns for 0.6 s.', 12, { k: 'cone', range: 3, arc: 110, dmg: 1.5, st: [stun(0.6)] }) });
+form({ id: 'cave_bear', name: 'Cave Bear', tree: 'bears', stage: 3, size: 'large', role: 'Ancient titan', w: [28, 22, 10, 22, 18], cls: 'titan',
+  blurb: 'An ice-age giant that shakes the ground.', weak: 'Very slow',
+  passive: pas('cave_hide', 'Cave Hide', '+15% health, 8% damage reduction.', { hp: 0.15, dr: 0.08 }),
+  skill: act('ground_pound', 'Ground Pound', 'Slam the ground: damages and slows everything within 5 m.', 16, { k: 'aoe', r: 5, dmg: 1.1, st: [slow(3, 0.5)] }) });
+
+// Reptiles
+form({ id: 'viper', name: 'Viper', tree: 'reptiles', stage: 2, size: 'medium', role: 'Venom snake', w: [16, 26, 22, 16, 20], cls: 'ambusher',
+  blurb: 'Feels warmth from far away and strikes first.', weak: 'Fragile',
+  passive: pas('heat_sense', 'Heat Sense', '+30% senses range. Your bites make targets bleed for 3 s.', { senses: 0.3, bleedOnHit: 3 }),
+  skill: act('fang_strike', 'Fang Strike', 'A lightning bite with deep venom.', 8, { k: 'cone', range: 2.4, arc: 60, dmg: 1.0, st: [bleed(5, 0.4)] }) });
+form({ id: 'python', name: 'Python', tree: 'reptiles', stage: 3, size: 'large', role: 'Constrictor', w: [24, 24, 10, 22, 20], cls: 'ambusher',
+  blurb: 'Waits in the brush, then wraps and squeezes.', weak: 'Slow',
+  passive: pas('coil', 'Coil', '+10% health. +20% damage from a bush.', { hp: 0.1, ambush: 0.2 }),
+  skill: act('constrict', 'Constrict', 'Squeeze a target for 3 s of damage.', 17, { k: 'grab', dur: 3, dps: 0.5, range: 3 }) });
+form({ id: 'sea_turtle', name: 'Sea Turtle', tree: 'reptiles', stage: 3, size: 'medium', role: 'Ocean glider', w: [24, 18, 18, 24, 16], cls: 'guardian', swim: 'semi',
+  blurb: 'At home in the water, with a tough shell.', weak: 'Clumsy on land',
+  passive: pas('deep_diver', 'Deep Diver', 'Swims much faster. 10% damage reduction.', { waterSpeed: 0.5, dr: 0.1 }),
+  skill: act('riptide', 'Riptide', 'A rush that knocks targets back.', 13, { k: 'dash', dist: 8, dmg: 1.2, knock: 3 }, 10) });
+
+// Bugs and arachnids
+form({ id: 'scorpion', name: 'Scorpion', tree: 'bugs', stage: 2, size: 'medium', role: 'Stinger', w: [18, 26, 18, 16, 22], cls: 'ambusher',
+  blurb: 'Pincers in front, a venom sting behind.', weak: 'Slow to turn',
+  passive: pas('venom_tail', 'Venom Tail', 'Your hits make targets bleed for 3 s.', { bleedOnHit: 3 }),
+  skill: act('sting', 'Sting', 'A tail strike with strong venom.', 9, { k: 'cone', range: 2.6, arc: 60, dmg: 1.2, st: [bleed(5, 0.4)] }) });
+form({ id: 'emperor_scorpion', name: 'Emperor Scorpion', tree: 'bugs', stage: 3, size: 'large', role: 'Pincer lord', w: [26, 24, 10, 20, 20], cls: 'titan',
+  blurb: 'Huge armoured claws that do not let go.', weak: 'Slow',
+  passive: pas('armoured_claws', 'Armoured Claws', '+10% health, 8% damage reduction.', { hp: 0.1, dr: 0.08 }),
+  skill: act('pincer_grip', 'Pincer Grip', 'Grab a target in your claws for 2.5 s of damage.', 16, { k: 'grab', dur: 2.5, dps: 0.55, range: 3 }) });
+form({ id: 'deathstalker', name: 'Deathstalker', tree: 'bugs', stage: 3, size: 'medium', role: 'Needle sting', w: [14, 30, 24, 14, 18], cls: 'hunter',
+  blurb: 'Small, pale and very, very dangerous.', weak: 'Glass cannon',
+  passive: pas('neurotoxin', 'Neurotoxin', '+10% damage, +10% against marked targets.', { dmg: 0.1, markDmg: 0.1 }),
+  skill: act('neuro_sting', 'Neuro Sting', 'A sting that stuns for 1 s.', 12, { k: 'cone', range: 2.6, arc: 60, dmg: 1.2, st: [stun(1)] }) });
+
+// Fish
+form({ id: 'catfish', name: 'Catfish', tree: 'fish', stage: 2, size: 'medium', role: 'Bottom feeder', w: [24, 22, 16, 20, 18], cls: 'brawler', swim: 'water', landMul: 0.5,
+  blurb: 'Feels the whole riverbed through its whiskers.', weak: 'Helpless on land',
+  passive: pas('barbel_sense', 'Barbel Sense', '+30% senses range, 5% lifesteal.', { senses: 0.3, lifesteal: 0.05 }),
+  skill: act('mud_gulp', 'Mud Gulp', 'Heal 18% of your health.', 24, { k: 'heal', pct: 0.18 }) });
+form({ id: 'swordfish', name: 'Swordfish', tree: 'fish', stage: 3, size: 'large', role: 'Spear', w: [18, 28, 26, 16, 16], cls: 'hunter', swim: 'water', landMul: 0.45,
+  blurb: 'Charges with a bill like a spear.', weak: 'Helpless on land',
+  passive: pas('long_bill', 'Long Bill', '+8% damage, +8% speed.', { dmg: 0.08, speed: 0.08 }),
+  skill: act('spear_charge', 'Spear Charge', 'A fast charge that pierces and knocks back.', 13, { k: 'dash', dist: 10, dmg: 2.0, knock: 3 }, 12) });
+form({ id: 'sturgeon', name: 'Sturgeon', tree: 'fish', stage: 3, size: 'large', role: 'Armoured giant', w: [28, 18, 14, 22, 18], cls: 'guardian', swim: 'water', landMul: 0.4,
+  blurb: 'An ancient fish in a coat of bony plates.', weak: 'Slow and helpless on land',
+  passive: pas('bony_plates', 'Bony Plates', '15% damage reduction, but 4% slower.', { dr: 0.15, speed: -0.04 }),
+  skill: act('plate_shield', 'Plate Shield', 'For 5 s: take 60% less damage.', 18, { k: 'buff', dur: 5, dr: 0.6 }) });
+
+// Birds: they cannot truly fly, but every one of them can soar: a boost into the air and a long glide
+form({ id: 'robin', name: 'Robin', tree: 'birds', stage: 1, size: 'small', role: 'Glider', w: [14, 16, 28, 20, 22], cls: 'skirmisher',
+  blurb: 'Quick, sharp-eyed and light enough to glide.', weak: 'Very fragile',
+  passive: pas('feather_light', 'Feather Light', '+4% speed.', { speed: 0.04 }),
+  skill: SOAR });
+form({ id: 'hawk', name: 'Hawk', tree: 'birds', stage: 2, size: 'medium', role: 'Diver', w: [16, 26, 24, 16, 18], cls: 'hunter',
+  blurb: 'Drops out of the sky onto its prey.', weak: 'Thin defence',
+  passive: pas('talons', 'Talons', '+8% damage.', { dmg: 0.08 }),
+  skill: act('dive_strike', 'Dive Strike', 'A swooping dash that hits hard.', 11, { k: 'dash', dist: 8, dmg: 1.7 }, 10) });
+form({ id: 'owl', name: 'Owl', tree: 'birds', stage: 2, size: 'medium', role: 'Night hunter', w: [16, 22, 18, 16, 28], cls: 'ambusher',
+  blurb: 'Silent wings and enormous eyes.', weak: 'Slow in a straight fight',
+  passive: pas('silent_wings', 'Silent Wings', 'Hordes notice you 35% less. +20% damage from a bush.', { stealth: 0.35, ambush: 0.2 }),
+  skill: act('screech', 'Screech', 'A screech that blinds everything within 6 m.', 16, { k: 'aoe', r: 6, dmg: 0.3, st: [blind(2.5)] }) });
+form({ id: 'crow', name: 'Crow', tree: 'birds', stage: 2, size: 'medium', role: 'Scavenger', w: [18, 20, 24, 20, 18], cls: 'brawler',
+  blurb: 'Clever, loud and always watching.', weak: 'Average at everything',
+  passive: pas('carrion_eater', 'Carrion Eater', 'Food heals 50% more.', { eatBoost: 0.5 }),
+  skill: act('mob_caw', 'Mob Caw', 'A cawing mob: marks enemies within 25 m for 4 s.', 18, { k: 'aoe', r: 25, dmg: 0, st: [mark(4)] }) });
+form({ id: 'eagle', name: 'Eagle', tree: 'birds', stage: 3, size: 'large', role: 'Apex raptor', w: [18, 28, 22, 14, 18], cls: 'hunter',
+  blurb: 'Sees everything and hits like a falling rock.', weak: 'Tires quickly',
+  passive: pas('eagle_eye', 'Eagle Eye', '+35% senses range. +8% damage.', { senses: 0.35, dmg: 0.08 }),
+  skill: act('sky_strike', 'Sky Strike', 'A diving strike that knocks the target back.', 14, { k: 'dash', dist: 10, dmg: 2.2, knock: 3 }, 12) });
+form({ id: 'falcon', name: 'Peregrine Falcon', tree: 'birds', stage: 3, size: 'medium', role: 'Speed diver', w: [14, 24, 34, 14, 14], cls: 'skirmisher',
+  blurb: 'The fastest animal alive in a dive.', weak: 'Fragile',
+  passive: pas('stoop', 'Stoop', '+8% speed.', { speed: 0.08 }),
+  skill: act('peregrine_dive', 'Peregrine Dive', 'A huge, fast dive you cannot be hit during.', 14, { k: 'dash', dist: 12, dmg: 1.5, iframes: 0.4 }, 12) });
+form({ id: 'great_horned_owl', name: 'Great Horned Owl', tree: 'birds', stage: 3, size: 'medium', role: 'Night tyrant', w: [18, 28, 16, 16, 22], cls: 'ambusher',
+  blurb: 'Snatches prey in the dark and does not let go.', weak: 'Slow',
+  passive: pas('horned_hunter', 'Horned Hunter', '+25% damage from a bush. +10% senses.', { ambush: 0.25, senses: 0.1 }),
+  skill: act('talon_grab', 'Talon Grab', 'Snatch a target in your talons for 2.2 s of damage.', 16, { k: 'grab', dur: 2.2, dps: 0.6, range: 3 }) });
+form({ id: 'snowy_owl', name: 'Snowy Owl', tree: 'birds', stage: 3, size: 'medium', role: 'Arctic hunter', w: [22, 24, 18, 18, 18], cls: 'hunter',
+  blurb: 'White on white, then suddenly everywhere.', weak: 'Average speed',
+  passive: pas('snow_cloak', 'Snow Cloak', 'Hordes notice you 25% less. +10% health.', { stealth: 0.25, hp: 0.1 }),
+  skill: act('whiteout', 'Whiteout', 'A flurry of wings: enemies within 7 m are blinded and slowed.', 17, { k: 'aoe', r: 7, dmg: 0.4, st: [blind(2), slow(3, 0.4)] }) });
+form({ id: 'raven', name: 'Raven', tree: 'birds', stage: 3, size: 'medium', role: 'Trickster', w: [18, 22, 24, 16, 20], cls: 'ambusher',
+  blurb: 'An omen with a very good memory.', weak: 'Fragile',
+  passive: pas('raven_wit', 'Raven Wit', 'Hordes notice you 30% less. +10% senses.', { stealth: 0.3, senses: 0.1 }),
+  skill: act('dark_omen', 'Dark Omen', 'Marks enemies within 35 m for 5 s.', 18, { k: 'aoe', r: 35, dmg: 0, st: [mark(5)] }) });
+form({ id: 'vulture', name: 'Vulture', tree: 'birds', stage: 3, size: 'large', role: 'Carrion king', w: [26, 22, 14, 22, 16], cls: 'brawler',
+  blurb: 'Patient, tough and happy to wait.', weak: 'Slow to get going',
+  passive: pas('strong_stomach', 'Strong Stomach', 'Food heals twice as much. 5% lifesteal.', { eatBoost: 1.0, lifesteal: 0.05 }),
+  skill: act('carrion_feast', 'Carrion Feast', 'Heal 28% of your health.', 26, { k: 'heal', pct: 0.28 }) });
+
+/** Who each stage 3 form evolves from: a stage 2 form leads to its own two final forms and no others. */
+const PARENT: Record<string, string> = {
+  panther: 'bobcat', tiger: 'bobcat', cheetah: 'lynx', lion: 'lynx', leopard: 'ocelot', snow_leopard: 'ocelot',
+  gray_wolf: 'coyote', hyena: 'coyote', dhole: 'jackal', wild_dog: 'jackal', arctic_wolf: 'dingo', maned_wolf: 'dingo',
+  honey_badger: 'badger', wolverine: 'badger', giant_otter: 'river_otter', sea_otter: 'river_otter', skunk: 'fisher', tayra: 'fisher',
+  grizzly: 'black_bear', kodiak: 'black_bear', panda: 'sloth_bear', moon_bear: 'sloth_bear', polar_bear: 'sun_bear', cave_bear: 'sun_bear',
+  komodo: 'monitor', croc: 'monitor', tortoise: 'snapping_turtle', sea_turtle: 'snapping_turtle', cobra: 'viper', python: 'viper',
+  hercules: 'beetle', bombardier: 'beetle', tarantula: 'spider', black_widow: 'spider', emperor_scorpion: 'scorpion', deathstalker: 'scorpion',
+  bull_shark: 'piranha', barracuda: 'piranha', angler: 'pufferfish', eel: 'pufferfish', swordfish: 'catfish', sturgeon: 'catfish',
+  eagle: 'hawk', falcon: 'hawk', great_horned_owl: 'owl', snowy_owl: 'owl', raven: 'crow', vulture: 'crow',
+};
+
 export interface TreeDef {
   id: string;
   name: string;
@@ -387,6 +545,7 @@ export const TREES: TreeDef[] = [
   { id: 'reptiles', name: 'Reptiles', icon: '🦎', blurb: 'Venom and armor', starter: 'gecko' },
   { id: 'bugs', name: 'Bugs and arachnids', icon: '🐜', blurb: 'Traps and bursts', starter: 'ant' },
   { id: 'fish', name: 'Fish', icon: '🐟', blurb: 'Water control and bursts', starter: 'mudskipper' },
+  { id: 'birds', name: 'Birds', icon: '🐦', blurb: 'Soar, dive and watch', starter: 'robin' },
 ];
 export const TREE_BY_ID = new Map(TREES.map((t) => [t.id, t]));
 
@@ -440,25 +599,29 @@ export const CLASS_BY_ID = new Map(CLASSES.map((c) => [c.id, c]));
 /** A class as a pseudo-skill so its numbers are summed with the animal's own. */
 export const classSkill = (cls: ClassId): Skill => ({ id: `class_${cls}`, name: CLASS_BY_ID.get(cls)!.name, desc: '', mods: CLASS_BY_ID.get(cls)!.mods });
 
-// Stage 2 and 3 animals keep a move from their earlier life as a second skill (E): stage 2 the tree's starter move, stage 3 a stage 2 move.
+// Who evolves from whom: the starter into every stage 2 form of its tree, and each stage 2 form into its own two final forms.
+for (const f of FORMS) {
+  if (f.stage === 2) f.from = TREES.find((t) => t.id === f.tree)!.starter;
+  else if (f.stage === 3) f.from = PARENT[f.id] ?? null;
+}
+// Stage 2 and 3 animals keep a move from their earlier life as a second skill (E): the starter's, then their parent's.
+// Every bird keeps its soar, whatever it has become.
 for (const f of FORMS) {
   if (f.stage < 2) continue;
-  const prev = FORMS.filter((o) => o.tree === f.tree && o.stage === f.stage - 1);
-  const same = FORMS.filter((o) => o.tree === f.tree && o.stage === f.stage);
-  const src = prev[same.indexOf(f) % prev.length];
-  f.skill2 = src.skill2 && src.skill2.id !== f.skill.id && same.indexOf(f) % 2 ? src.skill2 : src.skill;
+  const parent = FORMS.find((o) => o.id === f.from)!;
+  f.skill2 = f.tree === 'birds' ? SOAR : parent.skill;
 }
 
 export const ANIMALS: AnimalDef[] = FORMS;
 export const ANIMAL_BY_ID = new Map(ANIMALS.map((a) => [a.id, a]));
-/** The seven animals you can start as. */
+/** The eight animals you can start as. */
 export const STARTERS: AnimalDef[] = TREES.map((t) => ANIMAL_BY_ID.get(t.starter)!);
 export const FORMS_OF_TREE = (tree: string) => ANIMALS.filter((a) => a.tree === tree);
 
-/** The forms an animal can evolve into right now: any form of the next stage in its tree, once it is high enough a level. */
+/** The forms an animal can evolve into right now: only those that branch from it, once it is high enough a level. */
 export function evolveOptions(def: AnimalDef, level: number): AnimalDef[] {
   if (def.stage >= 3 || level < EVOLVE_LEVELS[def.stage - 1]) return [];
-  return ANIMALS.filter((a) => a.tree === def.tree && a.stage === def.stage + 1);
+  return ANIMALS.filter((a) => a.from === def.id);
 }
 
 export const SKILL_BY_ID = new Map<string, Skill>();

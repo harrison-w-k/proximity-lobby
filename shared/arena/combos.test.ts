@@ -11,7 +11,7 @@ const base = dps(COMBO);
 
 // 1. who has a chain of their own, and how long it is
 const evolved = ANIMALS.filter((a) => a.stage > 1);
-assert.equal(evolved.length, 42, 'seven trees have 14 stage 2 and 28 stage 3 forms');
+assert.equal(evolved.length, 72, 'eight trees have 24 stage 2 and 48 stage 3 forms');
 for (const a of ANIMALS) {
   const seq = comboOf(a.id);
   if (a.stage === 1) {
@@ -22,7 +22,7 @@ for (const a of ANIMALS) {
     assert.ok(seq.length >= lo && seq.length <= hi, `${a.id} (stage ${a.stage}) has ${seq.length} strikes, expected ${lo} to ${hi}`);
   }
 }
-assert.equal(CUSTOM_COMBO_IDS.length, 42, 'no chain belongs to an unknown animal');
+assert.equal(CUSTOM_COMBO_IDS.length, 72, 'no chain belongs to an unknown animal');
 
 // 2. no two forms share a sequence
 const sig = (id: string) => comboOf(id).map((c) => `${c.kind}${c.fx ? ':' + c.fx : ''}${c.heavy ? '!' : ''}`).join(' ');

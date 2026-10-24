@@ -252,7 +252,7 @@ const el = <T extends HTMLElement = HTMLElement>(tag: string, cls = '', html = '
   return e;
 };
 
-const FX_ICON: Record<string, string> = { cone: '🦷', dash: '💨', aoe: '💥', proj: '🪨', buff: '✨', heal: '💚', grab: '✊', submerge: '🌊' };
+const FX_ICON: Record<string, string> = { cone: '🦷', dash: '💨', aoe: '💥', proj: '🪨', buff: '✨', heal: '💚', grab: '✊', submerge: '🌊', soar: '🪶' };
 const SKILL_ICON: Record<string, string> = {
   howl: '🌙', alpha_howl: '🌕', roar: '📢', frenzy: '🔥', thick_hide: '🛡️', quill_coat: '🛡️', burst: '⚡', swerve: '↩️', musk_spray: '☁️', rock_throw: '🪨',
   quill_shot: '🪶', quill_burst: '🌵', quill_storm: '🌵', earthshaker: '🌋', splash: '💦', tail_whip: '🌀', death_roll: '🐊', submerge: '🌊', rampage: '😡',

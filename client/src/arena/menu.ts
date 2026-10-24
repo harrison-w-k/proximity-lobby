@@ -103,7 +103,7 @@ const CSS = `
 #br-menu .dropinfo .x { color: #ff9a82; }
 #br-menu .dropinfo .fit { color: #ffd77a; }
 @media (max-width: 960px) { #br-menu .drop { grid-template-columns: repeat(3, 1fr); } #br-menu .dropinfo { grid-template-columns: 1fr; } }
-#br-menu .roster { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; padding: 8px 2px 4px; }
+#br-menu .roster { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; padding: 8px 2px 4px; }
 #br-menu .roster .tile { padding: 3px 2px 4px; }
 #br-menu .roster .tile .em { font-size: 28px; }
 #br-menu .roster .tile small { display: none; }

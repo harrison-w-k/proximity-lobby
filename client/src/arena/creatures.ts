@@ -278,7 +278,7 @@ function buildSpider(
   return { root, body, head, legs, height: y0 + o.ceph[1] + L * 0.3, length, width: (o.ceph[0] + L) * 2, eight: true };
 }
 
-type BugKind = 'ant' | 'beetle' | 'hercules' | 'bombardier' | 'spider' | 'tarantula' | 'black_widow';
+type BugKind = 'ant' | 'beetle' | 'hercules' | 'bombardier' | 'spider' | 'tarantula' | 'black_widow' | 'scorpion' | 'emperor_scorpion' | 'deathstalker';
 
 const BUG_PAL: Record<BugKind, Palette> = {
   ant: { main: 0x3a1e14, acc: 0x241410 },
@@ -288,7 +288,35 @@ const BUG_PAL: Record<BugKind, Palette> = {
   spider: { main: 0x6a5238, acc: 0x4a3a28 },
   tarantula: { main: 0x4a3322, acc: 0x3a281a },
   black_widow: { main: 0x121216, acc: 0x0c0c10 },
+  scorpion: { main: 0x9a7a3a, acc: 0x86652c },
+  emperor_scorpion: { main: 0x1a1a22, acc: 0x121218 },
+  deathstalker: { main: 0xdcc66a, acc: 0xcdb457 },
 };
+
+/** A scorpion's pincers and its curled, stinging tail, scaled by `sc`. */
+function scorpionParts(p: Parts, g: { y0: number; az: number }, sc: number, claw: number, tailC: number, sting: number) {
+  for (const s of [-1, 1]) {
+    // pedipalps: an arm that reaches out and forward, ending in a pincer
+    const a: V3 = [s * 0.16 * sc, g.y0, 0.2 * sc];
+    const b: V3 = [s * 0.34 * sc, g.y0 + 0.02 * sc, 0.5 * sc];
+    const c: V3 = [s * 0.24 * sc, g.y0, 0.78 * sc];
+    p.seg(a, b, 0.05 * sc, 0.042 * sc, claw, 7);
+    p.seg(b, c, 0.042 * sc, 0.038 * sc, claw, 7);
+    p.ball(0.075 * sc, 0.05 * sc, 0.12 * sc, shade(claw, 1.08), s * 0.22 * sc, g.y0, 0.9 * sc, 0, 9, 7);
+    p.spike([s * 0.14 * sc, g.y0, 0.96 * sc], [s * 0.04 * sc, g.y0, 1.22 * sc], 0.04 * sc, shade(claw, 0.8));
+    p.spike([s * 0.31 * sc, g.y0, 0.96 * sc], [s * 0.34 * sc, g.y0, 1.2 * sc], 0.034 * sc, shade(claw, 0.8));
+  }
+  // the tail: segments arching up and forward over the back, ending in a stinger
+  const pts: V3[] = [[0, 0, -0.1], [0, 0.12, -0.28], [0, 0.3, -0.36], [0, 0.5, -0.3], [0, 0.64, -0.14], [0, 0.7, 0.06]].map(([x, y, z]) => [x, g.y0 + y * sc, g.az + z * sc] as V3);
+  for (let i = 1; i < pts.length; i++) {
+    const r0 = (0.062 - i * 0.006) * sc;
+    p.seg(pts[i - 1], pts[i], r0, r0 * 0.9, i % 2 ? tailC : shade(tailC, 0.9), 7);
+    p.ball(r0 * 1.1, r0 * 1.1, r0 * 1.1, shade(tailC, 0.8), pts[i][0], pts[i][1], pts[i][2], 0, 6, 5);
+  }
+  const tip = pts[pts.length - 1];
+  p.ball(0.06 * sc, 0.06 * sc, 0.07 * sc, tailC, tip[0], tip[1], tip[2] + 0.02 * sc, 0, 8, 6); // the venom bulb
+  p.spike([tip[0], tip[1], tip[2] + 0.05 * sc], [tip[0], tip[1] - 0.14 * sc, tip[2] + 0.14 * sc], 0.03 * sc, sting);
+}
 
 function buildBug(kind: BugKind, paint?: Paint | null): BugBuilt {
   const base = BUG_PAL[kind];
@@ -355,6 +383,12 @@ function buildBug(kind: BugKind, paint?: Paint | null): BugBuilt {
           p.spike(c, [c[0] * 1.12, c[1] + 0.045, c[2] * 1.05 - 0.02], 0.009, i % 4 === 0 ? 0xc09a6a : shade(pal.acc, 1.4)); // the abdomen's bristles
         }
       });
+    case 'scorpion':
+      return buildSpider(pal, { ceph: [0.2, 0.09, 0.24], abd: [0.16, 0.1, 0.34], legLen: 0.3, legT: 0.026, legC: shade(pal.main, 0.8), eyeC: 0x120c06, fang: 0.04, reach: 0.8 }, (p, g) => scorpionParts(p, g, 1, shade(pal.main, 1.05), pal.acc, 0x2a1a0c));
+    case 'emperor_scorpion':
+      return buildSpider(pal, { ceph: [0.32, 0.13, 0.36], abd: [0.24, 0.14, 0.5], legLen: 0.42, legT: 0.04, legC: 0x101016, eyeC: 0x1a1a22, fang: 0.06, reach: 0.8 }, (p, g) => scorpionParts(p, g, 1.5, 0x20202a, 0x16161c, 0x0a0a0e));
+    case 'deathstalker':
+      return buildSpider(pal, { ceph: [0.17, 0.075, 0.22], abd: [0.12, 0.075, 0.3], legLen: 0.28, legT: 0.02, legC: shade(pal.main, 0.85), eyeC: 0x120c06, fang: 0.03, reach: 0.85 }, (p, g) => scorpionParts(p, g, 0.95, 0xe8d37a, 0xb8a040, 0x5a4010));
     case 'black_widow':
       return buildSpider(pal, { ceph: [0.12, 0.09, 0.15], abd: [0.2, 0.2, 0.24], legLen: 0.5, legT: 0.014, legC: 0x0a0a0d, eyeC: 0x111118, fang: 0.05, reach: 1.1 }, (p, g) => {
         // the red hourglass on the belly
@@ -440,7 +474,7 @@ export class BugRig implements Rig {
   }
 }
 
-export const BUG_KINDS = new Set<string>(['ant', 'beetle', 'hercules', 'bombardier', 'spider', 'tarantula', 'black_widow']);
+export const BUG_KINDS = new Set<string>(['ant', 'beetle', 'hercules', 'bombardier', 'spider', 'tarantula', 'black_widow', 'scorpion', 'emperor_scorpion', 'deathstalker']);
 export function makeBugRig(kind: string, paint: Paint | null | undefined, radius: number): Rig {
   const k = kind as BugKind;
   const b = buildBug(k, paint);
@@ -491,6 +525,21 @@ const FISH_P: Record<string, FishP> = {
   bull_shark: {
     len: 2.4, prof: [[0, 0.02, 0.03, 0.03], [0.04, 0.1, 0.1, 0.07], [0.15, 0.2, 0.2, 0.15], [0.35, 0.26, 0.3, 0.22], [0.6, 0.18, 0.22, 0.17], [0.85, 0.07, 0.09, 0.08], [1, 0.03, 0.045, 0.04]],
     back: 0x66737c, belly: 0xe8eceb, fin: 0x55616a, mark: 'none', markC: 0x4a555d, eyeR: 0.03, eyeU: 0.75, eyeY: 0.0, eyeC: 0x111111, tailLen: 0.5, tailH: 0.42, tail: 'shark',
+  },
+  // a wide, flat head with long whiskers, a smooth mottled body and no scales
+  catfish: {
+    len: 1.3, prof: [[0, 0.05, 0.05, 0.035], [0.06, 0.14, 0.1, 0.07], [0.2, 0.17, 0.15, 0.1], [0.45, 0.13, 0.15, 0.12], [0.75, 0.08, 0.1, 0.08], [1, 0.03, 0.05, 0.04]],
+    back: 0x5c5a46, belly: 0xd8d2b0, fin: 0x4a4838, mark: 'mottle', markC: 0x34322a, eyeR: 0.028, eyeU: 0.85, eyeY: 0.0, eyeC: 0x2a2418, tailLen: 0.24, tailH: 0.2, tail: 'round',
+  },
+  // a long, slim, blue-backed hunter with a spear for a nose and a tall sail of a fin
+  swordfish: {
+    len: 2.6, prof: [[0, 0.008, 0.012, 0.012], [0.12, 0.07, 0.09, 0.08], [0.3, 0.15, 0.21, 0.17], [0.6, 0.12, 0.18, 0.14], [0.85, 0.05, 0.07, 0.06], [1, 0.02, 0.03, 0.03]],
+    back: 0x344f7a, belly: 0xdfe6ea, fin: 0x26385a, mark: 'none', markC: 0x26385a, eyeR: 0.04, eyeU: 0.6, eyeY: 0.0, eyeC: 0x0c0c0c, tailLen: 0.55, tailH: 0.46, tail: 'shark',
+  },
+  // an ancient fish: a long body in rows of bony plates, a pointed snout and a shark-like tail
+  sturgeon: {
+    len: 2.2, prof: [[0, 0.02, 0.03, 0.02], [0.14, 0.08, 0.08, 0.05], [0.32, 0.15, 0.15, 0.1], [0.6, 0.15, 0.16, 0.11], [0.86, 0.06, 0.08, 0.06], [1, 0.02, 0.04, 0.04]],
+    back: 0x5d6a5a, belly: 0xe0dcc4, fin: 0x485648, mark: 'none', markC: 0x3a463a, eyeR: 0.026, eyeU: 0.7, eyeY: 0.0, eyeC: 0x14140c, tailLen: 0.5, tailH: 0.34, tail: 'shark',
   },
   // a long, slender torpedo with a pointed head, a jutting lower jaw full of fangs, and dark bars on silver
   barracuda: {
@@ -647,13 +696,56 @@ function buildFish(name: string, paint?: Paint | null): { geo: THREE.BufferGeome
       p.ball(0.045, 0.03, 0.03, 0x3a2e18, 0, -0.01, zAt(0) + 0.02, 0, 8, 6); // the little beak
       break;
     case 'bull_shark':
-      dorsal(0.26, 0.4, 0.34, shade(finC, 0.95), 0.9);
+      dorsal(0.25, 0.42, 0.42, shade(finC, 0.95), 1.1);
       dorsal(0.66, 0.72, 0.08, finC, 0.5);
       anal(0.68, 0.76, 0.08, finC);
-      pair(0.26, 0.46, 0.22, 0.6, shade(finC, 1.05), 0.5);
+      for (const sd of [-1, 1]) {
+        // big swept-back pectoral blades, angled out and down from the lower flank
+        const base = new THREE.Vector3(sd * wid(0.27) * 0.9, -bot(0.27) * 0.45, zAt(0.27));
+        const pm = new THREE.Matrix4().compose(base, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sd * 0.2, -sd * 0.55)), new THREE.Vector3(1, 1, 1));
+        p.fin([[0, 0], [-0.05, sd * 0.2], [-0.18, sd * 0.42], [-0.44, sd * 0.55], [-0.32, sd * 0.22], [-0.36, 0]], 'zx', 0, shade(finC, 1.05), pm);
+        // small pelvic fins further back
+        const pv = new THREE.Matrix4().compose(new THREE.Vector3(sd * wid(0.58) * 0.8, -bot(0.58) * 0.7, zAt(0.58)), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sd * 0.15, -sd * 0.5)), new THREE.Vector3(1, 1, 1));
+        p.fin([[0, 0], [-0.03, sd * 0.1], [-0.16, sd * 0.2], [-0.12, 0]], 'zx', 0, finC, pv);
+      }
       for (let k = 0; k < 4; k++) for (const s of [-1, 1]) p.ball(0.004, 0.05, 0.004, 0x2c353b, s * (wid(0.22 + k * 0.012) * 0.99), 0.0, zAt(0.2 + k * 0.012), 0, 4, 4); // gill slits
       for (let i = 0; i < 8; i++) for (const s of [-1, 1]) p.spike([s * (0.02 + i * 0.01), -0.055, zAt(0.07) - i * 0.012], [s * (0.02 + i * 0.01), -0.02, zAt(0.07) - i * 0.012], 0.006, 0xf4f1e6); // teeth
       break;
+    case 'catfish': {
+      dorsal(0.3, 0.4, 0.1, fin2, 0.6);
+      dorsal(0.78, 0.88, 0.05, finC, 0.5); // the small adipose fin
+      anal(0.55, 0.84, 0.07, finC);
+      pair(0.2, 0.18, 0.06, 0.5, finC, 0.3);
+      // the whiskers: long barbels trailing from the mouth and the nostrils
+      for (const sd of [-1, 1]) {
+        p.seg([sd * 0.07, -0.01, zAt(0.01)], [sd * 0.3, -0.06, zAt(0.0) + 0.24], 0.012, 0.004, shade(pal.back, 0.85), 5);
+        p.seg([sd * 0.05, -0.04, zAt(0.015)], [sd * 0.16, -0.17, zAt(0.0) + 0.2], 0.01, 0.004, shade(pal.back, 0.85), 5);
+        p.seg([sd * 0.03, 0.02, zAt(0.012)], [sd * 0.08, -0.03, zAt(0.0) + 0.3], 0.008, 0.003, shade(pal.back, 0.85), 5);
+      }
+      break;
+    }
+    case 'swordfish':
+      dorsal(0.26, 0.58, 0.36, shade(finC, 1.0), 1.0); // the tall sail
+      dorsal(0.8, 0.86, 0.06, finC, 0.5);
+      anal(0.78, 0.86, 0.07, finC);
+      pair(0.28, 0.3, 0.1, 0.55, finC, 0.5);
+      // the bill: a flat spear as long as a third of the body
+      p.seg([0, 0, zAt(0.0) + 0.02], [0, -0.005, zAt(0.0) + 0.95], 0.034, 0.006, shade(pal.back, 0.8), 6);
+      break;
+    case 'sturgeon': {
+      dorsal(0.66, 0.76, 0.1, finC, 0.6);
+      anal(0.68, 0.78, 0.08, finC);
+      pair(0.26, 0.26, 0.09, 0.55, finC, 0.4);
+      // rows of bony plates down the back and flanks
+      for (let k = 0; k < 11; k++) {
+        const u = 0.16 + k * 0.058;
+        p.spike([0, top(u) * 0.96, zAt(u)], [0, top(u) + 0.06, zAt(u) + 0.02], 0.028, 0xc8c4a8);
+        for (const sd of [-1, 1]) p.spike([sd * wid(u) * 0.97, 0.0, zAt(u)], [sd * (wid(u) + 0.045), 0.02, zAt(u) + 0.015], 0.02, 0xc8c4a8);
+      }
+      // barbels under a long pointed snout
+      for (const sd of [-1, 1]) p.seg([sd * 0.03, -0.04, zAt(0.06)], [sd * 0.05, -0.09, zAt(0.02)], 0.008, 0.004, shade(pal.back, 0.85), 5);
+      break;
+    }
     case 'barracuda':
       dorsal(0.52, 0.6, 0.07, fin2, 0.5);
       dorsal(0.76, 0.82, 0.06, finC, 0.5);

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { toonMat } from './toon';
 import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
 import { REAL_QUAD, buildRealQuad } from './realquad';
+import { REAL_BIRD, buildRealBird, wingPose, type BirdParts } from './birds';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
@@ -24,6 +25,7 @@ export interface RigState {
   vy?: number; // rising (+) or falling (-)
   warn?: number; // 0..1: this animal is winding up a blow, glow so it can be read
   counter?: boolean;
+  soar?: boolean; // gliding on outstretched wings
 }
 
 export interface Rig {
@@ -416,9 +418,9 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
-    if (REAL_QUAD.has(b.spec.id ?? '')) {
-      // realistic models carry their colour in the vertices: one lit material for the whole animal
-      const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+    if (REAL_QUAD.has(b.spec.id ?? '') || REAL_BIRD.has(b.spec.id ?? '')) {
+      // realistic models carry their colour in the vertices: one lit material for the whole animal (birds show both faces of a wing)
+      const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, side: REAL_BIRD.has(b.spec.id ?? '') ? THREE.DoubleSide : THREE.FrontSide });
       b.root.traverse((o) => {
         if (o instanceof THREE.Mesh) o.material = m;
       });
@@ -517,6 +519,27 @@ class QuadRig implements Rig {
       else if (s.counter) m.emissive.setRGB(0.5, 0.4, 0.05);
       else m.emissive.setRGB(e, e * 0.25, e * 0.2);
     }
+  }
+}
+
+/** A bird: the same body animation, plus wings that fold on the ground, open in the air and spread wide in a glide. */
+class BirdPlayerRig extends QuadRig {
+  private spread = 0;
+  private flapT = Math.random() * 6;
+  constructor(b: Built, radius: number, private parts: BirdParts) {
+    super(b, radius);
+    wingPose(parts, 0);
+  }
+  update(dt: number, s: RigState) {
+    super.update(dt, s);
+    const air = (s.air ?? 0) > 0.04;
+    // wide and steady in a glide, half open in a hop, and a flare of the wings on a strike or a skill
+    const want = s.soar && air ? 1 : air ? 0.5 : Math.min(1, (s.attack ?? 0) * 1.4 + (s.pose?.sc ? 0.2 : 0));
+    this.spread += (want - this.spread) * Math.min(1, dt * (want > this.spread ? 14 : 6));
+    this.flapT += dt * (air && !s.soar ? 26 : 5);
+    const rising = air && (s.vy ?? 0) > 1;
+    const flap = rising ? Math.sin(this.flapT) * 0.7 : air && !s.soar ? Math.sin(this.flapT) * 0.25 : s.soar ? Math.sin(this.flapT * 0.4) * 0.05 : 0;
+    wingPose(this.parts, this.spread, flap * this.spread);
   }
 }
 
@@ -943,7 +966,7 @@ function crown(): THREE.Group {
 }
 
 
-// --- the 49 forms of the seven evolution trees ----------------------------------------------------
+// --- the 80 forms of the eight evolution trees ----------------------------------------------------
 // Most reuse a base body (cat, wolf, bear, otter, lizard...) with new colours, size and markings.
 type Extras = NonNullable<QuadSpec['extras']>;
 const spotted = (c: number, n: number, w: number, len: number, sz: number): Extras => (torso, _h, r) => {
@@ -1006,12 +1029,18 @@ PS.tiger = {
   tail: { len: 1.1, t: 0.12, up: 0.1 }, extras: striped(0x1c1410, 9, 0.5, 1.2, 0.12),
 };
 PS.lion = { ...SPECS.lion, scale: 1.15 };
+PS.ocelot = { ...SPECS.leopard, fur: 0xd9a95c, belly: 0xf5ead0, paw: 0xa08040, scale: 0.85, head: { s: 0.3, snout: 0.1, snoutC: 0xf5ead0 }, tail: { len: 0.9, t: 0.09, up: 0.1 }, extras: undefined };
+PS.leopard = { ...SPECS.leopard, fur: 0xdcae58, belly: 0xf4e8cc, paw: 0xa07838, scale: 1.05, extras: undefined };
+PS.snow_leopard = { ...SPECS.leopard, fur: 0xc9c6c0, belly: 0xf0eeea, paw: 0x8a8884, scale: 1.05, tail: { len: 1.2, t: 0.16, up: 0.05 }, extras: undefined };
 
 // canines and scavengers
 PS.fox = { ...SPECS.redfox, scale: 0.8 };
 PS.coyote = { ...SPECS.wolf, fur: 0xb89868, belly: 0xe7d8bc, paw: 0x6a5238, scale: 0.85, extras: undefined, head: { s: 0.34, snout: 0.3, snoutC: 0xcdb48a } };
 PS.jackal = { ...SPECS.wolf, fur: 0xc79a4e, belly: 0xefdcb0, paw: 0x7a5a2a, scale: 0.8, extras: undefined, ears: 'point', earS: 0.75, head: { s: 0.3, snout: 0.3, snoutC: 0xe0be82 } };
 PS.gray_wolf = { ...SPECS.wolf, scale: 1.1 };
+PS.dingo = { ...SPECS.wolf, fur: 0xc9964e, belly: 0xefdcb4, paw: 0x9a6a30, scale: 0.9, extras: undefined, ears: 'point', earS: 0.6, head: { s: 0.33, snout: 0.26, snoutC: 0xe8d0a0 }, tail: { len: 0.75, t: 0.14, c: 0xc9964e, up: -0.1 } };
+PS.arctic_wolf = { ...SPECS.wolf, fur: 0xeceef0, belly: 0xffffff, paw: 0xc8ccd0, scale: 1.1, extras: undefined, ears: 'round', earS: 0.42 };
+PS.maned_wolf = { ...SPECS.wolf, fur: 0xc9602a, belly: 0xe8b078, paw: 0x1c1410, scale: 1.05, legLen: 0.78, legT: 0.1, extras: undefined, ears: 'point', earS: 0.85, head: { s: 0.3, snout: 0.3, snoutC: 0xe8b078 }, tail: { len: 0.7, t: 0.14, c: 0xc9602a, up: -0.15 } };
 PS.dhole = { ...SPECS.wolf, fur: 0xc4562a, belly: 0xf0d0a8, paw: 0x7a3a1c, scale: 1.0, extras: undefined, tail: { len: 0.8, t: 0.16, c: 0x2a1810, up: -0.2 } };
 PS.hyena = {
   ...SPECS.wolf, fur: 0xb09a68, belly: 0xd9c9a0, paw: 0x5a4a30, scale: 1.15, extras: spotted(0x4a3a24, 18, 0.4, 1.0, 0.09), ears: 'round', earS: 0.6,
@@ -1034,6 +1063,9 @@ PS.badger = {
 PS.giant_otter = { ...SPECS.otter, fur: 0x5a3e2a, belly: 0xe8dac0, scale: 1.45, tail: { len: 0.9, t: 0.17, c: 0x5a3e2a } };
 PS.sea_otter = { ...SPECS.otter, fur: 0x4a3426, belly: 0xb09070, paw: 0x2a1c14, scale: 1.2, head: { s: 0.26, snout: 0.1, snoutC: 0xe8dcc0 } };
 PS.honey_badger = { ...SPECS.badger, scale: 1.2 };
+PS.fisher = { ...SPECS.otter, fur: 0x3a2a20, belly: 0x2a1e18, paw: 0x1c140e, scale: 1.0, len: 1.05, legLen: 0.2, extras: undefined, tail: { len: 0.7, t: 0.12, c: 0x2a1e18 }, ears: 'round', earS: 0.3, head: { s: 0.24, snout: 0.13, snoutC: 0x6a5648 } };
+PS.skunk = { ...SPECS.skunk, scale: 1.0, tail: { len: 0.7, t: 0.2, c: 0x1c1c1f, up: 0.3 } };
+PS.tayra = { ...SPECS.otter, fur: 0x2a2220, belly: 0x2a2220, paw: 0x16100e, scale: 1.0, len: 1.15, legLen: 0.24, extras: undefined, tail: { len: 0.95, t: 0.13, c: 0x2a2220 }, ears: 'round', earS: 0.3, head: { s: 0.25, snout: 0.12, snoutC: 0xb09878 } };
 PS.wolverine = {
   ...SPECS.badger, fur: 0x4a3828, belly: 0x3a2c20, paw: 0x1c140c, scale: 1.25, tail: { len: 0.4, t: 0.14 },
   extras: (torso) => {
@@ -1059,6 +1091,9 @@ PS.sloth_bear = {
 };
 PS.grizzly = { ...SPECS.bear, scale: 1.1 };
 PS.polar_bear = { ...SPECS.bear, fur: 0xf0eee6, belly: 0xe0ddd2, paw: 0xc8c4b6, scale: 1.2, head: { s: 0.5, snout: 0.38, snoutC: 0xe8e4d8, drop: 0.12 }, extras: undefined };
+PS.sun_bear = { ...SPECS.bear, fur: 0x16130f, belly: 0x120f0c, paw: 0x0e0b09, scale: 0.7, ears: 'round', earS: 0.4, head: { s: 0.5, snout: 0.2, snoutC: 0xc9a56a, drop: 0.1 }, extras: undefined };
+PS.moon_bear = { ...SPECS.bear, fur: 0x1c1a1a, belly: 0x161414, paw: 0x0e0d0d, scale: 0.95, ears: 'round', earS: 0.62, head: { s: 0.52, snout: 0.26, snoutC: 0xb09a7c, drop: 0.1 }, extras: undefined };
+PS.cave_bear = { ...SPECS.bear, fur: 0x4a3c30, belly: 0x3a2e24, paw: 0x241a12, scale: 1.45, head: { s: 0.6, snout: 0.3, snoutC: 0x7a6044, drop: 0.14 } };
 PS.kodiak = { ...SPECS.bear, fur: 0x6a4a2e, belly: 0x56391f, paw: 0x3a2412, scale: 1.3 };
 PS.panda = {
   ...SPECS.bear, fur: 0xf2f0ea, belly: 0xe6e3da, paw: 0x1c1c1f, scale: 1.0, ears: 'round', earS: 0.4, earC: 0x1c1c1f, head: { s: 0.52, snout: 0.22, snoutC: 0xf2f0ea, drop: 0.1 },
@@ -1077,6 +1112,15 @@ PS.gecko = {
 PS.monitor = { ...SPECS.croc, fur: 0x6a7048, belly: 0xc2c090, paw: 0x4a5030, scale: 0.55, head: { s: 0.34, snout: 0.45, snoutH: 0.2, snoutC: 0x7a8052, drop: 0.08 }, extras: undefined, tail: { len: 1.3, t: 0.2, up: 0 } };
 PS.snapping_turtle = { ...SPECS.turtle, fur: 0x5a6a3a, scale: 0.85 };
 PS.komodo = { ...SPECS.croc, fur: 0x6e5f4a, belly: 0xc8b890, paw: 0x4a3e2e, scale: 0.7, head: { s: 0.4, snout: 0.5, snoutH: 0.24, snoutC: 0x7e6e56, drop: 0.1 }, extras: undefined, tail: { len: 1.5, t: 0.26, up: 0 } };
+PS.viper = {
+  len: 1.6, w: 0.16, h: 0.16, legLen: 0.03, legT: 0.02, fur: 0x8a7a3a, belly: 0xe8e0b0, paw: 0x8a7a3a, crawl: true, scale: 0.7,
+  head: { s: 0.22, snout: 0.06, snoutC: 0x8a7a3a, drop: -0.05 }, ears: 'none', tail: { len: 1.0, t: 0.1, up: 0 }, eye: 0xe0b020,
+};
+PS.python = {
+  len: 3.0, w: 0.3, h: 0.3, legLen: 0.05, legT: 0.03, fur: 0x8a6a3a, belly: 0xe8dcb4, paw: 0x8a6a3a, crawl: true, scale: 0.85,
+  head: { s: 0.26, snout: 0.08, snoutC: 0x8a6a3a, drop: -0.05 }, ears: 'none', tail: { len: 2.0, t: 0.14, up: 0 }, eye: 0xd8b040,
+};
+PS.sea_turtle = { ...SPECS.turtle, fur: 0x6a8a58, belly: 0xe2dca8, paw: 0x4a6a40, scale: 1.2, len: 1.1, w: 0.85, h: 0.26, legLen: 0.14 };
 PS.cobra = {
   len: 2.2, w: 0.2, h: 0.2, legLen: 0.04, legT: 0.02, fur: 0x6a5a2a, belly: 0xe2d8a0, paw: 0x6a5a2a, crawl: true, scale: 0.75,
   head: { s: 0.24, snout: 0.08, snoutC: 0x6a5a2a, drop: -0.1 }, ears: 'none', tail: { len: 1.6, t: 0.12, up: 0 }, eye: 0xd23030,
@@ -1193,6 +1237,11 @@ export function makePlayerRig(animal: string, paint?: Paint | null, key?: string
   if (REAL_FISH.has(animal)) return makeRealFishRig(animal, paint, def0 ? SIZE[def0.size].radius : 0.5);
   const fish = FISH_FORMS[animal];
   if (fish) return new FishRig(fish.spec, fish.scale);
+  if (REAL_BIRD.has(animal)) {
+    const bb = buildRealBird(animal, paint);
+    const bdef = ANIMAL_BY_ID.get(animal);
+    return new BirdPlayerRig(bb, bdef ? SIZE[bdef.size].radius : 0.5, bb.bird);
+  }
   const spec = PS[animal] ?? PS.house_cat;
   let real: QuadSpec = { ...spec, id: animal };
   if (REAL_QUAD.has(animal) && paint) {

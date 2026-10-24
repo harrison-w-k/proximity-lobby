@@ -142,6 +142,7 @@ export type MatchEvent =
   | { k: 'toast'; to?: string; text: string }
   | { k: 'proj'; id: number; x: number; z: number; tx: number; tz: number; kind: string }
   | { k: 'lure'; x: number; z: number }
+  | { k: 'soar'; id: string; x: number; z: number }
 
 // flag bits in snapshots
 export const FL = {
@@ -165,4 +166,5 @@ export const FL = {
   air: 131072,
   counter: 262144,
   heavy: 524288, // the wind-up is a heavy attack
+  soar: 1048576, // gliding on outstretched wings
 } as const;

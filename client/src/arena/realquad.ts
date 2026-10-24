@@ -14,7 +14,7 @@ function hash3(x: number, y: number, z: number): number {
   h = Math.imul(h ^ (h >>> 13), 1103515245);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
-function vnoise(x: number, y: number, z: number): number {
+export function vnoise(x: number, y: number, z: number): number {
   const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
   const fx = x - xi, fy = y - yi, fz = z - zi;
   const s = (t: number) => t * t * (3 - 2 * t);
@@ -27,7 +27,7 @@ const tmpC = new THREE.Color();
 const tmpD = new THREE.Color();
 
 // ---------- a smooth body made from rings along Z ----------
-interface Ring {
+export interface Ring {
   z: number;
   w: number; // half width
   top: number; // height above the centre line
@@ -37,7 +37,7 @@ interface Ring {
 }
 type ColorFn = (z: number, a: number, y: number, x: number) => number;
 
-function loft(rings: Ring[], colorFn: ColorFn, seg = 16): THREE.BufferGeometry {
+export function loft(rings: Ring[], colorFn: ColorFn, seg = 16): THREE.BufferGeometry {
   const pos: number[] = [];
   const col: number[] = [];
   const idx: number[] = [];
@@ -87,7 +87,7 @@ function loft(rings: Ring[], colorFn: ColorFn, seg = 16): THREE.BufferGeometry {
 }
 
 /** A tube along a path (a tail, a snake) with a radius at each point. */
-function tube(path: V3[], radii: number[], colorFn: (u: number, a: number) => number, seg = 10): THREE.BufferGeometry {
+export function tube(path: V3[], radii: number[], colorFn: (u: number, a: number) => number, seg = 10): THREE.BufferGeometry {
   const pos: number[] = [];
   const col: number[] = [];
   const idx: number[] = [];
@@ -180,21 +180,33 @@ const LOOK: Record<string, Look> = {
   panther: { kind: 'cat', mark: spots(0x0c0c0e, 9, 0.66, 0.4, true), whiskers: true, bulk: 1.05 },
   tiger: { kind: 'cat', mark: stripesAcross(0x1a120a, 24, 0.95), whiskers: true, bulk: 1.15, ruff: 0xeeeadc, tailRings: 0x1a120a },
   lion: { kind: 'cat', whiskers: true, bulk: 1.15, mane: 0x5a3416, tailTip: 0x2a1608 },
+  ocelot: { kind: 'cat', mark: spots(0x2a1c10, 8, 0.62, 0.85, true), whiskers: true, tailRings: 0x2a1c10, bulk: 0.9 },
+  leopard: { kind: 'cat', mark: spots(0x1c140c, 11, 0.62, 0.9, true), whiskers: true, bulk: 1.0 },
+  snow_leopard: { kind: 'cat', mark: spots(0x3a3a40, 9, 0.64, 0.75, true), whiskers: true, tailRings: 0x3a3a40, ruff: 0xeeeeee, bulk: 1.05 },
   fox: { kind: 'dog', sock: 0x1c1410, tailTip: 0xf4f0e6, bulk: 0.85, whiskers: true },
   coyote: { kind: 'dog', mark: (z, a) => (Math.cos(a) > 0.5 ? [0x4a4034, 0.55] : null), ruff: 0xc8b898, tailTip: 0x1c1814, bulk: 0.9 },
   jackal: { kind: 'dog', mark: (z, a) => (Math.cos(a) > 0.45 ? [0x2a241c, 0.65] : null), tailTip: 0x1c1814, bulk: 0.85 },
   gray_wolf: { kind: 'dog', mark: (z, a) => (Math.cos(a) > 0.35 ? [0x3a3c40, 0.6] : null), ruff: 0xb0b0ac, tailTip: 0x222426, bulk: 1.05 },
   dhole: { kind: 'dog', tailTip: 0x1c1410, bulk: 0.9, mark: (z, a) => (Math.cos(a) > 0.3 ? [0x8a3a14, 0.4] : null) },
   hyena: { kind: 'dog', mark: spots(0x2a2218, 9, 0.68, 0.85), hump: 0.22, ruff: 0x2a2218, bulk: 1.1, tailTip: 0x1a1410, fangs: true },
+  dingo: { kind: 'dog', tailTip: 0xf2ecde, bulk: 0.9, mark: (z, a) => (Math.cos(a) > 0.5 ? [0xa8703a, 0.35] : null) },
+  arctic_wolf: { kind: 'dog', ruff: 0xffffff, tailTip: 0xe6e8ee, bulk: 1.05 },
+  maned_wolf: { kind: 'dog', sock: 0x1c1410, tailTip: 0xf4f0e6, bulk: 0.85, ruff: 0x1c1410, mark: (z, a) => (Math.cos(a) > 0.78 ? [0x1c1410, 0.8] : null) },
   wild_dog: { kind: 'dog', mark: spots(0x1a140c, 7, 0.62, 0.85), bulk: 0.85, tailTip: 0xf4f0e6 },
   weasel: { kind: 'mustelid', bulk: 0.7, whiskers: true },
   river_otter: { kind: 'mustelid', bulk: 0.85, whiskers: true },
   giant_otter: { kind: 'mustelid', bulk: 1, whiskers: true },
   sea_otter: { kind: 'mustelid', bulk: 1.1, whiskers: true },
+  fisher: { kind: 'mustelid', bulk: 0.95, whiskers: true },
+  skunk: { kind: 'mustelid', bulk: 1, whiskers: true, tailTip: 0xf4f2ee, mark: (z, a) => (Math.abs(Math.sin(a)) < 0.34 && Math.cos(a) > 0.4 ? [0xf2f0ea, 0.95] : null) },
+  tayra: { kind: 'mustelid', bulk: 0.95, whiskers: true },
   badger: { kind: 'mustelid', bulk: 1.1, whiskers: true, mark: (z, a) => (Math.cos(a) > 0.8 ? [0xe6e2d6, 0.9] : null) },
   honey_badger: { kind: 'mustelid', bulk: 1.1, mark: (z, a) => (Math.cos(a) > 0.25 ? [0xd8d4c6, 0.92] : null) },
   wolverine: { kind: 'mustelid', bulk: 1.1, mark: (z, a) => (Math.abs(Math.sin(a)) > 0.7 && Math.cos(a) > -0.2 && z < 0.4 ? [0xc8a05a, 0.75] : null) },
   raccoon: { kind: 'mustelid', bulk: 1, tailRings: 0x1a1612, whiskers: true, mark: (z, a) => (vnoise(z * 12, a * 3, 1) > 0.5 ? [0x4a4640, 0.35] : null) },
+  sun_bear: { kind: 'bear', hump: 0.05, bulk: 1.0, mark: (z, a) => (z > 0.2 && Math.cos(a) < -0.2 ? [0xe8c070, 0.8] : null) },
+  moon_bear: { kind: 'bear', hump: 0.1, bulk: 1.1, mark: (z, a) => (z > 0.15 && Math.cos(a) < -0.3 ? [0xf2eee0, 0.85] : null) },
+  cave_bear: { kind: 'bear', hump: 0.26, bulk: 1.25 },
   black_bear: { kind: 'bear', hump: 0.08, bulk: 1.1 },
   sloth_bear: { kind: 'bear', hump: 0.12, bulk: 1, mark: (z, a, x, y) => (z > 0.1 && Math.cos(a) < -0.2 ? [0xe6e0d0, 0.7] : null) },
   grizzly: { kind: 'bear', hump: 0.24, bulk: 1.15, mark: (z, a) => (vnoise(z * 20, a * 4, 3) > 0.55 ? [0xc8b08a, 0.5] : null) },
@@ -208,6 +220,9 @@ const LOOK: Record<string, Look> = {
   snapping_turtle: { kind: 'turtle', bulk: 1 },
   tortoise: { kind: 'turtle', bulk: 1.1 },
   cobra: { kind: 'snake', bulk: 1 },
+  viper: { kind: 'snake', bulk: 1 },
+  python: { kind: 'snake', bulk: 1 },
+  sea_turtle: { kind: 'turtle', bulk: 1 },
 };
 export const REAL_QUAD = new Set(Object.keys(LOOK));
 
@@ -230,12 +245,29 @@ function furColor(base: number, belly: number, a: number, x: number, y: number, 
   return tmpC.getHex();
 }
 
+// cat ears: [size, height of the point, how round the base is, tuft colour]
+const CAT_EARS: Record<string, { s: number; h: number; round: number }> = {
+  house_cat: { s: 0.6, h: 0.95, round: 0 },
+  bobcat: { s: 0.6, h: 1.0, round: 0.1 },
+  lynx: { s: 0.66, h: 1.25, round: 0 },
+  cheetah: { s: 0.5, h: 0.7, round: 0.5 },
+  panther: { s: 0.52, h: 0.75, round: 0.5 },
+  tiger: { s: 0.52, h: 0.7, round: 0.7 },
+  lion: { s: 0.5, h: 0.6, round: 0.8 },
+};
+const CAT_NOSE: Record<string, number> = { house_cat: 0xd88a86, bobcat: 0xb07a74, lynx: 0x6a4a46, cheetah: 0x1a1210, panther: 0x1a1214, tiger: 0xc08a80, lion: 0x7a4a40 };
+
 // ---------- the builder ----------
 export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
   const look = LOOK[id];
+  if (look.kind === 'cat') {
+    // every cat gets a feline head: a broad round skull, a very short muzzle and a flat face
+    const h0 = spec.head.s * 1.12 * (id === 'house_cat' ? 1 : 1.1);
+    spec = { ...spec, head: { ...spec.head, s: spec.head.s * (id === 'house_cat' ? 1 : 1.1), snout: h0 * 0.065, snoutH: h0 * 0.5, fwd: spec.head.fwd }, ears: 'point', earS: CAT_EARS[id]?.s ?? 0.6 };
+  }
   if (look.kind === 'lizard') return buildLizard(spec, id);
   if (look.kind === 'turtle') return buildTurtle(spec, id);
-  if (look.kind === 'snake') return buildSnake(spec);
+  if (look.kind === 'snake') return buildSnake(spec, id);
   const L = spec.len, W = spec.w, H = spec.h;
   const Wh = W / 2, Hh = H / 2;
   const hip = spec.legLen;
@@ -328,7 +360,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
       if (Math.sin(x * 60 / hs + z * 10) > 0.4) col = mix(col, 0x1a120a, 0.6);
     }
     if (id === 'cheetah' && z > 0.1 * hs && Math.abs(Math.abs(x) - 0.17 * hs) < 0.04 * hs && y < 0.15 * hs) col = mix(col, 0x1a120a, 0.85); // the tear marks
-    if (z > 0.5 * hs + sn * 0.92 && Math.abs(x) < 0.2 * hs) col = id === 'house_cat' ? 0xd88a86 : 0x120d0b; // the nose
+    if (z > 0.5 * hs + sn * 0.92 && Math.abs(x) < 0.2 * hs) col = CAT_NOSE[id] ?? 0x120d0b; // the nose
     return col;
   };
   const hr: Ring[] = [
@@ -351,7 +383,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     { z: 0.5 * hs + sn * 0.92, w: 0.1 * hs, top: 0.03 * hs, bot: 0.05 * hs, cy: -0.22 * hs },
   ];
   hp.addGeo(loft(jawRings, (z, a) => (Math.cos(a) > 0.6 ? 0x2a1a16 : mix(belly, 0xffffff, 0.2)), 12));
-  if (look.fangs || (look.kind === 'cat' && id !== 'house_cat') || look.kind === 'dog') {
+  if (look.fangs || look.kind === 'dog') {
     for (const s of [-1, 1]) {
       const fz = 0.5 * hs + sn * 0.78;
       hp.spike([s * 0.13 * hs, -0.12 * hs, fz], [s * 0.13 * hs, -0.25 * hs, fz + 0.01 * hs], 0.014 * hs + 0.004, 0xf2ecdc);
@@ -374,10 +406,15 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
   const eyeC = spec.eye ?? 0x6b4a20;
   for (const s of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(s * 0.4 * hs, 0.14 * hs, 0.22 * hs);
-    eye.rotation.y = s * 0.45;
+    if (look.kind === 'cat') {
+      eye.position.set(s * 0.3 * hs, 0.13 * hs, 0.3 * hs); // forward-facing, set close in a flat face
+      eye.rotation.y = s * 0.28;
+    } else {
+      eye.position.set(s * 0.4 * hs, 0.14 * hs, 0.22 * hs);
+      eye.rotation.y = s * 0.45;
+    }
     const ep = new Parts();
-    const er = hs * (look.kind === 'bear' ? 0.045 : id === 'house_cat' ? 0.1 : look.kind === 'cat' ? 0.07 : 0.06);
+    const er = hs * (look.kind === 'bear' ? 0.045 : look.kind === 'cat' ? 0.1 : 0.06);
     ep.ball(er * 1.25, er * 1.15, er * 0.6, 0x1a1210, 0, 0, 0, 0, 10, 8); // the socket rim
     ep.ball(er, er * 0.95, er * 0.6, eyeC, 0, 0, er * 0.15, 0, 10, 8); // the iris
     if (spec.slit) ep.ball(er * 0.22, er * 0.92, er * 0.4, 0x050505, 0, 0, er * 0.45, 0, 6, 6);
@@ -395,14 +432,18 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     for (const s of [-1, 1]) {
       const e = new THREE.Group();
       const xs = spec.ears === 'long' ? 0.2 : 0.3;
-      e.position.set(s * xs * hs * (id === 'house_cat' ? 1.35 : 1.4), (id === 'house_cat' ? 0.34 : 0.38) * hs, -0.12 * hs);
+      e.position.set(s * xs * hs * (look.kind === 'cat' ? 1.35 : 1.4), (look.kind === 'cat' ? 0.34 : 0.38) * hs, -0.12 * hs);
       const ep = new Parts();
       const inner = look.kind === 'bear' ? shade(fur, 0.7) : 0xe0a8a0;
       if (spec.ears === 'point') {
-        if (id === 'house_cat') {
-          // a housecat's ears are broad at the base, tapering to a point, and set wide apart
-          ep.spike([0, 0, 0], [0, es * 0.95, -0.01], es * 0.48, spec.earC ?? fur);
-          ep.spike([0, es * 0.05, es * 0.08], [0, es * 0.72, es * 0.04], es * 0.28, inner);
+        if (look.kind === 'cat') {
+          // a cat's ear is a broad-based triangle; the big cats' are rounder and lower, a lynx's tall and tufted
+          const ce = CAT_EARS[id] ?? CAT_EARS.house_cat;
+          const col = spec.earC ?? fur;
+          ep.spike([0, 0, 0], [0, es * ce.h * 0.9, -0.01], es * (0.52 + ce.round * 0.12), col);
+          if (ce.round > 0.3) ep.ball(es * 0.5, es * 0.42 * (1 + ce.round * 0.3), es * 0.14, col, 0, es * 0.3, 0, 0, 10, 8);
+          ep.spike([0, es * 0.05, es * 0.08], [0, es * ce.h * 0.68, es * 0.04], es * 0.3, inner);
+          if (look.tuftEars) ep.spike([0, es * ce.h * 0.85, 0], [0, es * (ce.h * 0.85 + 0.5), -0.01], es * 0.11, look.tuftEars);
         } else {
           ep.ball(es * 0.42, es * 0.7, es * 0.14, spec.earC ?? fur, 0, es * 0.55, 0, 0, 10, 8);
           ep.ball(es * 0.26, es * 0.48, es * 0.08, inner, 0, es * 0.5, es * 0.1, 0, 8, 6);
@@ -803,7 +844,9 @@ function buildTurtle(spec: QuadSpec, id: string): Built {
   return { root, legs, head, tail, torso, eyes, ears: [], hip, spec };
 }
 
-function buildSnake(spec: QuadSpec): Built {
+function buildSnake(spec: QuadSpec, id = 'cobra'): Built {
+  const cobra = id === 'cobra';
+  const python = id === 'python';
   const L = spec.len;
   const root = new THREE.Group();
   const torso = new THREE.Group();
@@ -822,10 +865,10 @@ function buildSnake(spec: QuadSpec): Built {
     const z = -L * 0.5 + L * 0.9 * u - Math.max(0, u - 0.72) * L * 0.3;
     const x = Math.sin(u * 9) * 0.28 * (1 - u * 0.75);
     const raise = Math.pow(Math.max(0, (u - 0.66) / 0.34), 1.5);
-    const y = 0.07 - ty + raise * L * 0.42;
+    const y = 0.07 - ty + raise * L * (cobra ? 0.42 : python ? 0.12 : 0.22);
     path.push([x, y, z]);
     const body = Math.sin(Math.min(1, u * 1.25) * Math.PI * 0.55);
-    radii.push(Math.max(0.012, 0.15 * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
+    radii.push(Math.max(0.012, (python ? 0.2 : cobra ? 0.15 : 0.12) * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
   }
   const tp = new Parts();
   tp.addGeo(
@@ -834,7 +877,13 @@ function buildSnake(spec: QuadSpec): Built {
       radii,
       (u, a) => {
         if (u > 0.74 && Math.sin(a * 1.0 + 0.0) < -0.2 && u < 0.98) return mix(belly, fur, 0.2); // the pale throat
-        const band = Math.sin(u * 70) > 0.72;
+        // cobra: rings; viper: dark zigzag chevrons down the back; python: big dark blotches
+        const dorsal = Math.cos(a);
+        const band = cobra
+          ? Math.sin(u * 70) > 0.72
+          : python
+            ? dorsal > -0.1 && vnoise(u * 26, a * 2, 9) > 0.58
+            : dorsal > 0.1 && Math.sin(u * 60 + Math.abs(Math.sin(a)) * 5) > 0.55;
         const base = mix(fur, shade(fur, 0.6), band ? 0.7 : 0);
         tmpC.setHex(base).multiplyScalar(0.88 + vnoise(u * 80, a * 3, 4) * 0.24);
         return tmpC.getHex();
@@ -862,9 +911,13 @@ function buildSnake(spec: QuadSpec): Built {
     ),
   );
   // the hood: a flattened shield behind the head, with the paler underside showing in front
-  hp.ball(1.15 * hs, 1.2 * hs, 0.09 * hs, shade(fur, 0.95), 0, -0.75 * hs, -0.3 * hs, 0.1, 16, 12);
-  hp.ball(0.62 * hs, 0.95 * hs, 0.06 * hs, belly, 0, -0.8 * hs, -0.22 * hs, 0.1, 12, 10);
-  hp.ball(0.3 * hs, 0.34 * hs, 0.02 * hs, 0x1a1208, 0, -0.55 * hs, -0.205 * hs, 0.1, 8, 6); // the spectacle mark
+  if (cobra) {
+    hp.ball(1.15 * hs, 1.2 * hs, 0.09 * hs, shade(fur, 0.95), 0, -0.75 * hs, -0.3 * hs, 0.1, 16, 12);
+    hp.ball(0.62 * hs, 0.95 * hs, 0.06 * hs, belly, 0, -0.8 * hs, -0.22 * hs, 0.1, 12, 10);
+    hp.ball(0.3 * hs, 0.34 * hs, 0.02 * hs, 0x1a1208, 0, -0.55 * hs, -0.205 * hs, 0.1, 8, 6); // the spectacle mark
+  } else if (!python) {
+    hp.ball(0.34 * hs, 0.14 * hs, 0.3 * hs, mix(fur, 0x1a1208, 0.15), 0, 0, -0.18 * hs, 0, 10, 8); // a viper has a broad, triangular head
+  }
   hp.seg([0, -0.1 * hs, 0.45 * hs], [0, -0.1 * hs, 0.75 * hs], 0.012, 0.008, 0xc8283a, 4); // a flicking tongue
   head.add(new THREE.Mesh(hp.merged(), new THREE.MeshBasicMaterial()));
   const eyes = reptileEyes(head, hs, spec.eye ?? 0xd8a82a, 0.07, 0.06 * hs, 0.2 * hs, 0.2 * hs);

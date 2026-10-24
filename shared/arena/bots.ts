@@ -384,6 +384,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
         use = d < fx.range;
         break;
       case 'submerge':
+      case 'soar':
         use = false;
         break;
     }

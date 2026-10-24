@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
 import { COMBO, COMBO_RESET, PARRY_WINDOW, comboOf, type StrikeKind } from '../../../shared/arena/combat';
-import { JUMP_COST, JUMP_V, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { JUMP_COST, JUMP_V, SOAR_SPEED, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
@@ -91,6 +91,9 @@ export class Arena {
   private lastYawSent = 0;
   private lastAtSent = 0;
   private clock = 0;
+  /** After pressing a soar key, we glide at once instead of waiting for the server to say so. */
+  private soarPredUntil = 0;
+  private soaring = (you: YouState) => you.buffs.includes('soaring') || this.clock < this.soarPredUntil;
   // F3 network readout
   private netEl: HTMLDivElement | null = null;
   private netShow = false;
@@ -798,7 +801,17 @@ export class Arena {
       return;
     }
     if (e.code in KEYS_SKILL) {
-      if (role === 0) this.d.net.send({ t: 'mskill', i: KEYS_SKILL[e.code], yaw: this.aimYaw(14) });
+      if (role === 0) {
+        const slot = KEYS_SKILL[e.code];
+        const sk = slot === 0 ? this.def.skill : slot === 1 ? this.def.skill2 : null;
+        const y = this.you;
+        // a bird's soar: lift off on the key press, and let the server confirm it
+        if (sk?.fx?.k === 'soar' && y && (y.cds[slot] ?? 1) <= 0 && y.sta >= (sk.cost ?? 0) && !y.noMove) {
+          this.pos.jv = Math.max(this.pos.jv, sk.fx.lift);
+          this.soarPredUntil = this.clock + 0.4;
+        }
+        this.d.net.send({ t: 'mskill', i: slot, yaw: this.aimYaw(14) });
+      }
       return;
     }
     if (e.code.startsWith('Digit')) {
@@ -855,6 +868,7 @@ export class Arena {
     const med = medium(this.scene!.terrain, this.pos.x, this.pos.z, false, 0);
     if (sprint && moving && !med.noSprint && you.sta > 1 && you.role !== 2 && !you.guard && !you.wind) s *= 1.45;
     if (crouch) s *= 0.6;
+    if (this.soaring(you) && this.pos.jy > this.scene!.terrain.floorAt(this.pos.x, this.pos.z, this.pos.jy) + 0.05) s *= SOAR_SPEED; // gliding is quick
     return s;
   }
 
@@ -863,7 +877,7 @@ export class Arena {
     const sc = this.scene!;
     if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && you.sta >= JUMP_COST && !sc.terrain.isDeep(st.x, st.z)) st.jv = JUMP_V;
     if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy);
-    stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy));
+    stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy), this.soaring(you));
   }
 
   private readInput() {
@@ -938,6 +952,7 @@ export class Arena {
         if (this.guardHeld || you.guard) flags |= FL.guard;
         if (you.wind) flags |= FL.wind;
         if (you.counter > 0) flags |= FL.counter;
+        if (you.buffs.includes('soaring')) flags |= FL.soar;
         if (inp.at || this.guardHeld) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
         else { let d = this.camYaw - this.visYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); const m = 18 * dtWorld; this.visYaw += Math.max(-m, Math.min(m, d)); } // faces where the camera looks, eased so a quick flick does not snap the body
         const cd = Math.exp(-dtWorld * 9);

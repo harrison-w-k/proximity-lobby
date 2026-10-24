@@ -1,5 +1,5 @@
-// An evolution tree drawn as a circle: the starter in the middle, the two stage 2 forms on a ring around it and
-// the four final forms on the outer ring, joined by lines (after diep.io's upgrade circle).
+// An evolution tree drawn as a circle: the starter in the middle, the three stage 2 forms on a ring around it and
+// each one's two final forms on the outer ring beside it, joined by lines (after diep.io's upgrade circle).
 import { EVOLVE_LEVELS, FORMS_OF_TREE } from '../../../shared/arena/animals';
 import { ANIMAL_EMOJI } from './emoji';
 
@@ -22,7 +22,7 @@ const CSS = `
 .tc .tn .b { width: var(--nd); height: var(--nd); display: flex; align-items: center; justify-content: center; font-size: calc(var(--nd) * 0.5); border: 3px solid #0b3b3f; border-radius: 50%;
   background: linear-gradient(#fbf1dc, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 rgba(0,0,0,.4); transition: transform .12s; }
 .tc .tn:hover .b { transform: scale(1.12); }
-.tc .tn small { position: absolute; top: calc(var(--nd) + 1px); white-space: nowrap; font: 700 13px 'Josefin Sans', sans-serif; color: #fbf1dc; text-shadow: 0 2px 0 #0b3b3f, 0 0 4px #0b3b3f; pointer-events: none; }
+.tc .tn small { position: absolute; top: calc(var(--nd) + 1px); white-space: nowrap; font: 700 12px 'Josefin Sans', sans-serif; color: #fbf1dc; text-shadow: 0 2px 0 #0b3b3f, 0 0 4px #0b3b3f; pointer-events: none; }
 .tc .tn.s1 .b { border-color: #f0c35a; }
 .tc .tn.cur .b { box-shadow: 0 0 0 3px #f0c35a, 0 0 14px rgba(240,195,90,.85), 0 3px 0 rgba(0,0,0,.4); }
 .tc .tn.on .b { background: linear-gradient(#ffd5cc, #ff8f95); transform: scale(1.1); }
@@ -43,9 +43,9 @@ export function buildTreeCircle(o: TreeOpts): HTMLElement {
   }
   const S = o.size ?? 320;
   const c = S / 2;
-  const nd = Math.round(S * 0.14);
-  const r2 = S * 0.26;
-  const r3 = S * 0.405;
+  const nd = Math.round(S * 0.12);
+  const r2 = S * 0.225;
+  const r3 = S * 0.42;
   const forms = FORMS_OF_TREE(o.tree);
   const s1 = forms.filter((f) => f.stage === 1);
   const s2 = forms.filter((f) => f.stage === 2);
@@ -54,10 +54,12 @@ export function buildTreeCircle(o: TreeOpts): HTMLElement {
 
   const place = new Map<string, { x: number; y: number }>();
   place.set(s1[0].id, { x: c, y: c });
-  const angles2 = [180, 0];
-  const angles3 = [[142, 218], [38, 322]];
-  s2.forEach((f, i) => place.set(f.id, at(r2, angles2[i % 2])));
-  s3.forEach((f, i) => place.set(f.id, at(r3, angles3[Math.floor(i / 2) % 2][i % 2])));
+  // a branch fans out from the centre: each stage 2 form sits on its own spoke and its two final forms flank that spoke
+  const angles2 = [90, 210, 330];
+  s2.forEach((f, i) => {
+    place.set(f.id, at(r2, angles2[i % 3]));
+    s3.filter((g) => g.from === f.id).forEach((g, j) => place.set(g.id, at(r3, angles2[i % 3] + (j === 0 ? -23 : 23))));
+  });
 
   const root = document.createElement('div');
   root.className = 'tc';
@@ -92,10 +94,7 @@ export function buildTreeCircle(o: TreeOpts): HTMLElement {
   };
   const p1 = place.get(s1[0].id)!;
   s2.forEach((f) => line(p1, place.get(f.id)!, true));
-  s3.forEach((f, i) => {
-    const parent = s2[Math.floor(i / 2)];
-    for (const o2 of s2) line(place.get(o2.id)!, place.get(f.id)!, o2 === parent); // any final form is open, the lineage is the bold line
-  });
+  s3.forEach((f) => line(place.get(f.from!)!, place.get(f.id)!, true)); // a final form has exactly one parent
   root.append(svg);
 
   const open = new Set(o.open ?? []);

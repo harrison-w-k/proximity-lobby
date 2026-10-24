@@ -13,6 +13,7 @@ export interface SheetOpts {
   frames?: number; // advance the walk cycle this many frames first
   speed?: number;
   close?: boolean; // frame the head
+  state?: Record<string, unknown>; // extra rig state (e.g. { air: 2, soar: true })
 }
 
 export function renderSheet(ids: string[], o: SheetOpts = {}): string {
@@ -37,7 +38,7 @@ export function renderSheet(ids: string[], o: SheetOpts = {}): string {
   ids.forEach((id, i) => {
     const rig = makePlayerRig(id);
     for (let f = 0; f < (o.frames ?? 0); f++) rig.update(1 / 30, { speed: o.speed ?? 4, attack: 0, hurt: 0, stun: false, flee: false, swim: false, t: f / 30 });
-    if (!o.frames) rig.update(0.016, { speed: 0, attack: 0, hurt: 0, stun: false, flee: false, swim: false, t: 0 });
+    if (!o.frames) for (let k = 0; k < (o.state ? 30 : 1); k++) rig.update(0.016, { speed: 0, attack: 0, hurt: 0, stun: false, flee: false, swim: false, t: 0, ...o.state });
     scene.add(rig.root);
     const box = new THREE.Box3().setFromObject(rig.root);
     const c = box.getCenter(new THREE.Vector3());
@@ -64,4 +65,17 @@ export function renderSheet(ids: string[], o: SheetOpts = {}): string {
   const url = canvas.toDataURL('image/png');
   r.dispose();
   return url;
+}
+
+/** Lay several views of several animals over the page, so a model change can be checked by eye. */
+export function showSheet(ids: string[], views: SheetOpts[], cell = 360): number {
+  const imgs: string[] = [];
+  for (const id of ids) for (const v of views) imgs.push(renderSheet([id], { cols: 1, cell, ...v }));
+  document.getElementById('__s')?.remove();
+  const d = document.createElement('div');
+  d.id = '__s';
+  d.style.cssText = 'position:fixed;inset:0;background:#222;z-index:99999;overflow:auto;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start';
+  d.innerHTML = imgs.map((u) => `<img src="${u}" style="width:${cell}px;height:${cell}px">`).join('');
+  document.body.appendChild(d);
+  return imgs.length;
 }

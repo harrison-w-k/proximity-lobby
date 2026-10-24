@@ -9,7 +9,7 @@ import {
   MOBS, TIER_SHARE, mobDef,
   mobIndex, type MobDef,
 } from './mobs';
-import { JUMP_COST, JUMP_V, MAP_BOUND, medium, standY, stepPos, stepVertical, type Bound } from './move';
+import { JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, medium, standY, stepPos, stepVertical, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
@@ -171,6 +171,7 @@ export interface Fighter extends Body {
   hot?: { until: number; perSec: number };
   speedUntil: number;
   glideUntil: number;
+  soarUntil: number; // a bird's soar: reduced fall and a faster glide until it lands
   mudUntil: number;
   tusk: number;
   muskUntil: number;
@@ -379,7 +380,7 @@ export class Match {
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
       cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, whiffUntil: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
-      speedUntil: 0, glideUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
+      speedUntil: 0, glideUntil: 0, soarUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, deathX: 0, deathZ: 0,
      
@@ -896,6 +897,13 @@ export class Match {
       }
       case 'submerge':
         f.subUntil = this.time + fx.dur;
+        break;
+      case 'soar':
+        // a boost into the air; from then on the fall is slow and forward movement is quick, until it lands
+        f.jv = Math.max(f.jv, fx.lift);
+        f.soarUntil = this.time + fx.dur;
+        f.chan = null;
+        this.emit({ k: 'soar', id: f.id, x: f.x, z: f.z }, f.x, f.z);
         break;
     }
   }
@@ -2114,15 +2122,23 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
-      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy));
-      if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) this.landed(f);
+      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), f.soarUntil > this.time);
+      if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
+        f.soarUntil = 0;
+        this.landed(f);
+      }
       return;
     }
     f.moving = true;
     f.sprinting = sprinting;
+    const soaring = f.soarUntil > this.time;
+    if (soaring && f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.05) sp *= SOAR_SPEED; // gliding is quick
     stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
-    stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy));
-    if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) this.landed(f);
+    stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), soaring);
+    if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
+      f.soarUntil = 0;
+      this.landed(f);
+    }
     // a player always faces the camera, so strafing and backpedalling never turn the animal around; bots face where they walk
     f.yaw += clampTurn(angDiff(f.bot ? yawOf(dx, dz) : f.input.yaw, f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
   }
@@ -2301,6 +2317,7 @@ export class Match {
     if (f.swing) fl |= FL.wind | (f.swing.heavy ? FL.heavy : 0);
     if (f.jy - this.terrain.floorAt(f.x, f.z, f.jy) > 0.05) fl |= FL.air;
     if (f.counterUntil > t) fl |= FL.counter;
+    if (f.soarUntil > t) fl |= FL.soar;
     return fl;
   }
 
@@ -2320,6 +2337,7 @@ export class Match {
     if (f.subUntil > t) out.push('submerged');
     if (f.reedUntil > t) out.push('hidden in reeds');
     if (f.glideUntil > t) out.push('gliding');
+    if (f.soarUntil > t) out.push('soaring');
     if (f.mudUntil > t) out.push('mud coat');
     if (f.muskUntil > t) out.push('musk');
     return out;
