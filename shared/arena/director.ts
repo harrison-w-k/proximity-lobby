@@ -38,6 +38,8 @@ export class Director {
   private inMatch = new Set<string>();
   /** The campus: the lobby as a permanent match nobody can die in. */
   campus: Match | null = null;
+  /** The sandbox room: any animal of any stage can be chosen, and there is no queue for matches. */
+  sandbox = false;
   private inCampus = new Set<string>();
   private campusAcc = 0;
   private campusLast = 0;
@@ -79,7 +81,8 @@ export class Director {
   enterCampus(id: string, animal?: string, paint?: unknown) {
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
     const prev = this.profiles.get(id);
-    const a = STARTERS.find((x) => x.id === animal) ?? STARTERS.find((x) => x.id === prev?.animal) ?? STARTERS[0];
+    const pool = this.sandbox ? ANIMALS : STARTERS;
+    const a = pool.find((x) => x.id === animal) ?? pool.find((x) => x.id === prev?.animal) ?? STARTERS[0];
     const p = paint === undefined ? prev?.paint : cleanPaint(paint);
     this.profiles.set(id, { animal: a.id, paint: p });
     const name = this.host.players().find((x) => x.id === id)?.name;
@@ -91,7 +94,7 @@ export class Director {
         let nm = BOT_NAMES[(n * 3) % BOT_NAMES.length];
         while (used.has(nm)) nm += '_';
         used.add(nm);
-        bots.push({ id: `cbot${n}`, name: nm, animal: STARTERS[n % STARTERS.length].id, team: n, bot: true });
+        bots.push({ id: `cbot${n}`, name: nm, animal: this.sandbox ? ANIMALS[(n * 7) % ANIMALS.length].id : STARTERS[n % STARTERS.length].id, team: n, bot: true });
       }
       this.campus = new Match(424242, bots, { send: (pid, msg) => this.host.send(pid, msg) }, { campus: true });
       this.campusAcc = 0;
@@ -110,6 +113,7 @@ export class Director {
   }
 
   join(id: string, animal: string, team?: string, spawn?: string, paint?: unknown) {
+    if (this.sandbox) return; // the sandbox has no matches
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
     const a = STARTERS.find((x) => x.id === animal); // everyone starts as a stage 1 animal
     if (!a) return;

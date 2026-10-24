@@ -79,7 +79,7 @@ export class Lobby {
   ) {}
 
   /** Turn on the Animal Battle Royale queue. The host must then call `tickMatch()` about every 30 ms. */
-  enableMatches(opts: { fillWithBots?: boolean; countdownMs?: number } = {}): Director {
+  enableMatches(opts: { fillWithBots?: boolean; countdownMs?: number; sandbox?: boolean } = {}): Director {
     const d = new Director({
       send: (id, msg) => {
         const c = this.conns.get(id);
@@ -89,6 +89,7 @@ export class Lobby {
     });
     if (opts.fillWithBots !== undefined) d.fillWithBots = opts.fillWithBots;
     if (opts.countdownMs !== undefined) d.countdownMs = opts.countdownMs;
+    if (opts.sandbox) d.sandbox = true;
     this.director = d;
     return d;
   }

@@ -75,6 +75,7 @@ export class LobbyDO extends DurableObject<Env> {
         live.add(`av:${saved.id}`);
         this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved, stored.get(`av:${saved.id}`)));
       }
+      if (await ctx.storage.get<boolean>('sandbox')) this.lobby.director!.sandbox = true;
       const items = await ctx.storage.get<ItemState[]>('items');
       if (items) this.lobby.restoreItems(items);
       const stale = [...stored.keys()].filter((k) => !live.has(k)).slice(0, 128); // players who are gone
@@ -84,6 +85,11 @@ export class LobbyDO extends DurableObject<Env> {
 
   async fetch(req: Request): Promise<Response> {
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
+    if (new URL(req.url).searchParams.get('room') === 'sandbox' && this.lobby.director) {
+      // this object is the sandbox room: remember it, so an eviction does not turn it back into the normal lobby
+      this.lobby.director.sandbox = true;
+      await this.ctx.storage.put('sandbox', true);
+    }
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
     const session = this.lobby.open(peerOf(server));
@@ -172,7 +178,11 @@ export class LobbyDO extends DurableObject<Env> {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
-    if (pathname === '/ws') return env.LOBBY.get(env.LOBBY.idFromName('main')).fetch(req);
+    if (pathname === '/ws') {
+      // the sandbox is a separate room: its own players, its own world, every animal unlocked
+      const room = new URL(req.url).searchParams.get('room') === 'sandbox' ? 'sandbox' : 'main';
+      return env.LOBBY.get(env.LOBBY.idFromName(room)).fetch(req);
+    }
     if (pathname === '/healthz') return new Response('ok');
     return env.ASSETS.fetch(req);
   },

@@ -1,3 +1,4 @@
+import './theme.css';
 import { DEFAULT_LOOK, HATS, LOOK_COLORS, type Look } from '../../shared/look';
 import { initTouch, isTouchDevice } from './touch';
 import { Net } from './net';
@@ -7,13 +8,14 @@ import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
 import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
+import { AnimalPicker } from './arena/picker';
 import { ANIMAL_EMOJI } from './arena/emoji';
 import { loadPaint } from './arena/paintStore';
 import { Showcase } from './arena/showcase';
 import { ACCENT } from './arena/menu';
 import { CLASS_BY_ID } from '../../shared/arena/animals';
 import type { Paint } from '../../shared/arena/paint';
-import { ANIMAL_BY_ID, STARTERS, TREE_BY_ID } from '../../shared/arena/animals';
+import { ANIMALS, ANIMAL_BY_ID, STARTERS, TREE_BY_ID } from '../../shared/arena/animals';
 /** Everyone starts as the stage 1 animal of a tree. */
 const starterOf = (id: string) => TREE_BY_ID.get(ANIMAL_BY_ID.get(id)?.tree ?? '')?.starter ?? 'house_cat';
 import { validAvatar } from '../../shared/avatar';
@@ -44,9 +46,14 @@ if (import.meta.env.DEV) setTimeout(() => Object.assign(window, { __arena: arena
 let voice: Voice | null = null;
 let joined = false;
 let myAnimal = 'house_cat';
+/** Which server room we join: the Battle Royale lobby, or the sandbox where every animal is unlocked. */
+type Room = 'br' | 'sandbox';
+let room: Room = new URLSearchParams(location.search).get('room') === 'sandbox' ? 'sandbox' : 'br';
 try {
+  const savedRoom = localStorage.getItem('br-room');
+  if (savedRoom === 'sandbox' && !new URLSearchParams(location.search).has('room')) room = 'sandbox';
   const saved = localStorage.getItem('br-animal');
-  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = starterOf(saved);
+  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = room === 'sandbox' ? saved : starterOf(saved);
 } catch {
   /* storage unavailable */
 }
@@ -102,11 +109,46 @@ function refreshAnimalUi() {
   const label = document.getElementById('join-animal-name');
   if (label && a) label.textContent = `${a.name}: ${a.role}. ${a.blurb}`;
   document.querySelectorAll<HTMLElement>('#join-animals .an').forEach((b) => b.classList.toggle('on', b.dataset.id === myAnimal));
+  applyRoomUi();
+}
+/** The room choice on the front screen: the Battle Royale lobby or the sandbox. */
+function applyRoomUi() {
+  document.querySelectorAll<HTMLElement>('.room').forEach((b) => {
+    const on = b.dataset.room === room;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  const sb = room === 'sandbox';
+  const row = document.getElementById('join-animals');
+  const card = document.getElementById('sb-animal');
+  if (row) row.hidden = sb;
+  if (card) card.hidden = !sb;
+  const title = document.getElementById('animal-title');
+  if (title) title.textContent = sb ? 'Your animal' : 'Starting animal';
+  const a = ANIMAL_BY_ID.get(myAnimal);
+  const em = document.getElementById('sb-emoji');
+  const nm = document.getElementById('sb-name');
+  if (a && em && nm) {
+    em.textContent = ANIMAL_EMOJI[a.id] ?? '🐾';
+    nm.textContent = a.name;
+  }
+}
+function setRoom(r: Room) {
+  if (r === room) return;
+  room = r;
+  try {
+    localStorage.setItem('br-room', r);
+  } catch {
+    /* storage unavailable */
+  }
+  if (r === 'br' && starterOf(myAnimal) !== myAnimal) chooseAnimal(starterOf(myAnimal)); // the lobby starts everyone small
+  applyRoomUi();
+  render(); // the button names the room
 }
 let myPaint: Paint | undefined = loadPaint(myAnimal);
 function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id)) {
   if (!ANIMAL_BY_ID.has(id)) return;
-  id = starterOf(id);
+  if (room === 'br') id = starterOf(id);
   myAnimal = id;
   myPaint = paint ?? undefined;
   try {
@@ -138,8 +180,22 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
 }
 const brMenu = new BrMenu(net, sfx);
 brMenu.onChoose = (id, paint) => chooseAnimal(id, paint);
+const picker = new AnimalPicker();
+picker.onChoose = (id, paint) => chooseAnimal(id, paint);
+document.querySelectorAll<HTMLElement>('.room').forEach((b) => b.addEventListener('click', () => setRoom(b.dataset.room as Room)));
+document.getElementById('sb-browse')?.addEventListener('click', () => {
+  picker.current = myAnimal;
+  picker.open();
+});
+document.getElementById('sb-random')?.addEventListener('click', () => chooseAnimal(ANIMALS[Math.floor(Math.random() * ANIMALS.length)].id));
+/** The animal menu for this room: the sandbox picker, or the tournament menu. */
+const animalMenu = () => (room === 'sandbox' ? picker : brMenu);
+const menuIsOpen = () => brMenu.isOpen || picker.isOpen;
 document.getElementById('animal-chip')?.addEventListener('click', () => {
-  if (!arena.active || arena.campus) brMenu.open();
+  if (!arena.active || arena.campus) {
+    picker.current = myAnimal;
+    animalMenu().open();
+  }
 });
 const arena = new Arena({
   world,
@@ -147,7 +203,7 @@ const arena = new Arena({
   canvas,
   sfx,
   getVoice: () => voice,
-  isBlocked: () => typing || menuOpen || brMenu.isOpen,
+  isBlocked: () => typing || menuOpen || menuIsOpen(),
   openSettings: () => openMenu(),
   onStart: (campus) => {
     // make room for the paper doll and the animal card
@@ -168,27 +224,32 @@ arena.onQueue = (q) => {
   brMenu.setQueue(q);
   refreshBrButton();
 };
-brMenu.onOpen = () => {
-  world.inputEnabled = false;
-  world.clearKeys();
-  updatePaused();
-};
-brMenu.onClose = () => {
-  world.inputEnabled = true;
-  if (!arena.active || arena.campus) world.lock();
-  updatePaused();
-};
+for (const m of [brMenu, picker]) {
+  m.onOpen = () => {
+    world.inputEnabled = false;
+    world.clearKeys();
+    updatePaused();
+  };
+  m.onClose = () => {
+    world.inputEnabled = true;
+    if (joined && (!arena.active || arena.campus)) world.lock();
+    updatePaused();
+  };
+}
 function refreshBrButton() {
   const b = document.getElementById('br-open');
   if (b) {
-    b.textContent = brMenu.summary();
+    b.textContent = room === 'sandbox' ? '🧪 Change animal [B]' : brMenu.summary();
     b.className = 'br-btn';
     b.hidden = arena.active && !arena.campus;
   }
 }
 setInterval(refreshBrButton, 500);
 document.getElementById('br-open')?.addEventListener('click', () => {
-  if (!arena.active || arena.campus) brMenu.open();
+  if (!arena.active || arena.campus) {
+    picker.current = myAnimal;
+    animalMenu().open();
+  }
 });
 let typing = false;
 let myId = '';
@@ -214,12 +275,12 @@ const touch = isTouchDevice();
 const hasControl = () => touch || document.pointerLockElement === canvas;
 
 function updatePaused() {
-  $('paused').hidden = !joined || typing || menuOpen || hasControl() || arena.active || brMenu.isOpen;
+  $('paused').hidden = !joined || typing || menuOpen || hasControl() || arena.active || menuIsOpen();
 }
 // Losing the mouse (Esc, alt-tab) opens settings so the mouse can be used. Opening chat also
 // releases it, but that sets `typing` first so the menu stays closed.
 document.addEventListener('pointerlockchange', () => {
-  if (!touch && document.pointerLockElement !== canvas && !brMenu.isOpen) {
+  if (!touch && document.pointerLockElement !== canvas && !menuIsOpen()) {
     if (arena.active) arena.onPointerLockLost();
     else openMenu();
   }
@@ -684,9 +745,10 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
-  } else if (e.code === 'KeyB' && !typing && !menuOpen && (!arena.active || arena.campus) && !brMenu.isOpen && !e.ctrlKey && !e.metaKey) {
-    brMenu.open();
-  } else if (arena.active || brMenu.isOpen) {
+  } else if (e.code === 'KeyB' && !typing && !menuOpen && (!arena.active || arena.campus) && !menuIsOpen() && !e.ctrlKey && !e.metaKey) {
+    picker.current = myAnimal;
+    animalMenu().open();
+  } else if (arena.active || menuIsOpen()) {
     // the match (or its menu) owns the keyboard
   } else if ((e.code === 'KeyF' || e.code === 'KeyR') && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
     // F picks up the nearest item or sets down what you carry; R aims a throw (hold click to charge)
@@ -988,8 +1050,10 @@ function render() {
   show(toggleBtn, mode === 'login' || mode === 'signup' || mode === 'confirm');
   toggleBtn.textContent =
     mode === 'login' ? 'Need an account? Sign up' : mode === 'signup' ? 'Already have an account? Log in' : 'Back to log in';
+  const enter = room === 'sandbox' ? 'Enter the sandbox' : 'Join Battle Royale';
   joinBtn.textContent =
-    { legacy: 'Join', login: 'Log in', signup: 'Sign up', confirm: 'Confirm email', recovery: 'Save new password', in: 'Join' }[mode];
+    { legacy: enter, login: 'Log in', signup: 'Sign up', confirm: 'Confirm email', recovery: 'Save new password', in: enter }[mode];
+  show($('play-setup'), mode === 'in' || mode === 'legacy');
   $('join-note').textContent = NOTES[mode];
   $('card-title').textContent = TITLES[mode];
   show($('join-note'), mode !== 'in');
@@ -1083,7 +1147,8 @@ async function enterLobby(name: string, token?: string) {
 
   setStatus('Connecting…');
   try {
-    await net.connect();
+    arena.sandbox = room === 'sandbox';
+    await net.connect(room);
   } catch {
     setStatus('Could not reach the server.');
     joinBtn.disabled = false;

@@ -69,4 +69,20 @@ assert.ok(d.campus?.byId.get('p2'), 'while the others stay in it');
 d.handle('p1', { t: 'mleave' });
 assert.ok(d.campus!.byId.get('p1'), 'leaving the match walks you back into the campus');
 
+// the sandbox: every animal of every stage can be chosen, and there is no queue for matches
+{
+  const out: { id: string; msg: ServerMatchMsg }[] = [];
+  const sb = new Director({ send: (id, msg) => out.push({ id, msg }), players: () => [{ id: 's1', name: 'Sam' }] });
+  sb.sandbox = true;
+  sb.handle('s1', { t: 'menter', animal: 'polar_bear' });
+  assert.equal(sb.campus!.byId.get('s1')!.def.id, 'polar_bear', 'a stage 3 animal is allowed');
+  assert.equal(sb.campus!.byId.get('s1')!.def.stage, 3);
+  sb.handle('s1', { t: 'menter', animal: 'angler' });
+  assert.equal(sb.campus!.byId.get('s1')!.def.id, 'angler', 'and so is swapping to another');
+  sb.handle('s1', { t: 'menter', animal: 'not_an_animal' });
+  assert.equal(sb.campus!.byId.get('s1')!.def.id, 'angler', 'a bad animal keeps what you had');
+  sb.handle('s1', { t: 'mq', animal: 'fox' });
+  assert.equal(sb.info('s1').queued, 0, 'nothing queues for a match');
+}
+
 console.log('campus tests passed');

@@ -6,7 +6,7 @@
   <title>Utopia Academy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Limelight&family=Poiret+One&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Bangers&family=Limelight&family=Poiret+One&display=swap" />
   <link rel="icon" href="data:," />
   <style>
     /* Base layout rules; the Aero theme block at the end of this stylesheet restyles all of it. */
@@ -656,7 +656,7 @@
     #oauth .or::before, #oauth .or::after { content: ''; flex: 1; height: 2px; background: rgba(236,220,178,.3); }
   </style>
 </head>
-<body>
+<body class="portal">
   <canvas id="scene"></canvas>
   <div id="crosshair" hidden></div>
   <div id="pickup-hint" hidden></div>
@@ -666,7 +666,8 @@
   <!-- ===== main screen ===== -->
   <div id="join" class="overlay">
     <div class="hero">
-      <div class="eyebrow">Open enrollment &middot; Proximity voice</div>
+      <div class="portal-ring" aria-hidden="true"></div>
+      <div class="eyebrow">Evolve or perish &middot; Proximity voice</div>
       <h1><span>Utopia</span><span class="l2">Academy</span></h1>
       <p class="tagline">Welcome to campus. Walk up and say hello: voices get louder as you get closer, and fade as people drift apart.</p>
       <div id="join-stage">
@@ -692,7 +693,21 @@
       <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" minlength="6" hidden />
       <input id="auth-password2" type="password" placeholder="Repeat new password" autocomplete="new-password" minlength="6" hidden />
       <input id="auth-code" type="text" inputmode="numeric" placeholder="Code from the email" autocomplete="one-time-code" hidden />
-      <div class="animal-pick"><div class="setting-title">Choose your animal</div><div id="join-animals"></div><small id="join-animal-name"></small></div>
+      <div id="play-setup">
+        <div class="room-pick" role="radiogroup" aria-label="Where do you want to play?">
+          <button type="button" class="room" role="radio" data-room="br"><span class="ic">⚔️</span><span class="tx"><b>Battle Royale</b><small>Start small, evolve, and queue for matches.</small></span></button>
+          <button type="button" class="room" role="radio" data-room="sandbox"><span class="ic">🧪</span><span class="tx"><b>Sandbox</b><small>Every animal unlocked. No matches, just play.</small></span></button>
+        </div>
+        <div class="animal-pick">
+          <div class="setting-title" id="animal-title">Starting animal</div>
+          <div id="join-animals"></div>
+          <div id="sb-animal" hidden>
+            <button id="sb-browse" class="sb-card" type="button"><span class="em" id="sb-emoji"></span><span class="tx"><b id="sb-name"></b><small>Browse all animals</small></span><span class="go">›</span></button>
+            <button id="sb-random" class="btn glass small" type="button" title="Pick an animal at random">🎲 Random</button>
+          </div>
+          <small id="join-animal-name"></small>
+        </div>
+      </div>
       <button id="join-btn" class="btn primary" type="submit">Join</button>
       <div class="links">
         <button id="resend-btn" class="linkbtn" type="button" hidden>Resend the email</button>

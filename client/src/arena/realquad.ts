@@ -328,7 +328,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
       if (Math.sin(x * 60 / hs + z * 10) > 0.4) col = mix(col, 0x1a120a, 0.6);
     }
     if (id === 'cheetah' && z > 0.1 * hs && Math.abs(Math.abs(x) - 0.17 * hs) < 0.04 * hs && y < 0.15 * hs) col = mix(col, 0x1a120a, 0.85); // the tear marks
-    if (z > 0.5 * hs + sn * 0.92 && Math.abs(x) < 0.2 * hs) col = 0x120d0b; // the nose
+    if (z > 0.5 * hs + sn * 0.92 && Math.abs(x) < 0.2 * hs) col = id === 'house_cat' ? 0xd88a86 : 0x120d0b; // the nose
     return col;
   };
   const hr: Ring[] = [
@@ -351,7 +351,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     { z: 0.5 * hs + sn * 0.92, w: 0.1 * hs, top: 0.03 * hs, bot: 0.05 * hs, cy: -0.22 * hs },
   ];
   hp.addGeo(loft(jawRings, (z, a) => (Math.cos(a) > 0.6 ? 0x2a1a16 : mix(belly, 0xffffff, 0.2)), 12));
-  if (look.fangs || look.kind === 'cat' || look.kind === 'dog') {
+  if (look.fangs || (look.kind === 'cat' && id !== 'house_cat') || look.kind === 'dog') {
     for (const s of [-1, 1]) {
       const fz = 0.5 * hs + sn * 0.78;
       hp.spike([s * 0.13 * hs, -0.12 * hs, fz], [s * 0.13 * hs, -0.25 * hs, fz + 0.01 * hs], 0.014 * hs + 0.004, 0xf2ecdc);
@@ -377,7 +377,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     eye.position.set(s * 0.4 * hs, 0.14 * hs, 0.22 * hs);
     eye.rotation.y = s * 0.45;
     const ep = new Parts();
-    const er = hs * (look.kind === 'bear' ? 0.045 : look.kind === 'cat' ? 0.07 : 0.06);
+    const er = hs * (look.kind === 'bear' ? 0.045 : id === 'house_cat' ? 0.1 : look.kind === 'cat' ? 0.07 : 0.06);
     ep.ball(er * 1.25, er * 1.15, er * 0.6, 0x1a1210, 0, 0, 0, 0, 10, 8); // the socket rim
     ep.ball(er, er * 0.95, er * 0.6, eyeC, 0, 0, er * 0.15, 0, 10, 8); // the iris
     if (spec.slit) ep.ball(er * 0.22, er * 0.92, er * 0.4, 0x050505, 0, 0, er * 0.45, 0, 6, 6);
@@ -395,12 +395,18 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     for (const s of [-1, 1]) {
       const e = new THREE.Group();
       const xs = spec.ears === 'long' ? 0.2 : 0.3;
-      e.position.set(s * xs * hs * 1.4, 0.38 * hs, -0.12 * hs);
+      e.position.set(s * xs * hs * (id === 'house_cat' ? 1.35 : 1.4), (id === 'house_cat' ? 0.34 : 0.38) * hs, -0.12 * hs);
       const ep = new Parts();
       const inner = look.kind === 'bear' ? shade(fur, 0.7) : 0xe0a8a0;
       if (spec.ears === 'point') {
-        ep.ball(es * 0.42, es * 0.7, es * 0.14, spec.earC ?? fur, 0, es * 0.55, 0, 0, 10, 8);
-        ep.ball(es * 0.26, es * 0.48, es * 0.08, inner, 0, es * 0.5, es * 0.1, 0, 8, 6);
+        if (id === 'house_cat') {
+          // a housecat's ears are broad at the base, tapering to a point, and set wide apart
+          ep.spike([0, 0, 0], [0, es * 0.95, -0.01], es * 0.48, spec.earC ?? fur);
+          ep.spike([0, es * 0.05, es * 0.08], [0, es * 0.72, es * 0.04], es * 0.28, inner);
+        } else {
+          ep.ball(es * 0.42, es * 0.7, es * 0.14, spec.earC ?? fur, 0, es * 0.55, 0, 0, 10, 8);
+          ep.ball(es * 0.26, es * 0.48, es * 0.08, inner, 0, es * 0.5, es * 0.1, 0, 8, 6);
+        }
         if (look.tuftEars) ep.spike([0, es * 1.5, 0], [0, es * 2.0, -0.02], es * 0.06, look.tuftEars);
       } else if (spec.ears === 'round') {
         ep.ball(es * 0.62, es * 0.6, es * 0.18, spec.earC ?? fur, 0, es * 0.4, 0, 0, 10, 8);
@@ -480,9 +486,11 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
     const up = spec.tail.up ?? 0;
     for (let i = 0; i < n; i++) {
       const u = i / (n - 1);
-      path.push([0, up * tl * (u * 0.9 + u * u * 0.4) - tl * 0.04 * u, -tl * u]);
+      // a housecat carries its tail in a graceful curve, up and over at the tip
+      if (id === 'house_cat') path.push([0, up * tl * (1.5 * u - 0.9 * u * u) - tl * 0.04 * u, -tl * u * 0.78]);
+      else path.push([0, up * tl * (u * 0.9 + u * u * 0.4) - tl * 0.04 * u, -tl * u]);
       const bushy = look.kind === 'dog' ? 1 + Math.sin(u * Math.PI) * 0.45 : look.kind === 'mustelid' && id !== 'badger' ? 1 + Math.sin(u * Math.PI) * 0.25 : 1;
-      radii.push(spec.tail.t * (1 - u * 0.55) * bushy);
+      radii.push(spec.tail.t * (1 - u * (id === 'house_cat' ? 0.25 : 0.55)) * bushy);
     }
     const tipC = look.tailTip;
     const ringC = look.tailRings;

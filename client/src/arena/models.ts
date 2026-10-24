@@ -983,8 +983,8 @@ const PS: Record<string, QuadSpec> = {};
 
 // cats: stealth and burst
 PS.house_cat = {
-  len: 0.78, w: 0.28, h: 0.3, legLen: 0.28, legT: 0.075, fur: 0xd98a4c, belly: 0xf7e8d2, paw: 0xf7e8d2,
-  head: { s: 0.28, snout: 0.07, snoutC: 0xf7e8d2 }, ears: 'point', earS: 0.62, tail: { len: 0.62, t: 0.07, up: 0.3 }, eye: 0x1c3a12,
+  len: 0.6, w: 0.3, h: 0.32, legLen: 0.25, legT: 0.075, fur: 0xd98a4c, belly: 0xf7e8d2, paw: 0xf7e8d2,
+  head: { s: 0.36, snout: 0.025, snoutC: 0xf7e8d2, snoutH: 0.2 }, ears: 'point', earS: 0.6, tail: { len: 0.56, t: 0.065, up: 0.65 }, eye: 0x6aa83a,
   extras: striped(0x8a4a1c, 5, 0.3, 0.7, 0.15),
 };
 PS.bobcat = {

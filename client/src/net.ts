@@ -10,13 +10,13 @@ export class Net {
   private pinger?: ReturnType<typeof setInterval>;
   onClose: () => void = () => {};
 
-  connect(): Promise<void> {
+  connect(room: 'br' | 'sandbox' = 'br'): Promise<void> {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     if (this.ws) {
       this.ws.onclose = null; // a retry replaces the old socket; don't report it as a disconnect
       this.ws.close();
     }
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws${room === 'sandbox' ? '?room=sandbox' : ''}`);
     this.ws = ws;
     ws.onmessage = (e) => {
       try {

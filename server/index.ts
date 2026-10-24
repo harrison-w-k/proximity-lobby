@@ -68,14 +68,18 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_A
 const verify = supabaseUrl && supabaseKey ? supabaseAuth({ url: supabaseUrl, anonKey: supabaseKey }) : undefined;
 console.log(verify ? 'auth: Supabase login required to join' : 'auth: off (names are not verified)');
 
-const lobby = new Lobby(iceServers, verify);
-lobby.enableMatches({ countdownMs: Number(process.env.MATCH_COUNTDOWN_MS ?? 25000), fillWithBots: process.env.MATCH_BOTS !== '0' });
+const mainLobby = new Lobby(iceServers, verify);
+mainLobby.enableMatches({ countdownMs: Number(process.env.MATCH_COUNTDOWN_MS ?? 25000), fillWithBots: process.env.MATCH_BOTS !== '0' });
+// the sandbox is a second room: its own players and world, with every animal unlocked
+const sandbox = new Lobby(iceServers, verify);
+sandbox.enableMatches({ sandbox: true, fillWithBots: false });
 const alive = new WeakMap<WebSocket, boolean>();
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   alive.set(ws, true);
+  const lobby = new URL(req.url ?? '/', 'http://x').searchParams.get('room') === 'sandbox' ? sandbox : mainLobby;
   const session = lobby.open({
     send: (data) => ws.readyState === WebSocket.OPEN && ws.send(data),
     close: () => ws.close(),
@@ -88,8 +92,10 @@ wss.on('connection', (ws) => {
 });
 
 // Broadcast changed positions to everyone except their owner.
-setInterval(() => lobby.flush(), TICK_MS);
-setInterval(() => lobby.tickMatch(), 15);
+for (const l of [mainLobby, sandbox]) {
+  setInterval(() => l.flush(), TICK_MS);
+  setInterval(() => l.tickMatch(), 15);
+}
 
 // Drop dead connections.
 setInterval(() => {

@@ -601,12 +601,14 @@ export class Hud {
     }
 
     if (c.campus) {
-      (this.root.querySelector('#br-ph') as HTMLElement).textContent = 'Campus';
+      (this.root.querySelector('#br-ph') as HTMLElement).textContent = this.sandbox ? 'Sandbox' : 'Campus';
       (this.root.querySelector('#br-clock') as HTMLElement).textContent = 'Free roam';
       (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${c.roster.size} here`;
       const q = c.queue;
-      this.ring.classList.toggle('warn', !!q && q.startsIn !== null && q.startsIn <= 10);
-      this.ring.textContent = q?.you
+      this.ring.classList.toggle('warn', !this.sandbox && !!q && q.startsIn !== null && q.startsIn <= 10);
+      this.ring.textContent = this.sandbox
+        ? 'Nobody can be hurt here · press B to change animal'
+        : q?.you
         ? q.startsIn !== null
           ? `Tournament starts in ${q.startsIn}s · ${q.queued} queued`
           : 'You are queued for the Tournament'
@@ -821,9 +823,10 @@ export class Hud {
   private leaveBtn: HTMLButtonElement | null = null;
   private pauseNote: HTMLElement | null = null;
   /** In the campus there is nothing to leave: it is the lobby. */
+  sandbox = false;
   setCampus(on: boolean) {
     if (this.leaveBtn) this.leaveBtn.hidden = on;
-    if (this.pauseNote) this.pauseNote.textContent = on ? 'The campus keeps running. Press B to queue for the Tournament.' : 'The match keeps running. If you leave, an AI takes your animal.';
+    if (this.pauseNote) this.pauseNote.textContent = on ? (this.sandbox ? 'The sandbox keeps running. Press B to change animal.' : 'The campus keeps running. Press B to queue for the Tournament.') : 'The match keeps running. If you leave, an AI takes your animal.';
   }
 
   private buildPause() {
