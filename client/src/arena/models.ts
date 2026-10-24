@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { toonMat } from './toon';
 import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
+import { REAL_QUAD, buildRealQuad } from './realquad';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
@@ -125,7 +126,7 @@ function rnd(seed: number) {
   };
 }
 
-interface QuadSpec {
+export interface QuadSpec {
   len: number;
   w: number;
   h: number;
@@ -140,13 +141,14 @@ interface QuadSpec {
   earC?: number;
   tail?: { len: number; t: number; c?: number; up?: number };
   eye?: number;
+  id?: string; // which animal this is, for the realistic builder
   slit?: boolean; // a vertical slit pupil (cats, foxes, most reptiles)
   crawl?: boolean;
   scale?: number;
   extras?: (torso: THREE.Group, head: THREE.Group, r: () => number) => void;
 }
 
-interface Built {
+export interface Built {
   root: THREE.Group;
   legs: THREE.Group[];
   head: THREE.Group;
@@ -414,6 +416,16 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
+    if (REAL_QUAD.has(b.spec.id ?? '')) {
+      // realistic models carry their colour in the vertices: one lit material for the whole animal
+      const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+      b.root.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.material = m;
+      });
+      this.mats = [m as unknown as Mat];
+      this.headY = b.head.position.y;
+      return;
+    }
     this.mats = bakeQuad(b);
     // whatever is left (the ears, which flick on their own) gets its own material and outline as before
     const parts: THREE.Mesh[] = [];
@@ -1182,7 +1194,13 @@ export function makePlayerRig(animal: string, paint?: Paint | null, key?: string
   const fish = FISH_FORMS[animal];
   if (fish) return new FishRig(fish.spec, fish.scale);
   const spec = PS[animal] ?? PS.house_cat;
-  const b = buildQuad(spec, hashStr(animal));
+  let real: QuadSpec = { ...spec, id: animal };
+  if (REAL_QUAD.has(animal) && paint) {
+    // a chosen main colour repaints the coat; the accent repaints the belly, paws and tail
+    if (paint[0] >= 0) real = { ...real, fur: paint[0], tail: real.tail ? { ...real.tail, c: undefined } : undefined };
+    if (paint[1] >= 0) real = { ...real, belly: paint[1], paw: new THREE.Color(paint[1]).multiplyScalar(0.72).getHex() };
+  }
+  const b = REAL_QUAD.has(animal) ? buildRealQuad(real, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
   recolor(b, paint ?? undefined, key);
   const def = ANIMAL_BY_ID.get(animal);
   const radius = def ? SIZE[def.size].radius : 0.5;

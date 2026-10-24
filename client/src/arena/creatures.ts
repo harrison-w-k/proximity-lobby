@@ -12,7 +12,7 @@ const SHADOW_GEO = new THREE.CircleGeometry(1, 20);
 const SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
 
 /** Collects shapes with a colour each and merges them into one vertex-coloured mesh geometry. */
-class Parts {
+export class Parts {
   geos: THREE.BufferGeometry[] = [];
   private put(g: THREE.BufferGeometry, color: number, m: THREE.Matrix4) {
     const q = g.index ? g.toNonIndexed() : g;
@@ -73,8 +73,8 @@ class Parts {
   }
 }
 
-const mix = (a: number, b: number, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
-const shade = (c: number, k: number) => new THREE.Color(c).multiplyScalar(k).getHex();
+export const mix = (a: number, b: number, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
+export const shade = (c: number, k: number) => new THREE.Color(c).multiplyScalar(k).getHex();
 
 function chitin(rough = 0.42): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, metalness: 0.18, side: THREE.DoubleSide });
