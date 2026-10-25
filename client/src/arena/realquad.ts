@@ -157,14 +157,14 @@ interface Look {
   sock?: number; // dark lower legs
 }
 
-const stripesAcross = (c: number, freq: number, str: number, seed = 0) => (z: number, a: number, x: number, y: number): [number, number] | null => {
+export const stripesAcross = (c: number, freq: number, str: number, seed = 0) => (z: number, a: number, x: number, y: number): [number, number] | null => {
   const dorsal = Math.cos(a); // 1 on the back, -1 on the belly
   if (dorsal < -0.35) return null;
   const wob = vnoise(z * 6 + seed, x * 8, seed) * 1.6;
   const v = Math.sin(z * freq + wob + Math.sin(a) * 1.5);
   return v > 0.35 ? [c, str * Math.min(1, (dorsal + 0.4) * 1.2)] : null;
 };
-const spots = (c: number, scale: number, thr: number, str: number, ring = false) => (z: number, a: number, x: number, y: number): [number, number] | null => {
+export const spots = (c: number, scale: number, thr: number, str: number, ring = false) => (z: number, a: number, x: number, y: number): [number, number] | null => {
   // blobs from 3D noise, so they stay round on the curved flanks and are not smeared along the body
   const n = vnoise(x * scale * 1.5 + 11, y * scale * 1.5, z * scale * 1.5 + 5);
   if (Math.cos(a) < -0.55) return null;
@@ -172,7 +172,7 @@ const spots = (c: number, scale: number, thr: number, str: number, ring = false)
   return n > thr ? [c, str] : null;
 };
 
-const LOOK: Record<string, Look> = {
+export const LOOK: Record<string, Look> = {
   house_cat: { kind: 'cat', mark: stripesAcross(0x6a3a1c, 30, 0.75), whiskers: true, tailRings: 0x5a2e14, bulk: 0.9 },
   bobcat: { kind: 'cat', mark: spots(0x3a2a1a, 9, 0.7, 0.8), whiskers: true, tailTip: 0x1a1410, tuftEars: 0x1a1410, ruff: 0xe8dcc0, bulk: 1 },
   lynx: { kind: 'cat', mark: spots(0x5a4a38, 7, 0.7, 0.5), whiskers: true, tailTip: 0x141010, tuftEars: 0x141010, ruff: 0xece4d4, bulk: 1 },
@@ -225,6 +225,7 @@ const LOOK: Record<string, Look> = {
   sea_turtle: { kind: 'turtle', bulk: 1 },
 };
 export const REAL_QUAD = new Set(Object.keys(LOOK));
+export type { Look };
 
 // fur is mostly the species colour: a back that is a little darker than the flanks, and a pale belly and chest
 function furColor(base: number, belly: number, a: number, x: number, y: number, z: number, look: Look, L: number, markZ: number): number {
@@ -602,8 +603,10 @@ function buildLizard(spec: QuadSpec, id: string): Built {
   const torso = new THREE.Group();
   torso.position.y = hip + H / 2 - 0.04;
   root.add(torso);
+  const komodo = id === 'komodo';
+  const monitor = id === 'monitor';
   const u2z = (u: number) => (u - 0.5) * L;
-  const rings: Ring[] = [
+  const rings0: Ring[] = [
     { z: u2z(0), w: 0.5 * Wh, top: 0.6 * Hh, bot: 0.5 * Hh },
     { z: u2z(0.12), w: 0.95 * Wh, top: 0.95 * Hh, bot: 0.75 * Hh },
     { z: u2z(0.4), w: 1.0 * Wh, top: 1.0 * Hh, bot: 0.8 * Hh },
@@ -611,6 +614,15 @@ function buildLizard(spec: QuadSpec, id: string): Built {
     { z: u2z(0.92), w: 0.8 * Wh, top: 0.85 * Hh, bot: 0.7 * Hh },
     { z: u2z(1.0) + 0.1 * L, w: 0.5 * Wh, top: 0.55 * Hh, bot: 0.45 * Hh, cy: 0.04 * H },
   ];
+  // a komodo is a heavy-bellied brute, a monitor a slim animal on a long neck, a gecko a slender one with a big head
+  const wk = komodo ? 1.4 : monitor ? 0.72 : croc ? 1.1 : gecko ? 0.85 : 1;
+  const rings: Ring[] = rings0.map((r, i) => ({
+    ...r,
+    w: r.w * wk,
+    top: r.top * (komodo ? 1.1 : monitor ? 0.8 : 1),
+    bot: r.bot * (komodo ? 1.5 : monitor ? 0.8 : 1),
+    z: monitor && i >= rings0.length - 2 ? r.z + 0.16 * L : r.z,
+  }));
   const tp = new Parts();
   const banded = id === 'komodo' || id === 'monitor';
   tp.addGeo(
@@ -639,7 +651,7 @@ function buildLizard(spec: QuadSpec, id: string): Built {
   const head = new THREE.Group();
   const hs = spec.head.s;
   const sn = spec.head.snout;
-  head.position.set(0, H * 0.18 - (spec.head.drop ?? 0), L / 2 + (spec.head.fwd ?? hs * 0.3) + 0.08 * L);
+  head.position.set(0, H * 0.18 - (spec.head.drop ?? 0), L / 2 + (spec.head.fwd ?? hs * 0.3) + 0.08 * L + (monitor ? 0.18 * L : 0));
   const hp = new Parts();
   const snW = Math.max(0.16 * hs, (spec.head.snoutH ?? hs * 0.4) * 0.7);
   const hrings: Ring[] = [
@@ -705,8 +717,8 @@ function buildLizard(spec: QuadSpec, id: string): Built {
   // tail: thick at the base, tapering, with the same ridge along it
   const tail = new THREE.Group();
   tail.position.set(0, H * 0.04, -L / 2);
-  const tl = spec.tail?.len ?? L * 0.6;
-  const tt = spec.tail?.t ?? W * 0.3;
+  const tl = (spec.tail?.len ?? L * 0.6) * (monitor ? 1.25 : 1);
+  const tt = (spec.tail?.t ?? W * 0.3) * (komodo ? 1.3 : gecko ? 1.5 : monitor ? 0.8 : 1);
   const n = 9;
   const path: V3[] = [];
   const radii: number[] = [];
@@ -731,14 +743,16 @@ function buildTurtle(spec: QuadSpec, id: string): Built {
   const T = spec.legT;
   const fur = spec.fur;
   const tort = id === 'tortoise';
-  const shellC = tort ? 0x8a6a3a : 0x4a4a2a;
-  const rimC = tort ? 0xc9a868 : 0x6a6a3a;
+  const snap = id === 'snapping_turtle';
+  const sea = id === 'sea_turtle';
+  const shellC = tort ? 0x8a6a3a : sea ? 0x7a7440 : 0x3c3a2a;
+  const rimC = tort ? 0xc9a868 : sea ? 0xd4cc88 : 0x5a5640;
   const root = new THREE.Group();
   const torso = new THREE.Group();
   torso.position.y = hip + H / 2 - 0.04;
   root.add(torso);
   const u2z = (u: number) => (u - 0.5) * L * 1.02;
-  const dome = tort ? 3.2 : 1.5;
+  const dome = tort ? 3.2 : snap ? 1.7 : sea ? 0.85 : 1.5;
   const rings: Ring[] = [
     { z: u2z(0), w: 0.5 * Wh, top: 0.35 * H, bot: 0.15 * H, cy: 0.05 * H },
     { z: u2z(0.1), w: 0.9 * Wh, top: 0.9 * H * dome * 0.5, bot: 0.4 * H, cy: 0.05 * H },
@@ -770,11 +784,22 @@ function buildTurtle(spec: QuadSpec, id: string): Built {
       18,
     ),
   );
+  if (snap) {
+    // three keels of raised ridges down the shell and a saw-toothed back edge
+    for (let i = 0; i < 7; i++) {
+      const z = u2z(0.2 + i * 0.11);
+      for (const kx of [0, -0.55, 0.55]) tp.spike([kx * Wh, H * dome * 0.5 * (kx ? 0.82 : 1), z], [kx * Wh, H * dome * 0.5 * (kx ? 0.82 : 1) + 0.09, z - 0.03], 0.035, 0x2a281a);
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI * (0.62 + i * 0.11);
+      tp.spike([Math.cos(a) * Wh * 0.55, 0.0, u2z(0.0) + Math.sin(a) * 0.05 - 0.02], [Math.cos(a) * Wh * 0.6, -0.02, u2z(0.0) - 0.1], 0.03, 0x2a281a);
+    }
+  }
   torso.add(new THREE.Mesh(tp.merged(), new THREE.MeshBasicMaterial()));
 
   // head on a neck
   const head = new THREE.Group();
-  const hs = spec.head.s;
+  const hs = spec.head.s * (snap ? 1.35 : sea ? 0.8 : 1);
   head.position.set(0, H * 0.05, L / 2 + (spec.head.fwd ?? hs * 0.4));
   const hp = new Parts();
   hp.addGeo(
@@ -822,11 +847,18 @@ function buildTurtle(spec: QuadSpec, id: string): Built {
       for (let i = 0; i < 3; i++) lp.ball(t * 0.96, t * 0.18, t * 0.96, shade(fur, 0.8), sx * t * 0.1, bottom * (0.3 + i * 0.22), 0, 0, 8, 5); // the scaly rings round the leg
       lp.ball(t * 1.1, t * 0.45, t * 1.5, shade(fur, 0.7), sx * t * 0.2, bottom + t * 0.2, t * 0.3, 0, 9, 6);
     } else {
-      lp.seg([0, 0, 0], [sx * t * 1.6, bottom * 0.5, sz * t * 0.6], t * 1.3, t * 0.95, fur, 8);
-      lp.seg([sx * t * 1.6, bottom * 0.5, sz * t * 0.6], [sx * t * 2.0, bottom + t * 0.3, sz * t * 0.9], t * 0.95, t * 0.7, col(bottom), 8);
-      lp.ball(t * 1.3, t * 0.35, t * 1.8, shade(fur, 0.8), sx * t * 2.0, bottom + t * 0.2, sz * t * 1.0 + t * 0.3, 0, 8, 6);
+      if (sea) {
+        // a broad flipper reaching out from the shell
+        const fl = (sz > 0 ? 3.4 : 1.9) * t;
+        lp.seg([0, 0, 0], [sx * fl * 0.5, bottom * 0.35, sz * t * (sz > 0 ? -0.5 : 0.3)], t * 1.3, t * 0.9, fur, 8);
+        lp.ball(fl * 0.5, t * 0.28, t * (sz > 0 ? 1.8 : 1.3), shade(fur, 0.85), sx * fl * 0.75, bottom * 0.32, sz * t * (sz > 0 ? -0.9 : 0.5), 0, 10, 6);
+      } else {
+        lp.seg([0, 0, 0], [sx * t * 1.6, bottom * 0.5, sz * t * 0.6], t * (snap ? 1.6 : 1.3), t * (snap ? 1.2 : 0.95), fur, 8);
+        lp.seg([sx * t * 1.6, bottom * 0.5, sz * t * 0.6], [sx * t * 2.0, bottom + t * 0.3, sz * t * 0.9], t * 0.95, t * 0.7, col(bottom), 8);
+        lp.ball(t * 1.3, t * 0.35, t * 1.8, shade(fur, 0.8), sx * t * 2.0, bottom + t * 0.2, sz * t * 1.0 + t * 0.3, 0, 8, 6);
+      }
     }
-    for (let k = -1; k <= 1; k++) lp.spike([sx * t * (tort ? 0.2 : 2.0) + k * t * 0.5, bottom + t * 0.2, t * 1.6], [sx * t * (tort ? 0.2 : 2.0) + k * t * 0.55, bottom + t * 0.1, t * 2.2], t * 0.1, 0x2a2218);
+    if (!sea) for (let k = -1; k <= 1; k++) lp.spike([sx * t * (tort ? 0.2 : 2.0) + k * t * 0.5, bottom + t * 0.2, t * 1.6], [sx * t * (tort ? 0.2 : 2.0) + k * t * 0.55, bottom + t * 0.1, t * 2.2], t * 0.1, 0x2a2218);
     g.add(new THREE.Mesh(lp.merged(), new THREE.MeshBasicMaterial()));
     root.add(g);
     legs.push(g);
@@ -836,7 +868,8 @@ function buildTurtle(spec: QuadSpec, id: string): Built {
     tail = new THREE.Group();
     tail.position.set(0, H * 0.05, -L / 2);
     const tpp = new Parts();
-    tpp.seg([0, 0, 0], [0, -0.02, -spec.tail.len], spec.tail.t * 0.9, spec.tail.t * 0.25, fur, 8);
+    tpp.seg([0, 0, 0], [0, -0.02, -spec.tail.len * (snap ? 1.8 : sea ? 0.6 : 1)], spec.tail.t * (snap ? 1.2 : 0.9), spec.tail.t * 0.2, fur, 8);
+    if (snap) for (let i = 0; i < 6; i++) tpp.spike([0, spec.tail.t * 0.7, -spec.tail.len * (0.2 + i * 0.26)], [0, spec.tail.t * 1.5, -spec.tail.len * (0.26 + i * 0.26)], spec.tail.t * 0.2, shade(fur, 0.6));
     tail.add(new THREE.Mesh(tpp.merged(), new THREE.MeshBasicMaterial()));
     torso.add(tail);
   }
@@ -868,7 +901,7 @@ function buildSnake(spec: QuadSpec, id = 'cobra'): Built {
     const y = 0.07 - ty + raise * L * (cobra ? 0.42 : python ? 0.12 : 0.22);
     path.push([x, y, z]);
     const body = Math.sin(Math.min(1, u * 1.25) * Math.PI * 0.55);
-    radii.push(Math.max(0.012, (python ? 0.2 : cobra ? 0.15 : 0.12) * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
+    radii.push(Math.max(0.012, (python ? 0.19 : cobra ? 0.14 : 0.16) * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
   }
   const tp = new Parts();
   tp.addGeo(
@@ -876,7 +909,7 @@ function buildSnake(spec: QuadSpec, id = 'cobra'): Built {
       path,
       radii,
       (u, a) => {
-        if (u > 0.74 && Math.sin(a * 1.0 + 0.0) < -0.2 && u < 0.98) return mix(belly, fur, 0.2); // the pale throat
+        if (u > 0.78 && Math.cos(a) < -0.55 && u < 0.98) return mix(belly, fur, 0.35); // the pale throat
         // cobra: rings; viper: dark zigzag chevrons down the back; python: big dark blotches
         const dorsal = Math.cos(a);
         const band = cobra

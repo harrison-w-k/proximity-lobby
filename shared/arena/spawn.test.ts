@@ -35,10 +35,4 @@ for (const seed of [1, 7, 42, 9001]) {
 console.log('spawn tests passed');
 
 // colour choices are checked before they reach other players
-import { cleanPaint } from './paint';
-assert.deepEqual(cleanPaint([0x3fa5cf, -1]), [0x3fa5cf, -1]);
-assert.equal(cleanPaint([-1, -1]), undefined);
-assert.equal(cleanPaint([1.5, 2]), undefined);
-assert.equal(cleanPaint([0x1000000, 0]), undefined);
-assert.equal(cleanPaint('red'), undefined);
-console.log('paint tests passed');
+

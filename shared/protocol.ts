@@ -11,7 +11,6 @@ export interface PlayerState {
   id: string;
   name: string;
   animal?: string; // the animal you play as
-  paint?: [number, number]; // its main and accent colours
 }
 
 export type ClientMsg =
@@ -20,7 +19,7 @@ export type ClientMsg =
   | { t: 'join'; name: string; token?: string }
   | { t: 'chat'; text: string }
   | { t: 'dm'; to: string; text: string } // private message to a player id
-  | { t: 'animal'; a: string; paint?: [number, number] } // choose the animal you appear as, and its colours
+  | { t: 'animal'; a: string } // choose the animal you appear as
   | { t: 'signal'; to: string; data: unknown }
   | { t: 'ping'; n: number } // the client's clock; echoed back so it can measure round-trip time
   | ClientMatchMsg;
@@ -41,6 +40,6 @@ export type ServerMsg =
   // Sent to both the sender and the recipient, so each sees the same line.
   | { t: 'dm'; fromId: string; from: string; toId: string; to: string; text: string }
   | { t: 'notice'; text: string }
-  | { t: 'animal'; id: string; a: string; paint?: [number, number] }
+  | { t: 'animal'; id: string; a: string }
   | { t: 'signal'; from: string; data: unknown }
   | ServerMatchMsg;

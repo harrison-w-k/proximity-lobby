@@ -53,14 +53,15 @@ assert.ok(a.jy <= 0.011 && a.jv === 0, 'then it comes down');
 assert.equal(a.soarUntil, 0, 'landing ends the glide');
 console.log('soar tests passed');
 
-// birds glide off anything taller than a jump; other animals just fall
+// birds glide down from a jump or off anything higher; other animals just fall
 {
   const { glideFall } = await import('./move');
   assert.equal(glideFall(true, 4, -3, 0), true, 'a bird drops gently off a high ledge');
-  assert.equal(glideFall(true, 1.2, -3, 0), false, 'a jump is not a glide');
+  assert.equal(glideFall(true, 1.2, -3, 0), true, 'a bird glides down from a jump too');
+  assert.equal(glideFall(true, 0.2, -3, 0), false, 'but not when it is about to land');
   assert.equal(glideFall(true, 4, 5, 0), false, 'rising is not gliding');
   assert.equal(glideFall(false, 4, -3, 0), false, 'only birds glide');
-  assert.equal(glideFall(true, 5, -3, 4), false, 'height is measured above the rock below');
+  assert.equal(glideFall(true, 4.2, -3, 4), false, 'height is measured above the rock below');
 }
 // final forms carry three moves
 {

@@ -124,7 +124,6 @@ interface Chan {
 
 export interface Fighter extends Body {
   kind: 'f';
-  paint?: [number, number]; // chosen fur colours (cosmetic)
   id: string;
   name: string;
   def: AnimalDef;
@@ -281,7 +280,6 @@ export interface Entrant {
   team: number;
   bot: boolean;
   spawn?: string; // the environment this team asked to drop into
-  paint?: [number, number]; // chosen colours
 }
 
 export interface Host {
@@ -413,7 +411,6 @@ export class Match {
   private newFighter(e: Entrant): Fighter {
     const def = ANIMAL_BY_ID.get(e.animal) ?? ANIMALS[0];
     const f: Fighter = {
-      paint: e.paint,
       kind: 'f', id: e.id, name: e.name, def, team: e.team, bot: e.bot, role: 'alive', level: 1, xp: 0, totalXp: 0, pts: 0,
       alloc: emptyStats(), mods: sumMods([def.innate]), dv: derive(def, emptyStats(), sumMods([def.innate])),
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
@@ -515,7 +512,7 @@ export class Match {
 
   roster(): RosterEntry[] {
     return this.fighters.map((f) => ({
-      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], paint: f.paint, dummy: f.dummy || undefined,
+      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], dummy: f.dummy || undefined,
     }));
   }
 
@@ -586,7 +583,7 @@ export class Match {
       if (src.kind === 'f') {
         const sf = src as Fighter;
         if (sf.team === tf.team && sf !== tf) return false;
-        if (sf.role === 'alive' && tf.role === 'alive' && this.time < SCATTER_PEACE) return false; // first contact comes in the Farm phase
+        if (!this.campus && sf.role === 'alive' && tf.role === 'alive' && this.time < SCATTER_PEACE) return false; // first contact comes in the Farm phase
         return true;
       }
       return tf.role === 'alive'; // a wild animal

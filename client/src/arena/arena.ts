@@ -81,6 +81,9 @@ export class Arena {
   private localCombo = 0;
   private localComboAt = -9;
   private localSwingAt = -9;
+  /** Our swing's moment of impact: when it comes we check for a target ourselves, so the hit is felt without waiting on the network. */
+  private pendingHit: { at: number; heavy: boolean; reach: number; arc: number } | null = null;
+  private predictedAt = -9;
   private lastXp = 0;
   private wasAir = false;
   private seq = 0;
@@ -365,7 +368,7 @@ export class Arena {
       this.d.onStart(this.campus);
       if (this.campus) {
         if (this.sandbox) this.hud.announce('THE SANDBOX', 'Every animal is unlocked and you can be hurt: dummies and sparring partners are on the island. Press B to change animal.', 6500);
-        else this.hud.announce('THE LOBBY', 'A small island to train on: hit the dummies and try every move. Nobody can be hurt here. Press B to queue for the Tournament.', 6500);
+        else this.hud.announce('THE LOBBY', 'A small island to train on: hit the dummies and try every move. Nobody can be hurt here. Press B to change animal and T for the Tournament.', 6500);
       }
       else this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
     }, 60);
@@ -494,6 +497,7 @@ export class Arena {
         sc.burst(e.x, gy + 1, e.z, dealt <= 0 ? 0xffd23f : 0xff4b3a, 4 + Math.round(power * 10), 2.5 + power * 2.5, 0.35);
         const v = sc.fighter(e.id);
         if (v) v.hurt = 1;
+        if (v?.dummy) sc.dummyHit(e.id, e.n);
         if (me) {
           if (dealt <= 0) this.d.sfx.shieldHit();
           else this.d.sfx.impact(power, true);
@@ -502,8 +506,8 @@ export class Arena {
         } else {
           if (dealt <= 0) this.nearSfx(e.x, e.z, () => this.d.sfx.shieldHit());
           else this.nearSfx(e.x, e.z, () => this.d.sfx.impact(power));
-          if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 3.5 && this.clock - this.localSwingAt < 0.45) {
-            // our own blow landed: freeze a beat, kick the view, and tell the hand it connected
+          if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 3.5 && this.clock - this.localSwingAt < 0.6 && this.clock - this.predictedAt > 0.25) {
+            // our own blow landed and we did not already feel it: freeze a beat, kick the view, and tell the hand it connected
             this.hitstop = Math.max(this.hitstop, heavy ? 0.09 : 0.035 + power * 0.04);
             this.addShake(0.12 + power * 0.3);
             this.fovPunch = Math.max(this.fovPunch, 1.5 + power * 4);
@@ -720,6 +724,30 @@ export class Arena {
     }
   }
 
+  /** When our swing reaches its moment of impact, feel the hit at once if something is in reach (the server's word comes a moment later). */
+  private resolvePendingHit(sc: ArenaScene) {
+    const p = this.pendingHit;
+    if (!p || this.clock < p.at) return;
+    this.pendingHit = null;
+    const half = ((p.arc + 20) / 2) * (Math.PI / 180);
+    for (const v of sc.allFighters()) {
+      if (v.id === this.myId || v.team === this.myTeam || v.role !== 0 || (v.flags & FL.hidden)) continue;
+      const dx = v.x - this.pos.x;
+      const dz = v.z - this.pos.z;
+      if (Math.hypot(dx, dz) > p.reach + v.rig.radius + 0.4) continue;
+      const off = Math.atan2(Math.sin(Math.atan2(dx, dz) - this.visYaw), Math.cos(Math.atan2(dx, dz) - this.visYaw));
+      if (Math.abs(off) > half) continue;
+      this.predictedAt = this.clock;
+      v.hurt = 1;
+      this.hitstop = Math.max(this.hitstop, p.heavy ? 0.08 : 0.04);
+      this.addShake(p.heavy ? 0.4 : 0.2);
+      this.fovPunch = Math.max(this.fovPunch, p.heavy ? 5 : 2.5);
+      this.hud.hitMarker(p.heavy);
+      this.d.sfx.hitConfirm(p.heavy);
+      sc.burst(v.x, sc.groundY(v.x, v.z) + 1, v.z, 0xff4b3a, p.heavy ? 8 : 4, 2.5, 0.3);
+      return;
+    }
+  }
   private isHostile(id: string) {
     const v = this.scene?.fighter(id);
     return !!v && v.id !== this.myId && v.team !== this.myTeam;
@@ -969,9 +997,11 @@ export class Arena {
           this.localComboAt = this.clock;
           this.localSwingAt = this.clock;
           this.nextSwing = this.clock + c.wind + c.rec;
+          this.pendingHit = { at: this.clock + c.wind, heavy: c.heavy, reach: SIZE[this.def.size].reach * c.reach, arc: c.arc };
           if (you.role !== 2) sc.cue(this.myId, { kind: 'swing', combo, heavy: c.heavy, move: c.kind, skill: '', fx: '', wind: c.wind, rec: c.rec });
           this.d.sfx.swing();
         }
+        this.resolvePendingHit(sc);
         let flags = 0;
         if (g.top.some(([id]) => id === this.myId)) flags |= FL.hunted;
         if (you.buffs.includes('stunned')) flags |= FL.stun;
@@ -1038,7 +1068,7 @@ export class Arena {
     if (this.acc >= 0.033) this.flush(inp.at);
     else if (now - this.lastSend > 100 || inp.at !== !!this.lastAtSent || Math.abs(this.camYaw - this.lastYawSent) > 0.04) {
       // nothing to step, but the server still wants the camera direction and attack button
-      if (now - this.lastSend > 40) this.flush(inp.at);
+      if (inp.at !== !!this.lastAtSent || now - this.lastSend > 40) this.flush(inp.at); // a press of the attack button goes out at once
     }
   }
 

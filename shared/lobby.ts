@@ -2,7 +2,6 @@
 // It knows nothing about sockets: each host wraps its WebSocket in a Peer.
 import { MAX_CHAT, MAX_NAME, MAX_PLAYERS, type ClientMsg, type PlayerState, type ServerMsg } from './protocol';
 import { ANIMAL_BY_ID } from './arena/animals';
-import { cleanPaint } from './arena/paint';
 import { Director } from './arena/director';
 
 export type IceServers = Extract<ServerMsg, { t: 'welcome' }>['iceServers'];
@@ -27,7 +26,7 @@ export interface Session extends Saved {
 /** token -> username, null if the login is invalid. May throw if the auth service is down. */
 export type Verifier = (token: string) => Promise<string | null>;
 
-const publicState = (c: Session): PlayerState => ({ id: c.id, name: c.name, animal: c.animal, paint: c.paint });
+const publicState = (c: Session): PlayerState => ({ id: c.id, name: c.name, animal: c.animal });
 
 export class Lobby {
   private conns = new Map<string, Session>(); // joined players only
@@ -77,7 +76,7 @@ export class Lobby {
   }
 
   save(c: Session): Saved {
-    return { id: c.id, name: c.name, joined: c.joined, animal: c.animal, paint: c.paint };
+    return { id: c.id, name: c.name, joined: c.joined, animal: c.animal };
   }
 
   /**
@@ -183,8 +182,7 @@ export class Lobby {
       case 'animal': {
         if (!c.joined || typeof msg.a !== 'string' || !ANIMAL_BY_ID.has(msg.a) || !this.allowChat(c)) return;
         c.animal = msg.a;
-        c.paint = cleanPaint(msg.paint);
-        this.broadcast({ t: 'animal', id: c.id, a: msg.a, paint: c.paint }, c.id);
+        this.broadcast({ t: 'animal', id: c.id, a: msg.a }, c.id);
         break;
       }
       case 'menter':

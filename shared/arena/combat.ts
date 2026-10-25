@@ -54,6 +54,11 @@ export const COMBO: readonly Strike[] = [
 ];
 export const DEFAULT_COMBO = COMBO;
 
+// Telegraphs are kept short so a swing lands almost the instant it is thrown: the blow takes this much of its base wind-up.
+const SNAP = 0.7;
+for (const b of Object.values(STRIKE_BASE)) b.wind = Math.round(b.wind * SNAP * 1000) / 1000;
+for (const c of COMBO) (c as { wind: number }).wind = Math.round(c.wind * SNAP * 1000) / 1000;
+
 /** Full-chain damage per second of the plain chain. Every sequence is scaled to match, so they trade rhythm, not power. */
 const COMBO_DPS = COMBO.reduce((a, c) => a + c.dmg, 0) / COMBO.reduce((a, c) => a + c.wind + c.rec, 0);
 

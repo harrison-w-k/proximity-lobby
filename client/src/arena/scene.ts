@@ -22,6 +22,9 @@ export interface FighterView {
   plate: THREE.Sprite;
   plateKey: string;
   dummy?: boolean;
+  /** a dummy's damage per second over the current run of hits (a run ends after 3 s without one) */
+  dps?: number;
+  dpsRun?: { first: number; last: number; total: number };
   hpAbs: number;
   maxHp: number;
   ovh: number; // overhealth
@@ -662,9 +665,10 @@ varying vec3 vWP;`)
     g.lineJoin = 'round';
     g.lineWidth = 6;
     g.strokeStyle = 'rgba(8,24,28,.9)';
-    g.strokeText(v.name, 160, 20);
+    const title = v.dummy && v.dps ? `${v.name}  ·  ${v.dps} DPS` : v.name;
+    g.strokeText(title, 160, 20);
     g.fillStyle = hunted ? '#ffd23f' : v.dummy ? '#ffd9a0' : friend ? '#a6f594' : '#ffffff';
-    g.fillText(v.name, 160, 20);
+    g.fillText(title, 160, 20);
     // the health bar: rounded, with the overhealth as a gold layer along its top edge
     const bx = 64;
     const by = 44;
@@ -721,13 +725,13 @@ varying vec3 vWP;`)
     return tex;
   }
 
-  private buildFighterRig(animal: string, paint?: [number, number], id?: string, dummy?: boolean): Rig {
+  private buildFighterRig(animal: string, dummy?: boolean): Rig {
     if (dummy) return makeDummyRig();
-    return makePlayerRig(animal, paint, id);
+    return makePlayerRig(animal);
   }
 
   /** Create or refresh the models for the roster. */
-  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; paint?: [number, number]; dummy?: boolean }[], selfId: string) {
+  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; dummy?: boolean }[], selfId: string) {
     this.selfId = selfId;
     const ids = new Set(list.map((l) => l.id));
     for (const [id, v] of this.fighters) {
@@ -743,7 +747,7 @@ varying vec3 vWP;`)
         v = undefined;
       }
       if (!v) {
-        const rig = this.buildFighterRig(r.animal, r.paint, r.id, r.dummy);
+        const rig = this.buildFighterRig(r.animal, r.dummy);
         const group = new THREE.Group();
         group.add(rig.root);
         const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: undefined, transparent: true, depthWrite: false, depthTest: false }));
@@ -970,6 +974,17 @@ varying vec3 vWP;`)
     const out: [number, number, number][] = [];
     for (const m of this.mobs.values()) out.push([m.x, m.z, m.big ? (m.rig.radius > 1.2 ? 2 : 1) : 0]);
     return out;
+  }
+
+  /** Count a blow on a target dummy towards its damage per second. */
+  dummyHit(id: string, n: number) {
+    const v = this.fighters.get(id);
+    if (!v?.dummy) return;
+    const t = performance.now() / 1000;
+    if (!v.dpsRun || t - v.dpsRun.last > 3) v.dpsRun = { first: t, last: t, total: 0 };
+    v.dpsRun.total += n;
+    v.dpsRun.last = t;
+    v.dps = Math.round(v.dpsRun.total / Math.max(1.5, t - v.dpsRun.first));
   }
 
   fighter(id: string) {
@@ -1523,7 +1538,7 @@ varying vec3 vWP;`)
       if (v.stars) this.spinStars(v.stars, (v.flags & FL.stun) !== 0, now, Math.max(0.35, v.rig.radius * 0.7));
       v.rig.setTint((v.evolveUntil ?? 0) > now ? 0xbff0ff : (v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : v.self || v.dummy ? null : v.team === mineTeam ? 0x2f9bff : 0xff3a3a); // blue teammates, red hostiles
       // hide models in bushes/underwater from far away is the server's job; here just the plate
-      const key = `${v.hpAbs}|${v.maxHp}|${v.ovh}|${v.level}|${v.flags & (FL.hunted | 1)}|${v.role}|${mineTeam}|${v.speaking ? 1 : 0}`;
+      const key = `${v.dps ?? 0}|${v.hpAbs}|${v.maxHp}|${v.ovh}|${v.level}|${v.flags & (FL.hunted | 1)}|${v.role}|${mineTeam}|${v.speaking ? 1 : 0}`;
       if (key !== v.plateKey) {
         v.plateKey = key;
         const old = (v.plate.material as THREE.SpriteMaterial).map;

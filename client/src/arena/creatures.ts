@@ -3,7 +3,6 @@
 // countershading, gill plates, rayed fins) and merged into a handful of vertex-coloured meshes, so each one is cheap.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Paint } from '../../../shared/arena/paint';
 import type { Rig, RigState } from './models';
 
 type V3 = [number, number, number];
@@ -294,33 +293,34 @@ const BUG_PAL: Record<BugKind, Palette> = {
 };
 
 /** A scorpion's pincers and its curled, stinging tail, scaled by `sc`. */
-function scorpionParts(p: Parts, g: { y0: number; az: number }, sc: number, claw: number, tailC: number, sting: number) {
+/** `cb` fattens the pincers, `tt` the tail, `ta` how high the tail arches, `cl` how far the claws reach. */
+function scorpionParts(p: Parts, g: { y0: number; az: number }, sc: number, claw: number, tailC: number, sting: number, cb = 1, tt = 1, ta = 1, cl = 1) {
   for (const s of [-1, 1]) {
     // pedipalps: an arm that reaches out and forward, ending in a pincer
     const a: V3 = [s * 0.16 * sc, g.y0, 0.2 * sc];
     const b: V3 = [s * 0.34 * sc, g.y0 + 0.02 * sc, 0.5 * sc];
     const c: V3 = [s * 0.24 * sc, g.y0, 0.78 * sc];
-    p.seg(a, b, 0.05 * sc, 0.042 * sc, claw, 7);
-    p.seg(b, c, 0.042 * sc, 0.038 * sc, claw, 7);
-    p.ball(0.075 * sc, 0.05 * sc, 0.12 * sc, shade(claw, 1.08), s * 0.22 * sc, g.y0, 0.9 * sc, 0, 9, 7);
-    p.spike([s * 0.14 * sc, g.y0, 0.96 * sc], [s * 0.04 * sc, g.y0, 1.22 * sc], 0.04 * sc, shade(claw, 0.8));
-    p.spike([s * 0.31 * sc, g.y0, 0.96 * sc], [s * 0.34 * sc, g.y0, 1.2 * sc], 0.034 * sc, shade(claw, 0.8));
+    p.seg(a, b, 0.05 * sc * cb, 0.042 * sc * cb, claw, 7);
+    p.seg(b, c, 0.042 * sc * cb, 0.038 * sc * cb, claw, 7);
+    p.ball(0.075 * sc * cb, 0.05 * sc * cb, 0.12 * sc * cb, shade(claw, 1.08), s * 0.22 * sc, g.y0, 0.9 * sc, 0, 9, 7);
+    p.spike([s * 0.14 * sc, g.y0, 0.96 * sc], [s * 0.04 * sc, g.y0, (0.96 + 0.26 * cl) * sc], 0.04 * sc * cb, shade(claw, 0.8));
+    p.spike([s * 0.31 * sc, g.y0, 0.96 * sc], [s * 0.34 * sc, g.y0, (0.96 + 0.24 * cl) * sc], 0.034 * sc * cb, shade(claw, 0.8));
   }
   // the tail: segments arching up and forward over the back, ending in a stinger
-  const pts: V3[] = [[0, 0, -0.1], [0, 0.12, -0.28], [0, 0.3, -0.36], [0, 0.5, -0.3], [0, 0.64, -0.14], [0, 0.7, 0.06]].map(([x, y, z]) => [x, g.y0 + y * sc, g.az + z * sc] as V3);
+  const pts: V3[] = [[0, 0, -0.1], [0, 0.12, -0.28], [0, 0.3, -0.36], [0, 0.5, -0.3], [0, 0.64, -0.14], [0, 0.7, 0.06]].map(([x, y, z]) => [x, g.y0 + y * sc * ta, g.az + z * sc] as V3);
   for (let i = 1; i < pts.length; i++) {
-    const r0 = (0.062 - i * 0.006) * sc;
+    const r0 = (0.062 - i * 0.006) * sc * tt;
     p.seg(pts[i - 1], pts[i], r0, r0 * 0.9, i % 2 ? tailC : shade(tailC, 0.9), 7);
     p.ball(r0 * 1.1, r0 * 1.1, r0 * 1.1, shade(tailC, 0.8), pts[i][0], pts[i][1], pts[i][2], 0, 6, 5);
   }
   const tip = pts[pts.length - 1];
-  p.ball(0.06 * sc, 0.06 * sc, 0.07 * sc, tailC, tip[0], tip[1], tip[2] + 0.02 * sc, 0, 8, 6); // the venom bulb
+  p.ball(0.06 * sc * tt, 0.06 * sc * tt, 0.07 * sc * tt, tailC, tip[0], tip[1], tip[2] + 0.02 * sc, 0, 8, 6); // the venom bulb
   p.spike([tip[0], tip[1], tip[2] + 0.05 * sc], [tip[0], tip[1] - 0.14 * sc, tip[2] + 0.14 * sc], 0.03 * sc, sting);
 }
 
-function buildBug(kind: BugKind, paint?: Paint | null): BugBuilt {
+function buildBug(kind: BugKind): BugBuilt {
   const base = BUG_PAL[kind];
-  const pal: Palette = { main: paint && paint[0] >= 0 ? paint[0] : base.main, acc: paint && paint[1] >= 0 ? paint[1] : base.acc };
+  const pal: Palette = { main: base.main, acc: base.acc };
   switch (kind) {
     case 'ant':
       return buildInsect(
@@ -358,10 +358,13 @@ function buildBug(kind: BugKind, paint?: Paint | null): BugBuilt {
       );
     case 'bombardier':
       return buildInsect(
-        { head: [0.1, 0.08, 0.1], thorax: [0.1, 0.085, 0.14], abd: [0.15, 0.1, 0.24], legLen: 0.5, legT: 0.02, legC: 0xd2692a, antLen: 0.34, antC: 0xd2692a, mandLen: 0.07, eyeC: 0x0a0808, eyeR: 0.03 },
+        { head: [0.13, 0.09, 0.11], thorax: [0.17, 0.1, 0.12], abd: [0.19, 0.11, 0.26], legLen: 0.34, legT: 0.026, legC: 0xd2692a, antLen: 0.4, antC: 0xd2692a, mandLen: 0.09, eyeC: 0x0a0808, eyeR: 0.04 },
         pal,
         (_b, _h, p, g) => {
-          for (const s of [-1, 1]) p.ball(0.095, 0.075, 0.27, pal.acc, s * 0.06, g.y0 + 0.07, -0.34, -0.1, 10, 8); // the long blue-black wing cases
+          for (const s of [-1, 1]) {
+            p.ball(0.12, 0.09, 0.34, pal.acc, s * 0.09, g.y0 + 0.08, -0.3, -0.08, 10, 8); // the long blue-black wing cases
+            for (let i = 0; i < 4; i++) p.ball(0.012, 0.012, 0.3, shade(pal.acc, 1.5), s * (0.03 + i * 0.045), g.y0 + 0.165 - i * 0.012, -0.3, -0.08, 5, 4); // their ridges
+          }
           p.ball(0.11, 0.07, 0.1, pal.main, 0, g.y0 + 0.05, 0.08, 0, 10, 7);
           p.seg([0, g.y0 - 0.02, g.az - 0.2], [0, g.y0 - 0.03, g.az - 0.38], 0.03, 0.018, 0xff7a2a, 6); // the spray nozzle
         },
@@ -386,9 +389,9 @@ function buildBug(kind: BugKind, paint?: Paint | null): BugBuilt {
     case 'scorpion':
       return buildSpider(pal, { ceph: [0.2, 0.09, 0.24], abd: [0.16, 0.1, 0.34], legLen: 0.3, legT: 0.026, legC: shade(pal.main, 0.8), eyeC: 0x120c06, fang: 0.04, reach: 0.8 }, (p, g) => scorpionParts(p, g, 1, shade(pal.main, 1.05), pal.acc, 0x2a1a0c));
     case 'emperor_scorpion':
-      return buildSpider(pal, { ceph: [0.32, 0.13, 0.36], abd: [0.24, 0.14, 0.5], legLen: 0.42, legT: 0.04, legC: 0x101016, eyeC: 0x1a1a22, fang: 0.06, reach: 0.8 }, (p, g) => scorpionParts(p, g, 1.5, 0x20202a, 0x16161c, 0x0a0a0e));
+      return buildSpider(pal, { ceph: [0.32, 0.13, 0.36], abd: [0.24, 0.14, 0.5], legLen: 0.42, legT: 0.04, legC: 0x101016, eyeC: 0x1a1a22, fang: 0.06, reach: 0.8 }, (p, g) => scorpionParts(p, g, 1.5, 0x20202a, 0x16161c, 0x0a0a0e, 1.9, 0.55, 0.75, 0.8));
     case 'deathstalker':
-      return buildSpider(pal, { ceph: [0.17, 0.075, 0.22], abd: [0.12, 0.075, 0.3], legLen: 0.28, legT: 0.02, legC: shade(pal.main, 0.85), eyeC: 0x120c06, fang: 0.03, reach: 0.85 }, (p, g) => scorpionParts(p, g, 0.95, 0xe8d37a, 0xb8a040, 0x5a4010));
+      return buildSpider(pal, { ceph: [0.17, 0.075, 0.22], abd: [0.12, 0.075, 0.3], legLen: 0.28, legT: 0.02, legC: shade(pal.main, 0.85), eyeC: 0x120c06, fang: 0.03, reach: 0.85 }, (p, g) => scorpionParts(p, g, 0.95, 0xe8d37a, 0xb8a040, 0x5a4010, 0.45, 1.5, 1.25, 1.35));
     case 'black_widow':
       return buildSpider(pal, { ceph: [0.12, 0.09, 0.15], abd: [0.2, 0.2, 0.24], legLen: 0.5, legT: 0.014, legC: 0x0a0a0d, eyeC: 0x111118, fang: 0.05, reach: 1.1 }, (p, g) => {
         // the red hourglass on the belly
@@ -475,9 +478,9 @@ export class BugRig implements Rig {
 }
 
 export const BUG_KINDS = new Set<string>(['ant', 'beetle', 'hercules', 'bombardier', 'spider', 'tarantula', 'black_widow', 'scorpion', 'emperor_scorpion', 'deathstalker']);
-export function makeBugRig(kind: string, paint: Paint | null | undefined, radius: number): Rig {
+export function makeBugRig(kind: string, radius: number): Rig {
   const k = kind as BugKind;
-  const b = buildBug(k, paint);
+  const b = buildBug(k);
   return new BugRig(b, radius, 1);
 }
 
@@ -621,12 +624,12 @@ function fishBody(f: FishP, pal: { back: number; belly: number; fin: number }, n
   return g.toNonIndexed();
 }
 
-function buildFish(name: string, paint?: Paint | null): { geo: THREE.BufferGeometry; len: number; height: number; width: number } {
+function buildFish(name: string): { geo: THREE.BufferGeometry; len: number; height: number; width: number } {
   const f = FISH_P[name];
   const pal = {
-    back: paint && paint[0] >= 0 ? paint[0] : f.back,
-    belly: paint && paint[0] >= 0 ? mix(paint[0], 0xffffff, 0.6) : f.belly,
-    fin: paint && paint[1] >= 0 ? paint[1] : f.fin,
+    back: f.back,
+    belly: f.belly,
+    fin: f.fin,
   };
   const p = new Parts();
   p.addGeo(fishBody(f, pal, name));
@@ -810,9 +813,9 @@ export class RealFishRig implements Rig {
   private flash = 0;
   private tint: number | null = null;
   private baseY: number;
-  constructor(name: string, paint: Paint | null | undefined, radius: number) {
+  constructor(name: string, radius: number) {
     const f = FISH_P[name];
-    const built = buildFish(name, paint);
+    const built = buildFish(name);
     this.mat = chitin(0.3);
     this.mat.metalness = 0.28;
     const uni = this.uni;
@@ -864,6 +867,6 @@ export class RealFishRig implements Rig {
 }
 
 export const REAL_FISH = new Set<string>(Object.keys(FISH_P));
-export function makeRealFishRig(name: string, paint: Paint | null | undefined, radius: number): Rig {
-  return new RealFishRig(name, paint, radius);
+export function makeRealFishRig(name: string, radius: number): Rig {
+  return new RealFishRig(name, radius);
 }

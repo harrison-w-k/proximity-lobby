@@ -8,14 +8,11 @@ import { Arena } from './arena/arena';
 import { BrMenu } from './arena/menu';
 import { AnimalPicker } from './arena/picker';
 import { ANIMAL_EMOJI } from './arena/emoji';
-import { loadPaint } from './arena/paintStore';
 import { Showcase } from './arena/showcase';
 import { ACCENT } from './arena/menu';
 import { CLASS_BY_ID } from '../../shared/arena/animals';
-import type { Paint } from '../../shared/arena/paint';
 import { ANIMALS, ANIMAL_BY_ID, STARTERS, TREE_BY_ID } from '../../shared/arena/animals';
 /** Everyone starts as the stage 1 animal of a tree. */
-const starterOf = (id: string) => TREE_BY_ID.get(ANIMAL_BY_ID.get(id)?.tree ?? '')?.starter ?? 'house_cat';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
 
@@ -48,7 +45,7 @@ try {
   const savedRoom = localStorage.getItem('br-room');
   if (savedRoom === 'sandbox' && !new URLSearchParams(location.search).has('room')) room = 'sandbox';
   const saved = localStorage.getItem('br-animal');
-  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = room === 'sandbox' ? saved : starterOf(saved);
+  if (saved && ANIMAL_BY_ID.has(saved)) myAnimal = saved;
 } catch {
   /* storage unavailable */
 }
@@ -66,11 +63,10 @@ function refreshStage() {
   stage.style.setProperty('--acc', ACCENT[a.cls] ?? '#e8a23a');
   joinShow.setAccent(parseInt((ACCENT[a.cls] ?? '#e8a23a').slice(1), 16));
   if (stageAnimal === a.id) {
-    joinShow.setPaint(loadPaint(a.id));
     return;
   }
   stageAnimal = a.id;
-  joinShow.setAnimal(a.id, loadPaint(a.id));
+  joinShow.setAnimal(a.id);
   const nm = stage.querySelector<HTMLElement>('.nm')!;
   (document.getElementById('js-name') as HTMLElement).textContent = a.name;
   (document.getElementById('js-cls') as HTMLElement).textContent = `${cls?.icon ?? ''} ${cls?.name ?? ''}`;
@@ -113,13 +109,13 @@ function applyRoomUi() {
     b.classList.toggle('on', on);
     b.setAttribute('aria-checked', String(on));
   });
-  const sb = room === 'sandbox';
+  const sb = true; // either room lets you pick any animal
   const row = document.getElementById('join-animals');
   const card = document.getElementById('sb-animal');
   if (row) row.hidden = sb;
   if (card) card.hidden = !sb;
   const title = document.getElementById('animal-title');
-  if (title) title.textContent = sb ? 'Your animal' : 'Starting animal';
+  if (title) title.textContent = 'Your animal';
   const a = ANIMAL_BY_ID.get(myAnimal);
   const em = document.getElementById('sb-emoji');
   const nm = document.getElementById('sb-name');
@@ -136,16 +132,12 @@ function setRoom(r: Room) {
   } catch {
     /* storage unavailable */
   }
-  if (r === 'br' && starterOf(myAnimal) !== myAnimal) chooseAnimal(starterOf(myAnimal)); // the lobby starts everyone small
   applyRoomUi();
   render(); // the button names the room
 }
-let myPaint: Paint | undefined = loadPaint(myAnimal);
-function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id)) {
+function chooseAnimal(id: string) {
   if (!ANIMAL_BY_ID.has(id)) return;
-  if (room === 'br') id = starterOf(id);
   myAnimal = id;
-  myPaint = paint ?? undefined;
   try {
     localStorage.setItem('br-animal', id);
   } catch {
@@ -153,8 +145,8 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
   }
   refreshAnimalUi();
   if (joined) {
-    net.send({ t: 'animal', a: id, paint: myPaint });
-    if (!arena.active || arena.campus) net.send({ t: 'menter', animal: id, paint: myPaint }); // become this animal on the campus
+    net.send({ t: 'animal', a: id });
+    if (!arena.active || arena.campus) net.send({ t: 'menter', animal: id }); // become this animal on the campus
   }
 }
 {
@@ -173,9 +165,9 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
   refreshAnimalUi();
 }
 const brMenu = new BrMenu(net, sfx);
-brMenu.onChoose = (id, paint) => chooseAnimal(id, paint);
+brMenu.onChoose = (id) => chooseAnimal(id);
 const picker = new AnimalPicker();
-picker.onChoose = (id, paint) => chooseAnimal(id, paint);
+picker.onChoose = (id) => chooseAnimal(id);
 document.querySelectorAll<HTMLElement>('.room').forEach((b) => b.addEventListener('click', () => setRoom(b.dataset.room as Room)));
 document.getElementById('sb-browse')?.addEventListener('click', () => {
   picker.current = myAnimal;
@@ -183,7 +175,7 @@ document.getElementById('sb-browse')?.addEventListener('click', () => {
 });
 document.getElementById('sb-random')?.addEventListener('click', () => chooseAnimal(ANIMALS[Math.floor(Math.random() * ANIMALS.length)].id));
 /** The animal menu for this room: the sandbox picker, or the tournament menu. */
-const animalMenu = () => (room === 'sandbox' ? picker : brMenu);
+const animalMenu = () => picker;
 const menuIsOpen = () => brMenu.isOpen || picker.isOpen;
 document.getElementById('animal-chip')?.addEventListener('click', () => {
   if (!arena.active || arena.campus) {
@@ -224,6 +216,7 @@ function refreshBrButton() {
   const b = document.getElementById('br-open');
   if (b) {
     b.textContent = room === 'sandbox' ? '🧪 Change animal [B]' : brMenu.summary();
+    b.title = room === 'sandbox' ? '' : 'Queue for the Tournament (press T; B changes animal)';
     b.className = 'br-btn';
     b.hidden = arena.active && !arena.campus;
   }
@@ -231,8 +224,10 @@ function refreshBrButton() {
 setInterval(refreshBrButton, 500);
 document.getElementById('br-open')?.addEventListener('click', () => {
   if (!arena.active || arena.campus) {
-    picker.current = myAnimal;
-    animalMenu().open();
+    if (room === 'sandbox') {
+      picker.current = myAnimal;
+      picker.open();
+    } else brMenu.open(); // the lobby's button is the Tournament queue; B picks any animal
   }
 });
 let typing = false;
@@ -669,6 +664,8 @@ window.addEventListener('keydown', (e) => {
     voice.setMuted(!voice.muted);
     refreshMenu();
     updateHud();
+  } else if (e.code === 'KeyT' && !typing && !menuOpen && room === 'br' && (!arena.active || arena.campus) && !menuIsOpen() && !e.ctrlKey && !e.metaKey) {
+    brMenu.open();
   } else if (e.code === 'KeyB' && !typing && !menuOpen && (!arena.active || arena.campus) && !menuIsOpen() && !e.ctrlKey && !e.metaKey) {
     picker.current = myAnimal;
     animalMenu().open();
@@ -697,8 +694,8 @@ net.onMessage = (m: ServerMsg) => {
       joined = true;
       myId = m.id;
       sfx.join();
-      net.send({ t: 'animal', a: myAnimal, paint: myPaint });
-      net.send({ t: 'menter', animal: myAnimal, paint: myPaint }); // walk into the campus
+      net.send({ t: 'animal', a: myAnimal });
+      net.send({ t: 'menter', animal: myAnimal }); // walk into the campus
       voice?.setIce(m.iceServers as RTCIceServer[]);
       for (const p of m.players) {
         names.set(p.id, p.name);

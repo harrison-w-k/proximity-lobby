@@ -2,7 +2,6 @@
 // tick() from its timer; it talks back through `send`.
 import { ANIMALS, STARTERS } from './animals';
 import { DT, Match, type Entrant } from './match';
-import { cleanPaint } from './paint';
 import { isSpawnId, type SpawnId } from './spawn';
 import type { ClientMatchMsg, QueueInfo, ServerMatchMsg } from './proto';
 
@@ -24,7 +23,6 @@ interface Queued {
   animal: string;
   team: string;
   spawn: SpawnId;
-  paint?: [number, number];
 }
 
 export class Director {
@@ -44,7 +42,7 @@ export class Director {
   private campusAcc = 0;
   private campusLast = 0;
   /** What each player last asked to be, so walking back into the campus is automatic. */
-  private profiles = new Map<string, { animal: string; paint?: [number, number] }>();
+  private profiles = new Map<string, { animal: string }>();
   /** Fill the empty slots with AI so there are always 20 animals. */
   fillWithBots = true;
   /** Seconds a match waits for more players after the first one queues. */
@@ -78,13 +76,11 @@ export class Director {
   }
 
   /** Walk a player into the campus (starting a campus if there is none). */
-  enterCampus(id: string, animal?: string, paint?: unknown) {
+  enterCampus(id: string, animal?: string) {
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
     const prev = this.profiles.get(id);
-    const pool = this.sandbox ? ANIMALS : STARTERS;
-    const a = pool.find((x) => x.id === animal) ?? pool.find((x) => x.id === prev?.animal) ?? STARTERS[0];
-    const p = paint === undefined ? prev?.paint : cleanPaint(paint);
-    this.profiles.set(id, { animal: a.id, paint: p });
+    const a = ANIMALS.find((x) => x.id === animal) ?? ANIMALS.find((x) => x.id === prev?.animal) ?? STARTERS[0]; // the lobby lets you roam as any animal
+    this.profiles.set(id, { animal: a.id });
     const name = this.host.players().find((x) => x.id === id)?.name;
     if (!name) return;
     if (!this.campus) {
@@ -101,7 +97,7 @@ export class Director {
       this.campusAcc = 0;
       this.campusLast = Date.now();
     }
-    this.campus.addPlayer({ id, name, animal: a.id, team: 0, bot: false, paint: p });
+    this.campus.addPlayer({ id, name, animal: a.id, team: 0, bot: false });
     this.inCampus.add(id);
     this.host.send(id, this.campus.startMsg(id));
     this.host.send(id, { t: 'mq', q: this.info(id) });
@@ -113,14 +109,14 @@ export class Director {
     if (this.inCampus.size === 0) this.campus = null; // nobody left: let it go
   }
 
-  join(id: string, animal: string, team?: string, spawn?: string, paint?: unknown) {
+  join(id: string, animal: string, team?: string, spawn?: string) {
     if (this.sandbox) return; // the sandbox has no matches
     if (this.inMatch.has(id) && this.match && !this.match.finished) return;
     const a = STARTERS.find((x) => x.id === animal); // everyone starts as a stage 1 animal
     if (!a) return;
     if (!this.queue.has(id) && this.queue.size >= MATCH_SLOTS) return;
-    this.profiles.set(id, { animal: a.id, paint: cleanPaint(paint) ?? this.profiles.get(id)?.paint });
-    this.queue.set(id, { animal: a.id, team: (team ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12), spawn: isSpawnId(spawn) ? spawn : 'any', paint: cleanPaint(paint) });
+    this.profiles.set(id, { animal: a.id });
+    this.queue.set(id, { animal: a.id, team: (team ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12), spawn: isSpawnId(spawn) ? spawn : 'any' });
     if (this.startAt === null && !(this.match && !this.match.finished)) this.startAt = Date.now() + this.countdownMs;
     this.broadcastQueue(true);
   }
@@ -144,10 +140,10 @@ export class Director {
   handle(id: string, msg: ClientMatchMsg) {
     switch (msg.t) {
       case 'menter':
-        if (typeof msg.animal === 'string') this.enterCampus(id, msg.animal, msg.paint);
+        if (typeof msg.animal === 'string') this.enterCampus(id, msg.animal);
         break;
       case 'mq':
-        if (typeof msg.animal === 'string') this.join(id, msg.animal, typeof msg.team === 'string' ? msg.team : '', msg.spawn, msg.paint);
+        if (typeof msg.animal === 'string') this.join(id, msg.animal, typeof msg.team === 'string' ? msg.team : '', msg.spawn);
         break;
       case 'mqx':
         this.leave(id);
@@ -183,7 +179,7 @@ export class Director {
         }
       } else team = nextTeam++;
       teamSize.set(team, (teamSize.get(team) ?? 0) + 1);
-      entrants.push({ id, name: names.get(id)!, animal: q.animal, team, bot: false, spawn: q.spawn, paint: q.paint });
+      entrants.push({ id, name: names.get(id)!, animal: q.animal, team, bot: false, spawn: q.spawn });
     }
     if (!entrants.length) {
       this.queue.clear();

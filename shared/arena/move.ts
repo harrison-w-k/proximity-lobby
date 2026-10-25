@@ -86,8 +86,8 @@ export const JUMP_COST = 8; // stamina
 /** A bird's soar: the fall is capped at this speed while it glides, and it moves this much faster than on the ground. */
 export const SOAR_FALL = 1.5; // m/s
 export const SOAR_SPEED = 1.5;
-/** A bird that drops further than a jump can reach (a ledge, a rock, a roof) spreads its wings and glides down. */
-export const GLIDE_DROP = 1.8; // m above the ground below
+/** A bird that is falling more than this far above the ground (after a jump, or off a ledge, rock or roof) spreads its wings and glides down. */
+export const GLIDE_DROP = 0.4; // m above the ground below
 export const glideFall = (bird: boolean, jy: number, jv: number, floor: number) => bird && jv <= 0 && jy > floor + GLIDE_DROP;
 
 /**

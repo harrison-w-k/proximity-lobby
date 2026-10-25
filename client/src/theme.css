@@ -207,7 +207,6 @@ body.portal #br-menu .perks .p { color: #9dffb0; }
 body.portal #br-menu .perks .d { color: #ff9aa8; }
 body.portal #br-menu .status { color: var(--portal); font-weight: 700; }
 body.portal #br-menu .mfoot { border-top-color: var(--ink); }
-body.portal #br-menu .paint .sw.on { box-shadow: 0 0 0 3px var(--goo), 0 3px 0 rgba(0, 0, 0, .5); }
 body.portal #br-menu .dropinfo h4 { color: var(--goo); }
 body.portal #br-menu .dropinfo .g { color: #9dffb0; }
 body.portal #br-menu .dropinfo .x { color: #ff9aa8; }

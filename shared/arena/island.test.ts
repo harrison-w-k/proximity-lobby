@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { Director } from './director';
 import { DT, Match } from './match';
-import { ISLAND_BOUND, stepPos } from './move';
+import { ISLAND_BOUND, glideFall, stepPos } from './move';
 import { ISLAND, Terrain, WATER_Y } from './terrain';
 import type { ServerMatchMsg } from './proto';
 
@@ -139,5 +139,14 @@ const players = [{ id: 'p1', name: 'Ann' }, { id: 'p2', name: 'Bo' }];
   m.time += 3;
   assert.ok(withMomentum > mult(a, b) + 0.1, 'it adds damage');
   assert.equal((m as unknown as { momentumOf(f: unknown): number }).momentumOf(a), 0, 'it fades');
+}
+// the first minute of a room is not a peace: dummies can be hit from the start, and a bird glides down from a plain jump
+{
+  const m = new Match(7, [{ id: 'a', name: 'A', animal: 'fox', team: 0, bot: false }], { send: () => {} }, { campus: true, island: true });
+  const a = m.byId.get('a')!;
+  const dm = m.fighters.find((f) => f.dummy)!;
+  assert.equal(m.time, 0);
+  assert.ok((m as any).canHit(a, dm), 'a dummy can be hit at once');
+  assert.ok(glideFall(true, 0.8, -1, 0) && !glideFall(false, 0.8, -1, 0), 'birds glide after a jump, others do not');
 }
 console.log('island tests passed');

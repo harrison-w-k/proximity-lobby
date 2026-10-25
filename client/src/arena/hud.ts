@@ -614,10 +614,10 @@ export class Hud {
           ? `Tournament starts in ${q.startsIn}s · ${q.queued} queued`
           : 'You are queued for the Tournament'
         : q && q.startsIn !== null
-          ? `A Tournament starts in ${q.startsIn}s: press B to join (${q.queued} queued)`
+          ? `A Tournament starts in ${q.startsIn}s: press T to join (${q.queued} queued)`
           : q?.inMatch
-            ? 'A Tournament is running: press B to queue for the next one'
-            : 'Hit the dummies · press B to queue for the Tournament';
+            ? 'A Tournament is running: press T to queue for the next one'
+            : 'Hit the dummies · B changes animal · T is the Tournament';
     }
     const body = role === 0;
     this.skillRow.parentElement!.parentElement!.style.display = role === 3 ? 'none' : '';
@@ -831,7 +831,7 @@ export class Hud {
   setCampus(on: boolean) {
     this.campusOn = on;
     if (this.leaveBtn) this.leaveBtn.hidden = on;
-    if (this.pauseNote) this.pauseNote.textContent = on ? (this.sandbox ? 'The sandbox keeps running. Press B to change animal.' : 'The lobby keeps running. Press B to queue for the Tournament.') : 'The match keeps running. If you leave, an AI takes your animal.';
+    if (this.pauseNote) this.pauseNote.textContent = on ? (this.sandbox ? 'The sandbox keeps running. Press B to change animal.' : 'The lobby keeps running. Press B to change animal.') : 'The match keeps running. If you leave, an AI takes your animal.';
   }
 
   private buildPause() {

@@ -1,7 +1,5 @@
 // The lobby's door to the match: pick an animal on a spotlit stage, optionally enter a squad
 // code, and queue. Hovering an animal brings it up into focus; clicking chooses it.
-import { PAINT_SWATCHES, hex6, type Paint } from '../../../shared/arena/paint';
-import { loadPaint, savePaint } from './paintStore';
 import { SPAWN_BY_ID, SPAWN_CHOICES, bestSpawn, isSpawnId, type SpawnId } from '../../../shared/arena/spawn';
 import { ANIMAL_BY_ID, CLASS_BY_ID, EVOLVE_LEVELS, FORMS_OF_TREE, STAGE_BUDGET, STARTERS, STAT_KEYS, STAT_NAMES, TREE_BY_ID, type AnimalDef } from '../../../shared/arena/animals';
 import { ANIMAL_EMOJI } from './emoji';
@@ -79,15 +77,6 @@ const CSS = `
 #br-menu .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 #br-menu .chip { font-family: var(--font); font-weight: 600; font-size: 17px; padding: 2px 13px; border-radius: 999px; border: 3px solid var(--ink); background: linear-gradient(#2f9a98, #217f7e); color: var(--cream); cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 3px 0 var(--ink); }
 #br-menu .chip.on { background: linear-gradient(#ffb8a8, #ff6f7d); color: #3a0f1a; }
-#br-menu .paint { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 14px; align-items: center; padding: 4px 2px; }
-#br-menu .paint .lab { font-size: 18px; font-weight: 700; color: #f3b43c; }
-#br-menu .paint .sws { display: flex; flex-wrap: wrap; gap: 6px; }
-#br-menu .paint .sw { width: 30px; height: 30px; border: 3px solid #0b3b3f; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 rgba(0,0,0,.45); transition: transform .1s; }
-#br-menu .paint .sw:hover { transform: translateY(-3px) scale(1.12); }
-#br-menu .paint .sw.on { box-shadow: 0 0 0 3px #f3b43c, 0 3px 0 rgba(0,0,0,.45); transform: translateY(-3px) scale(1.15); }
-#br-menu .paint .sw.nat { background: linear-gradient(135deg, #f7edd3 0 50%, #2f9a98 50% 100%); }
-#br-menu .paint input[type=color] { width: 44px; height: 34px; padding: 0; border: 3px solid #0b3b3f; border-radius: 10px; background: #f7edd3; cursor: pointer; }
-#br-menu .paintnote { font-size: 14px; color: #ecdcb2; padding: 0 2px 4px; opacity: .85; }
 #br-menu .drop { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 4px 2px; }
 #br-menu .drop button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px 7px; border: 3px solid #0b3b3f; border-radius: 14px; cursor: pointer; font-family: inherit; color: #0b3b3f;
   background: linear-gradient(#f7edd3, #dcc995); box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 rgba(0,0,0,.45); transition: transform .12s; }
@@ -154,10 +143,8 @@ export class BrMenu {
   private team!: HTMLInputElement;
   private sel = STARTERS[0].id;
   private spawn: SpawnId = 'any';
-  private paintBox = document.createElement('div');
   private treeHead = document.createElement('div');
   private treeBox = document.createElement('div');
-  private paintTitle = document.createElement('div');
   private dropBox = document.createElement('div');
   private dropInfo = document.createElement('div');
   private dropSum = document.createElement('span');
@@ -177,7 +164,7 @@ export class BrMenu {
   onClose: () => void = () => {};
   onOpen: () => void = () => {};
   /** You picked an animal (so the lobby can show it). */
-  onChoose: (id: string, paint: Paint | null) => void = () => {};
+  onChoose: (id: string) => void = () => {};
   private tick = 0;
   private qAt = 0;
 
@@ -244,15 +231,6 @@ export class BrMenu {
     });
     mbody.append(roster, stage);
 
-    // fur colours for the animal in the spotlight
-    this.paintTitle.className = 'sub';
-    this.paintBox.className = 'paint';
-    const paintNote = document.createElement('div');
-    paintNote.className = 'paintnote';
-    paintNote.textContent = 'Unpainted animals get a shade of their own, so no two players look the same. Colours are saved for each animal.';
-    mbody.append(section('🎨 Colours', null, this.paintTitle, this.paintBox, paintNote));
-    this.refreshPaint();
-
     // where to drop onto the map
     try {
       const saved = localStorage.getItem('br-spawn');
@@ -313,7 +291,7 @@ export class BrMenu {
     document.body.append(this.root);
 
     this.queueBtn.addEventListener('click', () => {
-      this.net.send({ t: 'animal', a: this.sel, paint: loadPaint(this.sel) });
+      this.net.send({ t: 'animal', a: this.sel });
       try {
         localStorage.setItem('br-animal', this.sel);
         localStorage.setItem('br-team', this.team.value);
@@ -321,7 +299,7 @@ export class BrMenu {
       } catch {
         /* storage unavailable */
       }
-      this.net.send({ t: 'mq', animal: this.sel, team: this.team.value, spawn: this.spawn, paint: loadPaint(this.sel) });
+      this.net.send({ t: 'mq', animal: this.sel, team: this.team.value, spawn: this.spawn });
     });
     this.leaveBtn.addEventListener('click', () => this.net.send({ t: 'mqx' }));
     close.addEventListener('click', () => this.close());
@@ -374,8 +352,8 @@ export class BrMenu {
     this.refreshSel();
     if (changed) {
       this.sfx?.choose();
-      this.net.send({ t: 'animal', a: id, paint: loadPaint(id) }); // the lobby shows you as this animal right away
-      this.onChoose(id, loadPaint(id) ?? null);
+      this.net.send({ t: 'animal', a: id }); // the lobby shows you as this animal right away
+      this.onChoose(id);
     }
   }
 
@@ -401,84 +379,6 @@ export class BrMenu {
       t.classList.toggle('focus', id === starterOf(this.focus));
     }
     this.refreshSpawn();
-    this.refreshPaint();
-  }
-
-  /** Change one of the two colours (or both) for the animal in the spotlight. */
-  private setPaint(next: Paint | undefined) {
-    const starter = starterOf(this.focus);
-    savePaint(starter, next);
-    if (this.sel !== starter) {
-      this.sel = starter;
-      this.sfx?.choose();
-    }
-    this.net.send({ t: 'animal', a: starter, paint: next });
-    this.onChoose(starter, next ?? null);
-    this.showcase.setPaint(next);
-    this.sfx?.hoverTick();
-    this.refreshSel();
-  }
-
-  /** The colour pickers: a main colour and an accent colour, each with swatches and a free colour box. */
-  private refreshPaint() {
-    const a = ANIMAL_BY_ID.get(this.focus);
-    if (!a) return;
-    const cur: Paint = loadPaint(a.id) ?? [-1, -1];
-    this.paintTitle.innerHTML = `<b>Colours for ${a.name}</b> Pick a main colour and an accent for its belly, ears, tail and paws.`;
-    const rows: HTMLElement[] = [];
-    const mk = (label: string, idx: 0 | 1) => {
-      const lab = document.createElement('div');
-      lab.className = 'lab';
-      lab.textContent = label;
-      const sws = document.createElement('div');
-      sws.className = 'sws';
-      const nat = document.createElement('button');
-      nat.type = 'button';
-      nat.className = 'sw nat' + (cur[idx] < 0 ? ' on' : '');
-      nat.title = 'Natural';
-      nat.addEventListener('click', () => this.setPaint(idx === 0 ? mix([-1, cur[1]]) : mix([cur[0], -1])));
-      sws.append(nat);
-      for (const c of PAINT_SWATCHES) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'sw' + (cur[idx] === c ? ' on' : '');
-        b.style.background = hex6(c);
-        b.title = hex6(c);
-        b.addEventListener('click', () => this.setPaint(idx === 0 ? mix([c, cur[1]]) : mix([cur[0], c])));
-        sws.append(b);
-      }
-      const pick = document.createElement('input');
-      pick.type = 'color';
-      pick.value = hex6(cur[idx] >= 0 ? cur[idx] : 0x888888);
-      pick.title = 'Any colour';
-      pick.addEventListener('change', () => {
-        const c = parseInt(pick.value.slice(1), 16);
-        this.setPaint(idx === 0 ? mix([c, cur[1]]) : mix([cur[0], c]));
-      });
-      rows.push(lab, sws, pick);
-    };
-    const mix = (p: Paint): Paint | undefined => (p[0] < 0 && p[1] < 0 ? undefined : p);
-    mk('Main', 0);
-    mk('Accent', 1);
-    this.paintBox.replaceChildren(...rows);
-    const row = document.createElement('div');
-    row.style.cssText = 'grid-column:1/-1;display:flex;gap:10px';
-    const nat = document.createElement('button');
-    nat.className = 'br-btn wood';
-    nat.textContent = 'Natural colours';
-    nat.addEventListener('click', () => this.setPaint(undefined));
-    const rnd = document.createElement('button');
-    rnd.className = 'br-btn amber';
-    rnd.textContent = '🎲 Surprise colours';
-    rnd.addEventListener('click', () => {
-      const pick = () => PAINT_SWATCHES[Math.floor(Math.random() * PAINT_SWATCHES.length)];
-      const m = pick();
-      let c = pick();
-      while (c === m) c = pick();
-      this.setPaint([m, c]);
-    });
-    row.append(nat, rnd);
-    this.paintBox.append(row);
   }
 
   /** The drop-zone cards, with a star on the one that suits the animal in the spotlight. */
@@ -514,7 +414,7 @@ export class BrMenu {
     this.focus = id;
     const a = ANIMAL_BY_ID.get(id);
     if (!a) return;
-    this.showcase.setAnimal(id, loadPaint(id));
+    this.showcase.setAnimal(id);
     this.showcase.setAccent(parseInt((ACCENT[a.cls] ?? '#e8a23a').slice(1), 16));
     this.sfx?.hoverTick();
     const cls = CLASS_BY_ID.get(a.cls)!;
@@ -602,11 +502,11 @@ export class BrMenu {
   /** The one-line status for the lobby button. */
   summary(): string {
     const q = this.q;
-    if (!q) return '🎓 Tournament [B]';
+    if (!q) return '🎓 Tournament [T]';
     if (q.you) return q.startsIn !== null ? `🐾 Queued · starts in ${Math.max(0, q.startsIn - Math.floor((performance.now() - this.qAt) / 1000))}s` : '🐾 Queued';
-    if (q.inMatch) return '🐾 Match running [B]';
-    if (q.queued > 0) return `🐾 ${q.queued} queued [B]`;
-    return '🎓 Tournament [B]';
+    if (q.inMatch) return '🐾 Match running [T]';
+    if (q.queued > 0) return `🐾 ${q.queued} queued [T]`;
+    return '🎓 Tournament [T]';
   }
 
   private render() {

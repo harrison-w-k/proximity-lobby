@@ -4,11 +4,11 @@ import * as THREE from 'three';
 import { toonMat } from './toon';
 import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
 import { REAL_QUAD, buildRealQuad } from './realquad';
+import { MAMMAL, buildMammal } from './mammals';
 import { REAL_BIRD, buildRealBird, wingPose, type BirdParts } from './birds';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
 import type { Pose } from './anim';
-import type { Paint } from '../../../shared/arena/paint';
 
 export interface RigState {
   speed: number; // m/s along the ground
@@ -418,7 +418,7 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
-    if (REAL_QUAD.has(b.spec.id ?? '') || REAL_BIRD.has(b.spec.id ?? '')) {
+    if (REAL_QUAD.has(b.spec.id ?? '') || MAMMAL.has(b.spec.id ?? '') || REAL_BIRD.has(b.spec.id ?? '')) {
       // realistic models carry their colour in the vertices: one lit material for the whole animal (birds show both faces of a wing)
       const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, side: REAL_BIRD.has(b.spec.id ?? '') ? THREE.DoubleSide : THREE.FrontSide });
       b.root.traverse((o) => {
@@ -1106,7 +1106,7 @@ PS.panda = {
 // reptiles: venom and armor
 PS.gecko = {
   len: 0.9, w: 0.28, h: 0.16, legLen: 0.14, legT: 0.07, fur: 0x8aa84a, belly: 0xe2e8b0, paw: 0x6a8a30, crawl: true, scale: 0.6,
-  head: { s: 0.3, snout: 0.12, snoutC: 0x9ab85a }, ears: 'none', tail: { len: 0.9, t: 0.1, up: 0 }, eye: 0xffd23f,
+  head: { s: 0.42, snout: 0.12, snoutC: 0x9ab85a }, ears: 'none', tail: { len: 0.9, t: 0.1, up: 0 }, eye: 0xffd23f,
   extras: spotted(0xe8c040, 10, 0.26, 0.8, 0.05),
 };
 PS.monitor = { ...SPECS.croc, fur: 0x6a7048, belly: 0xc2c090, paw: 0x4a5030, scale: 0.55, head: { s: 0.34, snout: 0.45, snoutH: 0.2, snoutC: 0x7a8052, drop: 0.08 }, extras: undefined, tail: { len: 1.3, t: 0.2, up: 0 } };
@@ -1195,62 +1195,23 @@ const FISH_FORMS: Record<string, { spec: FishSpec; scale: number }> = {
   angler: { spec: { len: 1.1, h: 0.36, c: 0x4a3a2c, belly: 0x7a6650, fin: 0x2a2018 }, scale: 1 },
 };
 
-/** Re-colour a freshly built animal: the fur takes the main colour, belly, ears, tail and paws the accent. */
-function recolor(b: Built, paint: Paint | undefined, key: string | undefined) {
-  const spec = b.spec;
-  const fur = spec.fur;
-  const wantMain = !!paint && paint[0] >= 0;
-  const wantAcc = !!paint && paint[1] >= 0;
-  const map = new Map<number, number>();
-  if (wantMain) map.set(fur, paint![0]);
-  else if (!wantAcc && key) {
-    // nothing chosen: every player gets their own shade of the animal's natural colours
-    const shift = ((hashStr(key) % 360) / 360 + 0.08) % 1;
-    const hsl = { h: 0, s: 0, l: 0 };
-    const colours = new Set<number>([fur]);
-    for (const c of [spec.belly, spec.earC, spec.tail?.c, spec.head.snoutC, spec.paw]) if (c !== undefined) colours.add(c);
-    for (const c of colours) {
-      new THREE.Color(c).getHSL(hsl);
-      map.set(c, new THREE.Color().setHSL((hsl.h + shift) % 1, Math.max(hsl.s, 0.28), hsl.l).getHex());
-    }
-  }
-  if (!map.size && !wantAcc) return;
-  const dark = wantAcc ? new THREE.Color(paint![1]).multiplyScalar(0.72).getHex() : 0;
-  b.root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    if (wantAcc && o.userData.acc) {
-      o.material = mat(o.userData.acc === 2 ? dark : paint![1]);
-      return;
-    }
-    const to = map.get((o.material as Mat).color.getHex());
-    if (to !== undefined) o.material = mat(to);
-  });
-}
-
-/** An articulated model for something a player controls. `key` (a player id) gives an unpainted animal its own shade. */
+/** An articulated model for something a player controls. */
 // vertical slit pupils: the cats, foxes and most reptiles
 for (const id of ['house_cat', 'bobcat', 'lynx', 'cheetah', 'panther', 'tiger', 'lion', 'fox', 'gecko', 'monitor', 'komodo', 'cobra', 'croc']) if (PS[id]) PS[id].slit = true;
 
-export function makePlayerRig(animal: string, paint?: Paint | null, key?: string): Rig {
+export function makePlayerRig(animal: string): Rig {
   const def0 = ANIMAL_BY_ID.get(animal);
-  if (BUG_KINDS.has(animal)) return makeBugRig(animal, paint, def0 ? SIZE[def0.size].radius : 0.5);
-  if (REAL_FISH.has(animal)) return makeRealFishRig(animal, paint, def0 ? SIZE[def0.size].radius : 0.5);
+  if (BUG_KINDS.has(animal)) return makeBugRig(animal, def0 ? SIZE[def0.size].radius : 0.5);
+  if (REAL_FISH.has(animal)) return makeRealFishRig(animal, def0 ? SIZE[def0.size].radius : 0.5);
   const fish = FISH_FORMS[animal];
   if (fish) return new FishRig(fish.spec, fish.scale);
   if (REAL_BIRD.has(animal)) {
-    const bb = buildRealBird(animal, paint);
+    const bb = buildRealBird(animal);
     const bdef = ANIMAL_BY_ID.get(animal);
     return new BirdPlayerRig(bb, bdef ? SIZE[bdef.size].radius : 0.5, bb.bird);
   }
   const spec = PS[animal] ?? PS.house_cat;
-  let real: QuadSpec = { ...spec, id: animal };
-  if (REAL_QUAD.has(animal) && paint) {
-    // a chosen main colour repaints the coat; the accent repaints the belly, paws and tail
-    if (paint[0] >= 0) real = { ...real, fur: paint[0], tail: real.tail ? { ...real.tail, c: undefined } : undefined };
-    if (paint[1] >= 0) real = { ...real, belly: paint[1], paw: new THREE.Color(paint[1]).multiplyScalar(0.72).getHex() };
-  }
-  const b = REAL_QUAD.has(animal) ? buildRealQuad(real, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
-  recolor(b, paint ?? undefined, key);
+  const b = MAMMAL.has(animal) ? buildMammal({ ...spec, id: animal }, animal) : REAL_QUAD.has(animal) ? buildRealQuad({ ...spec, id: animal }, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
   const def = ANIMAL_BY_ID.get(animal);
   const radius = def ? SIZE[def.size].radius : 0.5;
   return new QuadRig(b, radius);

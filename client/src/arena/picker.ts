@@ -1,9 +1,7 @@
 // The sandbox's animal picker: every animal of every stage, one click to preview and one to play.
 // Search and two filters narrow the grid; the right-hand side shows the animal on a stage, its stats and skills, and its colours.
 import { ANIMALS, ANIMAL_BY_ID, CLASS_BY_ID, STAT_KEYS, STAT_NAMES, TREES, type AnimalDef } from '../../../shared/arena/animals';
-import { PAINT_SWATCHES, hex6, type Paint } from '../../../shared/arena/paint';
 import { ANIMAL_EMOJI } from './emoji';
-import { loadPaint, savePaint } from './paintStore';
 import { Showcase } from './showcase';
 
 const ACCENTS: Record<string, string> = { hunter: '#e8a23a', titan: '#6b9cff', ambusher: '#6fcf5a', brawler: '#ff6a5a', skirmisher: '#c78bff', guardian: '#4fd0d0' };
@@ -54,8 +52,6 @@ const CSS = `
 #picker .pk-colours { background: rgba(0,0,0,.25); border-radius: 12px; padding: 4px 12px 6px; }
 #picker .pk-colours summary { cursor: pointer; font-weight: 800; font-size: 15px; color: var(--goo); padding: 3px 0; }
 #picker .pk-colours[open] summary { margin-bottom: 6px; }
-#picker .pk-paint { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; font-size: 14px; font-weight: 700; }
-#picker .pk-paint .sws { display: flex; flex-wrap: wrap; gap: 5px; }
 #picker .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid var(--ink); cursor: pointer; box-shadow: 0 2px 0 rgba(0,0,0,.5); }
 #picker .sw:hover { transform: scale(1.15); }
 #picker .sw.on { box-shadow: 0 0 0 3px var(--goo), 0 2px 0 rgba(0,0,0,.5); }
@@ -68,7 +64,7 @@ const CSS = `
 
 export class AnimalPicker {
   readonly el = document.createElement('div');
-  onChoose: (id: string, paint: Paint | null) => void = () => {};
+  onChoose: (id: string) => void = () => {};
   onOpen: () => void = () => {};
   onClose: () => void = () => {};
   /** The animal you are currently playing (marked in the grid). */
@@ -159,7 +155,7 @@ export class AnimalPicker {
     this.renderGrid();
     this.renderInfo();
     this.show.start();
-    this.show.setAnimal(this.sel, loadPaint(this.sel));
+    this.show.setAnimal(this.sel);
     // the stage only has a size once the panel is on screen
     requestAnimationFrame(() => this.shown && this.show.resize());
     this.onOpen();
@@ -258,7 +254,7 @@ export class AnimalPicker {
     if (!ANIMAL_BY_ID.has(id)) return;
     this.sel = id;
     this.grid.querySelectorAll<HTMLElement>('.tile').forEach((t) => t.classList.toggle('sel', t.dataset.id === id));
-    this.show.setAnimal(id, loadPaint(id));
+    this.show.setAnimal(id);
     const a = ANIMAL_BY_ID.get(id)!;
     this.show.setAccent(parseInt((ACCENTS[a.cls] ?? '#8bff4a').slice(1), 16));
     this.renderInfo();
@@ -268,7 +264,7 @@ export class AnimalPicker {
     const a = ANIMAL_BY_ID.get(this.sel);
     if (!a) return;
     this.current = a.id;
-    this.onChoose(a.id, loadPaint(a.id) ?? null);
+    this.onChoose(a.id);
     this.close();
   }
 
@@ -284,40 +280,7 @@ export class AnimalPicker {
       <div class="pk-blurb"><b>${a.role}</b> · stage ${a.stage} · ${a.size} · ${swim}<br>${a.blurb}</div>
       <div class="pk-bars">${bars}</div>
       <div class="pk-skills">${skill('Passive', a.innate)}${skill('Q', a.skill)}${skill('E', a.skill2)}${skill('R', a.skill3)}</div>
-      <details class="pk-colours"><summary>🎨 Colours</summary><div class="pk-paint"></div></details>
       <div class="pk-go"><button class="btn primary" type="button">Play as ${a.name}</button><small>Enter to play · double-click works too</small></div>`;
     this.right.querySelector('.pk-go .btn')!.addEventListener('click', () => this.play());
-    this.renderPaint(a);
-  }
-
-  private renderPaint(a: AnimalDef) {
-    const box = this.right.querySelector<HTMLElement>('.pk-paint')!;
-    const cur: Paint = loadPaint(a.id) ?? [-1, -1];
-    const row = (label: string, idx: 0 | 1) => {
-      const lab = document.createElement('span');
-      lab.textContent = label;
-      const sws = document.createElement('div');
-      sws.className = 'sws';
-      const mk = (val: number) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'sw' + (val === -1 ? ' nat' : '') + (cur[idx] === val ? ' on' : '');
-        if (val !== -1) b.style.background = hex6(val);
-        b.title = val === -1 ? 'Natural colour' : hex6(val);
-        b.addEventListener('click', () => {
-          const next: Paint = [cur[0], cur[1]];
-          next[idx] = val;
-          savePaint(a.id, next[0] === -1 && next[1] === -1 ? undefined : next);
-          this.show.setPaint(loadPaint(a.id));
-          this.renderPaint(a);
-        });
-        return b;
-      };
-      sws.append(mk(-1), ...PAINT_SWATCHES.map(mk));
-      box.append(lab, sws);
-    };
-    box.replaceChildren();
-    row('Fur', 0);
-    row('Accent', 1);
   }
 }
