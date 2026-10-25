@@ -1090,12 +1090,12 @@ PS.sloth_bear = {
   ...SPECS.bear, fur: 0x1a1816, belly: 0x14120f, paw: 0xe8dcc0, scale: 0.85, ears: 'round', earS: 0.4, head: { s: 0.5, snout: 0.4, snoutC: 0xd9c9a0, drop: 0.14 },
   extras: (torso) => torso.add(box(0.45, 0.1, 0.12, 0xe8dcc0, 0, 0.1, 0.5)),
 };
-PS.grizzly = { ...SPECS.bear, scale: 1.1 };
+PS.grizzly = { ...SPECS.bear, fur: 0x7d5c3a, belly: 0x5e4329, paw: 0x3a2a1a, snoutC: undefined, head: { s: 0.5, snout: 0.34, snoutC: 0x9a7a52, drop: 0.12 }, scale: 1.1 } as typeof SPECS.bear;
 PS.polar_bear = { ...SPECS.bear, fur: 0xf0eee6, belly: 0xe0ddd2, paw: 0xc8c4b6, scale: 1.2, head: { s: 0.5, snout: 0.38, snoutC: 0xe8e4d8, drop: 0.12 }, extras: undefined };
 PS.sun_bear = { ...SPECS.bear, fur: 0x16130f, belly: 0x120f0c, paw: 0x0e0b09, scale: 0.7, ears: 'round', earS: 0.4, head: { s: 0.5, snout: 0.2, snoutC: 0xc9a56a, drop: 0.1 }, extras: undefined };
 PS.moon_bear = { ...SPECS.bear, fur: 0x1c1a1a, belly: 0x161414, paw: 0x0e0d0d, scale: 0.95, ears: 'round', earS: 0.62, head: { s: 0.52, snout: 0.26, snoutC: 0xb09a7c, drop: 0.1 }, extras: undefined };
-PS.cave_bear = { ...SPECS.bear, fur: 0x4a3c30, belly: 0x3a2e24, paw: 0x241a12, scale: 1.45, head: { s: 0.6, snout: 0.3, snoutC: 0x7a6044, drop: 0.14 } };
-PS.kodiak = { ...SPECS.bear, fur: 0x6a4a2e, belly: 0x56391f, paw: 0x3a2412, scale: 1.3 };
+PS.cave_bear = { ...SPECS.bear, fur: 0x4b4743, belly: 0x3a3632, paw: 0x1e1a18, scale: 1.45, head: { s: 0.6, snout: 0.3, snoutC: 0x8a8174, drop: 0.14 } };
+PS.kodiak = { ...SPECS.bear, fur: 0x3d2a1c, belly: 0x32221a, paw: 0x1c120c, scale: 1.3, head: { s: 0.56, snout: 0.2, snoutC: 0x6a4e34, drop: 0.1 } };
 PS.panda = {
   ...SPECS.bear, fur: 0xf2f0ea, belly: 0xe6e3da, paw: 0x1c1c1f, scale: 1.0, ears: 'round', earS: 0.4, earC: 0x1c1c1f, head: { s: 0.52, snout: 0.22, snoutC: 0xf2f0ea, drop: 0.1 },
   extras: (torso, head) => {

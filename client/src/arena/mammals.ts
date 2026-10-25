@@ -655,11 +655,21 @@ function decorate(id: string, torso: THREE.Group, head: THREE.Group, c: Ctx) {
       p.ball(0.07, 0.11, 0.03, 0xe8dcc0, 0, -Hh * 0.45, c.L * 0.5 + 0.03, 0, 8, 6);
       for (let i = 0; i < 6; i++) p.spike([0, Hh * 0.95, c.L * (0.3 - i * 0.08)], [0, Hh * 0.95 + 0.08, c.L * (0.3 - i * 0.08) - 0.04], 0.02, 0x16130f);
       break;
-    case 'cave_bear':
-    case 'kodiak':
     case 'grizzly':
-      p.ball(c.W * 0.4, Hh * 0.5, c.L * 0.18, c.fur, 0, c.lift(0.7) + Hh * 0.7, c.L * 0.18, 0, 10, 8); // the muscle of the shoulder hump
+      p.ball(c.W * 0.45, Hh * 0.6, c.L * 0.2, mix(c.fur, 0xd8c8a0, 0.45), 0, c.lift(0.7) + Hh * 0.75, c.L * 0.2, 0, 10, 8); // the frosted shoulder hump
       break;
+    case 'cave_bear': {
+      p.ball(c.W * 0.42, Hh * 0.55, c.L * 0.2, c.fur, 0, c.lift(0.7) + Hh * 0.8, c.L * 0.2, 0, 10, 8);
+      for (let i = 0; i < 14; i++) { // a shaggy mane down the neck and spine
+        const u = 0.95 - i * 0.045;
+        const y = c.lift(u) + Hh * 1.0;
+        p.spike([0, y, c.L * (u - 0.5)], [0, y + 0.12, c.L * (u - 0.5) - 0.08], 0.03, 0x2a2624);
+      }
+      const hq = new Parts(); // the high, domed forehead of the cave bear's great skull
+      hq.ball(c.hw * 0.7, c.hh * 0.55, c.hl * 0.35, c.fur, 0, c.hh * 0.75, -c.hl * 0.02, 0, 12, 9);
+      head.add(new THREE.Mesh(hq.merged(), new THREE.MeshBasicMaterial()));
+      break;
+    }
     case 'badger':
       for (let i = 0; i < 8; i++) {
         const sx = i % 2 ? 1 : -1;
