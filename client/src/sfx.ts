@@ -1,6 +1,24 @@
 // Sound effects, synthesised with Web Audio: no audio files to load. Each sound is a few
 // shaped bursts of noise and short tones; footsteps change with the surface underfoot.
-import type { SoundEvent } from './world';
+/** Things that make a sound; the page maps these to audio. */
+export type SoundEvent =
+  | { kind: 'step'; surface: 'grass' | 'sand' | 'block' | 'water'; gain: number }
+  | { kind: 'jump' }
+  | { kind: 'land'; strength: number }
+  | { kind: 'slideStart' }
+  | { kind: 'slideEnd' }
+  | { kind: 'grab' }
+  | { kind: 'mantle' }
+  | { kind: 'splash'; strength: number }
+  | { kind: 'pickup' }
+  | { kind: 'drop' }
+  | { kind: 'throw'; power: number }
+  | { kind: 'hit' }
+  | { kind: 'score' }
+  | { kind: 'coin' }
+  | { kind: 'boing' }
+  | { kind: 'target' };
+
 
 export class Sfx {
   private ctx: AudioContext | null = null;

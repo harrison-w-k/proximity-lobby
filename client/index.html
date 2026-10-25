@@ -139,22 +139,9 @@
       font-size: 22px; color: var(--white); }
     #mic.speaking { background: var(--green); color: var(--ink); box-shadow: inset 3px 3px 0 rgba(255,255,255,.5), inset -3px -3px 0 var(--green-dark), 4px 4px 0 rgba(0,0,0,.45); }
     #mic.off { background: var(--red); }
-    #crosshair { position: fixed; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; background: var(--white);
-      border: 2px solid var(--ink); z-index: 4; pointer-events: none; }
-    #pickup-hint { position: fixed; left: 50%; top: calc(50% + 60px); transform: translateX(-50%); z-index: 6; padding: 5px 12px;
-      font-family: var(--font-pixel); font-size: 10px; text-transform: uppercase; background: var(--ink); color: var(--white);
-      border: 3px solid var(--white); pointer-events: none; }
-    #throw-bar { position: fixed; left: 50%; top: calc(50% + 96px); transform: translateX(-50%); z-index: 6; width: 220px; height: 18px;
-      background: var(--ink); border: 3px solid var(--white); pointer-events: none; padding: 2px; }
-    #throw-fill { height: 100%; width: 0; background: var(--green); }
-    #throw-angle { position: fixed; left: 50%; top: calc(50% + 120px); transform: translateX(-50%); z-index: 6; padding: 2px 10px;
-      font-family: var(--font-body); font-size: 12px; color: #fff; background: rgba(0,30,100,.75); border: 1px solid #fff; border-radius: 3px; pointer-events: none; }
     #paused { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 6; pointer-events: none; padding: 14px 20px;
       font-family: var(--font-pixel); font-size: 12px; text-transform: uppercase; background: var(--blue); border: 4px solid var(--ink);
       box-shadow: inset 4px 4px 0 var(--blue-light), inset -4px -4px 0 var(--blue-dark), 6px 6px 0 rgba(0,0,0,.45); }
-    #target { position: fixed; left: 50%; top: calc(50% + 28px); transform: translateX(-50%); z-index: 6; padding: 6px 14px;
-      background: var(--ink); border: 3px solid var(--white); font-size: 24px; white-space: nowrap; pointer-events: none; }
-    #target small { color: var(--yellow); font-size: 20px; }
 
     #chat { position: fixed; left: 14px; bottom: 14px; width: min(560px, 92vw); z-index: 5; }
     #chat-log { display: flex; flex-direction: column; gap: 5px; max-height: 270px; overflow: hidden; font-size: 23px; }
@@ -345,12 +332,6 @@
       backdrop-filter: blur(4px); box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 1px 1px 4px rgba(0,0,0,.5); text-shadow: 1px 1px 0 rgba(0,0,40,.8); }
     #mic.speaking { background: linear-gradient(180deg, #c9f5c0, #6fd063 50%, #35a83a 51%, #5ccb5a); color: #06240a; text-shadow: none; }
     #mic.off { background: linear-gradient(180deg, #ffc1b8, #ec6a58 50%, #c93a28 51%, #e25a48); }
-    #crosshair { width: 6px; height: 6px; margin: -3px; border: 1px solid #000; border-radius: 0; background: #fff; }
-    #pickup-hint, #target { border: 1px solid rgba(255,255,255,.7); border-radius: 3px; background: rgba(0,30,100,.75);
-      font-family: var(--font-body); font-size: 13px; color: #fff; text-transform: none; text-shadow: 1px 1px 0 rgba(0,0,40,.8); }
-    #target small { color: #ffe27a; font-size: 12px; }
-    #throw-bar { width: 220px; height: 16px; padding: 2px; border: 1px solid #fff; border-radius: 3px; background: rgba(0,20,70,.8); }
-    #throw-fill { border-radius: 1px; background: repeating-linear-gradient(90deg, #3fb02e 0 8px, transparent 8px 10px); }
     #paused { border: 3px solid var(--xp-edge); border-top: 24px solid #0054e8; border-radius: 6px 6px 0 0; background: var(--xp-body); color: #000;
       font-family: var(--font-body); font-size: 13px; text-transform: none; box-shadow: 2px 2px 0 rgba(0,0,0,.4); }
 
@@ -393,40 +374,7 @@
       .tagline { font-size: 14px; }
     }
 
-    /* ---- touch controls (phones) ---- */
-    html, body { overscroll-behavior: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-    #touch { position: fixed; inset: 0; z-index: 7; pointer-events: none; touch-action: none; }
-    #touch > * { pointer-events: auto; touch-action: none; }
-    #t-look { position: absolute; right: 0; top: 0; width: 55%; height: 100%; pointer-events: auto; }
-    #t-stick { position: absolute; left: max(18px, env(safe-area-inset-left)); bottom: max(22px, env(safe-area-inset-bottom)); width: 150px; height: 150px;
-      border-radius: 50%; border: 2px solid rgba(255,255,255,.7); background: radial-gradient(circle, rgba(255,255,255,.18), rgba(0,40,120,.35));
-      box-shadow: 0 2px 10px rgba(0,0,0,.5); z-index: 2; }
-    #t-knob { position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; margin: -31px 0 0 -31px; border-radius: 50%;
-      border: 1px solid #fff; background: linear-gradient(180deg, #fff, #9fc4ff 55%, #3a7be8); box-shadow: 0 2px 6px rgba(0,0,0,.55); }
-    .tb { position: absolute; z-index: 2; width: 62px; height: 62px; border-radius: 50%; border: 2px solid rgba(255,255,255,.85); color: #fff;
-      font-family: var(--font-body); font-size: 12px; font-weight: 700; text-shadow: 1px 1px 0 rgba(0,0,40,.8);
-      background: linear-gradient(180deg, rgba(255,255,255,.45), rgba(255,255,255,.08) 50%, rgba(0,40,120,.6) 51%, rgba(30,90,200,.65));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 2px 8px rgba(0,0,0,.5); padding: 0; }
-    .tb.down { background: linear-gradient(180deg, #ffe9a6, #fcd26f 50%, #f8b330); color: #3a2a00; text-shadow: none; }
-    .tb.big { width: 78px; height: 78px; right: max(18px, env(safe-area-inset-right)); bottom: max(26px, env(safe-area-inset-bottom)); font-size: 14px; }
-    #t-crouch { right: max(104px, calc(env(safe-area-inset-right) + 90px)); bottom: max(26px, env(safe-area-inset-bottom)); }
-    #t-grab { right: max(18px, env(safe-area-inset-right)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 90px); }
-    #t-item { right: max(104px, calc(env(safe-area-inset-right) + 90px)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 76px); }
-    #t-throw { right: max(190px, calc(env(safe-area-inset-right) + 176px)); bottom: max(26px, env(safe-area-inset-bottom)); }
-    #t-menu, #t-chat, #t-view { width: 46px; height: 46px; top: max(10px, env(safe-area-inset-top)); font-size: 18px; }
-    #t-menu { right: max(10px, env(safe-area-inset-right)); }
-    #t-chat { right: calc(max(10px, env(safe-area-inset-right)) + 54px); }
-    #t-view { right: calc(max(10px, env(safe-area-inset-right)) + 108px); }
-    body.touch #chat { bottom: 190px; width: min(70vw, 480px); }
-    body.touch #crosshair { display: block; }
-
-    /* ---- character menu ---- */
-    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px; margin-top: 8px; }
-    .swatch { height: 34px; border: 2px solid #7a7968; border-radius: 3px; cursor: pointer; font-weight: 700; color: #444;
-      background: linear-gradient(135deg, #fff, #cfcbb8); box-shadow: inset 0 0 0 1px rgba(255,255,255,.55); }
-    .swatch:hover { border-color: #f8b330; }
-    .swatch.on { border-color: #0831d9; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0831d9; }
-    .hatlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 
     /* ================= Forest theme =================
        Carved-wood panels and leaf-green buttons, the same look as the match HUD. Placed last so it
@@ -498,11 +446,6 @@
     #mic.off { background: linear-gradient(#ff9c86, #d4412a); }
     #animal-chip { pointer-events: auto; cursor: pointer; font-family: var(--font-body); }
     #animal-chip:hover { filter: brightness(1.15); }
-    #crosshair { width: 9px; height: 9px; margin: -4px; border: 2px solid var(--ink); border-radius: 50%; background: var(--cream); }
-    #pickup-hint, #target { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.85); font-family: var(--font-body); font-size: 18px; color: var(--cream); text-transform: none; text-shadow: 0 2px 0 var(--ink); }
-    #target small { color: var(--amber); font-size: 15px; }
-    #throw-bar { border: 3px solid var(--ink); border-radius: 999px; background: #0a2f33; }
-    #throw-fill { border-radius: 999px; background: linear-gradient(#ffb8a8, #ff6f7d); }
     #paused { border: 3px solid var(--ink); border-radius: 999px; background: rgba(18,12,7,.9); color: var(--cream); font-family: var(--font-body); font-size: 20px; padding: 8px 26px; text-transform: none; box-shadow: 0 5px 0 rgba(0,0,0,.4); }
 
     #chat-log { font-size: 17px; gap: 4px; }
@@ -529,9 +472,6 @@
     #players-list:empty::before { border: 2px dashed #e6b94a; border-radius: 14px; color: #e8d7ad; }
     .bind code { color: var(--amber); }
     #avatar-preview { border: 3px solid var(--ink); border-radius: 14px; background: #0a2f33; }
-    .swatch { border: 3px solid var(--ink); border-radius: 12px; color: #0b3b3f; }
-    .swatch.on { border-color: var(--ink); box-shadow: 0 0 0 3px var(--leaf); }
-    .swatch:hover { border-color: var(--amber); }
     #t-stick { border: 3px solid var(--ink); background: radial-gradient(circle, rgba(90,61,36,.55), rgba(18,12,7,.55)); }
     #t-knob { border: 3px solid var(--ink); background: linear-gradient(#fff3c8, #e0c37a); }
     .tb { border: 3px solid var(--ink); font-family: var(--font-body); color: var(--cream); background: linear-gradient(#2a8a8a, #1c7074); text-shadow: 0 2px 0 var(--ink); }
@@ -658,10 +598,6 @@
 </head>
 <body class="portal">
   <canvas id="scene"></canvas>
-  <div id="crosshair" hidden></div>
-  <div id="pickup-hint" hidden></div>
-  <div id="throw-bar" hidden><div id="throw-fill"></div></div>
-  <div id="throw-angle" hidden></div>
 
   <!-- ===== main screen ===== -->
   <div id="join" class="overlay">
@@ -695,8 +631,8 @@
       <input id="auth-code" type="text" inputmode="numeric" placeholder="Code from the email" autocomplete="one-time-code" hidden />
       <div id="play-setup">
         <div class="room-pick" role="radiogroup" aria-label="Where do you want to play?">
-          <button type="button" class="room" role="radio" data-room="br"><span class="ic">⚔️</span><span class="tx"><b>Battle Royale</b><small>Start small, evolve, and queue for matches.</small></span></button>
-          <button type="button" class="room" role="radio" data-room="sandbox"><span class="ic">🧪</span><span class="tx"><b>Sandbox</b><small>Every animal unlocked. No matches, just play.</small></span></button>
+          <button type="button" class="room" role="radio" data-room="br"><span class="ic">🏝️</span><span class="tx"><b>Lobby</b><small>A calm island with dummies to hit. Start small, evolve, queue for the Tournament.</small></span></button>
+          <button type="button" class="room" role="radio" data-room="sandbox"><span class="ic">🧪</span><span class="tx"><b>Sandbox</b><small>Every animal unlocked, and you can be hurt. Sparring partners fight back.</small></span></button>
         </div>
         <div class="animal-pick">
           <div class="setting-title" id="animal-title">Starting animal</div>
@@ -723,7 +659,6 @@
   <div id="hud" hidden>
     <div id="players" class="chip"></div>
     <div id="mic" class="chip"></div>
-    <button id="animal-chip" class="chip" type="button" title="Choose your animal"></button>
     <button id="br-open" class="btn small primary" type="button">🎓 Tournament [B]</button>
   </div>
 
@@ -733,7 +668,6 @@
   </div>
 
   <div id="paused" hidden>Click to resume</div>
-  <div id="target" hidden></div>
 
   <!-- ===== settings ===== -->
   <div id="settings" class="overlay center" hidden>
@@ -840,7 +774,7 @@
           <h3 class="group-title" style="margin-top:20px">Microphone</h3>
           <button id="mic-btn" class="btn glass block" type="button"></button>
 
-          <p id="players-note">Player volume (only changes what you hear). You can also scroll while looking at someone.</p>
+          <p id="players-note">Player volume (only changes what you hear).</p>
           <div id="players-list"></div>
         </section>
 

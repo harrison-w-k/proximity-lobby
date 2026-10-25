@@ -8,7 +8,6 @@ import { supabaseAuth } from '../shared/auth';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const STATIC_DIR = resolve(import.meta.dirname, '../dist/client');
-const TICK_MS = 33; // ~30 Hz position broadcast
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -70,7 +69,7 @@ console.log(verify ? 'auth: Supabase login required to join' : 'auth: off (names
 
 const mainLobby = new Lobby(iceServers, verify);
 mainLobby.enableMatches({ countdownMs: Number(process.env.MATCH_COUNTDOWN_MS ?? 25000), fillWithBots: process.env.MATCH_BOTS !== '0' });
-// the sandbox is a second room: its own players and world, with every animal unlocked
+// the sandbox is a second room: its own players and island, with every animal unlocked and real damage
 const sandbox = new Lobby(iceServers, verify);
 sandbox.enableMatches({ sandbox: true, fillWithBots: false });
 const alive = new WeakMap<WebSocket, boolean>();
@@ -91,11 +90,7 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => ws.terminate());
 });
 
-// Broadcast changed positions to everyone except their owner.
-for (const l of [mainLobby, sandbox]) {
-  setInterval(() => l.flush(), TICK_MS);
-  setInterval(() => l.tickMatch(), 15);
-}
+for (const l of [mainLobby, sandbox]) setInterval(() => l.tickMatch(), 15);
 
 // Drop dead connections.
 setInterval(() => {

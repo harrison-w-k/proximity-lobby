@@ -19,7 +19,8 @@ assert.equal(first.length, 1);
 assert.equal(first[0].campus, true, 'it is a campus start');
 const me = d.campus!.byId.get('p1')!;
 assert.equal(me.def.id, 'fox');
-assert.ok(d.campus!.fighters.length >= 9, 'sparring partners are there too');
+assert.equal(d.campus!.fighters.filter((f) => f.bot && !f.dummy).length, 0, 'the lobby is real players only');
+assert.ok(d.campus!.fighters.filter((f) => f.dummy).length >= 10, 'but there are dummies to hit');
 d.handle('p2', { t: 'menter', animal: 'ant' });
 assert.equal(d.campus!.byId.get('p2')!.def.id, 'ant');
 // a second entry as another animal swaps it
@@ -32,7 +33,7 @@ assert.equal(d.campus!.byId.get('p2')!.def.stage, 1);
 
 // nobody can be hurt, however hard they are hit
 const m = d.campus!;
-const foe = m.fighters.find((f) => f.bot)!;
+const foe = m.fighters.find((f) => f.dummy)!;
 for (let i = 0; i < 90; i++) d.tick(Date.now() + i * 33);
 const hp = me.hp;
 m.hurt(me, 99999, foe, { blockable: true });

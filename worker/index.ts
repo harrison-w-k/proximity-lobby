@@ -1,6 +1,5 @@
 // Cloudflare Worker entry: static client + one Durable Object that runs the lobby.
 import { DurableObject } from 'cloudflare:workers';
-import type { ItemState } from '../shared/items';
 import { Lobby, type IceServers, type Peer, type Saved, type Session } from '../shared/lobby';
 import { supabaseAuth } from '../shared/auth';
 
@@ -14,7 +13,6 @@ interface Env {
   TURN_CREDENTIAL?: string;
 }
 
-const TICK_MS = 33; // ~30 Hz position broadcast
 const MAX_PAYLOAD = 16 * 1024;
 
 function iceServersFrom(env: Env): IceServers {
@@ -46,7 +44,6 @@ export class LobbyDO extends DurableObject<Env> {
   private lobby: Lobby;
   private sessions = new Map<WebSocket, Session>();
   private savedKey = new WeakMap<WebSocket, string>();
-  private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -56,30 +53,13 @@ export class LobbyDO extends DurableObject<Env> {
         : undefined;
     this.lobby = new Lobby(iceServersFrom(env), verify);
     this.lobby.enableMatches();
-    // Profile photos are too big for a socket attachment (2 KiB), so they live in storage.
-    this.lobby.onAvatar = (id, img) => {
-      const op: Promise<unknown> = img ? ctx.storage.put(`av:${id}`, img) : ctx.storage.delete(`av:${id}`);
-      op.catch((e) => console.error('avatar storage failed', e));
-    };
-    // Items must outlive an eviction too, or anything being carried silently resets to its spawn.
-    this.lobby.onItems = (items) => {
-      ctx.storage.put('items', items).catch((e) => console.error('item storage failed', e));
-    };
-    // Rebuild players (and their photos) after the object was evicted or hibernated.
+    // Rebuild players after the object was evicted or hibernated.
     void ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.list<string>({ prefix: 'av:' });
-      const live = new Set<string>();
       for (const ws of ctx.getWebSockets()) {
         const saved = ws.deserializeAttachment() as Saved | null;
-        if (!saved) continue;
-        live.add(`av:${saved.id}`);
-        this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved, stored.get(`av:${saved.id}`)));
+        if (saved) this.sessions.set(ws, this.lobby.restore(peerOf(ws), saved));
       }
       if (await ctx.storage.get<boolean>('sandbox')) this.lobby.director!.sandbox = true;
-      const items = await ctx.storage.get<ItemState[]>('items');
-      if (items) this.lobby.restoreItems(items);
-      const stale = [...stored.keys()].filter((k) => !live.has(k)).slice(0, 128); // players who are gone
-      if (stale.length) await ctx.storage.delete(stale);
     });
   }
 
@@ -117,7 +97,6 @@ export class LobbyDO extends DurableObject<Env> {
     } catch {
       // closed during handling (e.g. lobby full)
     }
-    this.ensureTick();
     this.ensureMatchTick();
   }
 
@@ -159,20 +138,6 @@ export class LobbyDO extends DurableObject<Env> {
     this.matchTimer = timer;
   }
 
-  // The timer only runs while positions are changing, so an idle lobby can hibernate.
-  private ensureTick() {
-    if (this.timer !== undefined) return;
-    const timer = setInterval(() => {
-      try {
-        if (this.lobby.flush()) return;
-      } catch (e) {
-        console.error('flush failed', e);
-      }
-      clearInterval(timer);
-      this.timer = undefined;
-    }, TICK_MS);
-    this.timer = timer;
-  }
 }
 
 export default {

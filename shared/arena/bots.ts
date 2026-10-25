@@ -298,7 +298,7 @@ function botLoot(m: Match, f: Fighter) {
 function nearbyEnemies(m: Match, f: Fighter, r: number): Fighter[] {
   const out: Fighter[] = [];
   for (const o of m.fighters) {
-    if (o === f || o.role !== 'alive' || o.hp <= 0 || o.team === f.team) continue;
+    if (o === f || o.dummy || o.role !== 'alive' || o.hp <= 0 || o.team === f.team) continue;
     const d = dist(o, f);
     if (d > r) continue;
     // hidden players are only seen up close

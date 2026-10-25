@@ -283,7 +283,7 @@ export class AnimalPicker {
       <div class="pk-name"><b>${a.name}</b><span>${cls?.icon ?? ''} ${cls?.name ?? ''}</span></div>
       <div class="pk-blurb"><b>${a.role}</b> · stage ${a.stage} · ${a.size} · ${swim}<br>${a.blurb}</div>
       <div class="pk-bars">${bars}</div>
-      <div class="pk-skills">${skill('Passive', a.innate)}${skill('Q', a.skill)}${skill('E', a.skill2)}</div>
+      <div class="pk-skills">${skill('Passive', a.innate)}${skill('Q', a.skill)}${skill('E', a.skill2)}${skill('R', a.skill3)}</div>
       <details class="pk-colours"><summary>🎨 Colours</summary><div class="pk-paint"></div></details>
       <div class="pk-go"><button class="btn primary" type="button">Play as ${a.name}</button><small>Enter to play · double-click works too</small></div>`;
     this.right.querySelector('.pk-go .btn')!.addEventListener('click', () => this.play());

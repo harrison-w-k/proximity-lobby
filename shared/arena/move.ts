@@ -7,6 +7,8 @@ export interface Bound {
   r: number;
 }
 export const MAP_BOUND: Bound = { cx: 0, cz: 0, r: MAP_RADIUS - 2 };
+/** The lobby island and a stretch of sea round it. */
+export const ISLAND_BOUND: Bound = { cx: 0, cz: 0, r: 64 };
 
 export interface Medium {
   mul: number; // speed multiplier from the terrain
@@ -84,6 +86,9 @@ export const JUMP_COST = 8; // stamina
 /** A bird's soar: the fall is capped at this speed while it glides, and it moves this much faster than on the ground. */
 export const SOAR_FALL = 1.5; // m/s
 export const SOAR_SPEED = 1.5;
+/** A bird that drops further than a jump can reach (a ledge, a rock, a roof) spreads its wings and glides down. */
+export const GLIDE_DROP = 1.8; // m above the ground below
+export const glideFall = (bird: boolean, jy: number, jv: number, floor: number) => bird && jv <= 0 && jy > floor + GLIDE_DROP;
 
 /**
  * Advance the vertical motion of a jump. `jy` is the height above the ground, `floor` the top of the rock you are over

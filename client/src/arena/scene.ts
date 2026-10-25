@@ -6,6 +6,7 @@ import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, type Res } from '../../../sh
 import { FL } from '../../../shared/arena/proto';
 import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
 import { makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
+import { makeDummyRig } from './dummy';
 
 const SKY_TOP = 0x5f968a;
 const SKY_HORIZON = 0xe6cf92;
@@ -127,9 +128,13 @@ export class ArenaScene {
   private nodeMeshes = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4; zero: THREE.Matrix4 }>();
   private tmpM = new THREE.Matrix4();
 
-  constructor(seed: number, mobIds: string[]) {
+  /** The lobby island has no lava and no outer wall. */
+  readonly island: boolean;
+
+  constructor(seed: number, mobIds: string[], island = false) {
     this.mobIds = mobIds;
-    this.terrain = new Terrain(seed);
+    this.island = island;
+    this.terrain = new Terrain(seed, island ? 'island' : 'wild');
     this.fog = new THREE.Fog(SKY_HORIZON, 90, 380);
     this.scene.fog = this.fog;
     this.scene.background = new THREE.Color(SKY_HORIZON);
@@ -142,6 +147,7 @@ export class ArenaScene {
     this.buildTerrain();
     this.buildWater();
     this.buildWalls();
+    if (island) this.ring.value = 1e5; // far beyond the sea: no lava on the terrain
     this.buildVegetation();
   }
 
@@ -332,6 +338,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, lavaCol, lava);`,
   }
 
   setRing(r: number, next: number, warn: boolean) {
+    if (this.island) {
+      this.wallLava.visible = false;
+      this.wallNext.visible = false;
+      return;
+    }
     this.ring.value = r;
     this.wallLava.scale.set(r, 1, r);
     this.wallNext.visible = warn && next > 0;
@@ -662,12 +673,13 @@ varying vec3 vWP;`)
     return tex;
   }
 
-  private buildFighterRig(animal: string, paint?: [number, number], id?: string): Rig {
+  private buildFighterRig(animal: string, paint?: [number, number], id?: string, dummy?: boolean): Rig {
+    if (dummy) return makeDummyRig();
     return makePlayerRig(animal, paint, id);
   }
 
   /** Create or refresh the models for the roster. */
-  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; paint?: [number, number] }[], selfId: string) {
+  setRoster(list: { id: string; name: string; animal: string; team: number; role: number; paint?: [number, number]; dummy?: boolean }[], selfId: string) {
     this.selfId = selfId;
     const ids = new Set(list.map((l) => l.id));
     for (const [id, v] of this.fighters) {
@@ -683,7 +695,7 @@ varying vec3 vWP;`)
         v = undefined;
       }
       if (!v) {
-        const rig = this.buildFighterRig(r.animal, r.paint, r.id);
+        const rig = this.buildFighterRig(r.animal, r.paint, r.id, r.dummy);
         const group = new THREE.Group();
         group.add(rig.root);
         const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: undefined, transparent: true, depthWrite: false, depthTest: false }));

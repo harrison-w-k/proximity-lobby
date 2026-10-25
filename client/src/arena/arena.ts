@@ -3,22 +3,21 @@ import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
 import { COMBO, COMBO_RESET, PARRY_WINDOW, comboOf, type StrikeKind } from '../../../shared/arena/combat';
-import { JUMP_COST, JUMP_V, SOAR_SPEED, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, SOAR_SPEED, glideFall, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
 import type { Net } from '../net';
 import type { Sfx } from '../sfx';
 import type { Voice } from '../voice';
-import type { World } from '../world';
-import { Doll } from './doll';
+import type { Stage } from '../stage';
 import { Hud, itemLabel } from './hud';
 import { ArenaScene } from './scene';
 import { ANIMAL_EMOJI } from './emoji';
 import { SPAWN_CHOICES } from '../../../shared/arena/spawn';
 
 export interface ArenaDeps {
-  world: World;
+  stage: Stage;
   net: Net;
   canvas: HTMLCanvasElement;
   sfx: Sfx;
@@ -52,7 +51,6 @@ export class Arena {
   active = false;
   onQueue: (q: QueueInfo) => void = () => {};
   private hud = new Hud();
-  private doll = new Doll();
   private scene: ArenaScene | null = null;
   private myId = '';
   private myTeam = -1;
@@ -93,7 +91,11 @@ export class Arena {
   private clock = 0;
   /** After pressing a soar key, we glide at once instead of waiting for the server to say so. */
   private soarPredUntil = 0;
-  private soaring = (you: YouState) => you.buffs.includes('soaring') || this.clock < this.soarPredUntil;
+  private soaring = (you: YouState) => {
+    if (you.buffs.includes('soaring') || this.clock < this.soarPredUntil) return true;
+    const t = this.scene?.terrain;
+    return !!t && glideFall(this.def.tree === 'birds', this.pos.jy, this.pos.jv, t.floorAt(this.pos.x, this.pos.z, this.pos.jy)); // dropping off a ledge
+  };
   // F3 network readout
   private netEl: HTMLDivElement | null = null;
   private netShow = false;
@@ -117,6 +119,9 @@ export class Arena {
   private lastRole = 0;
   /** The lobby is a campus: a match nobody can die in. */
   campus = false;
+  /** The lobby island (a small map with target dummies), and whether players can hurt each other on it (the sandbox). */
+  island = false;
+  pvp = false;
   /** In the sandbox room: any animal, and no tournament to queue for. */
   sandbox = false;
   private seedNow = -1;
@@ -146,7 +151,7 @@ export class Arena {
         this.scene.dropIn();
       }
       this.hud.showPause(false);
-      this.d.world.lock();
+      this.d.stage.lock();
     };
     this.hud.onSettings = () => {
       this.hud.showPause(false);
@@ -182,7 +187,7 @@ export class Arena {
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.active || !this.hasMouse()) return;
-      const k = 0.0022 * this.d.world.lookSensitivity;
+      const k = 0.0022 * this.d.stage.lookSensitivity;
       this.camYaw -= e.movementX * k;
       this.camPitch = Math.max(-0.25, Math.min(1.35, this.camPitch + e.movementY * k));
     });
@@ -236,7 +241,7 @@ export class Arena {
       document.exitPointerLock();
     } else {
       this.panelOpen = this.panelBeforeAlt;
-      if (document.pointerLockElement !== this.d.canvas) this.d.world.lock();
+      if (document.pointerLockElement !== this.d.canvas) this.d.stage.lock();
     }
   }
 
@@ -296,6 +301,8 @@ export class Arena {
     }
     if (this.active) this.teardown();
     this.campus = !!m.campus;
+    this.island = !!m.island;
+    this.pvp = !!m.pvp;
     this.seedNow = m.seed;
     this.myId = m.you;
     this.ended = false;
@@ -310,7 +317,7 @@ export class Arena {
     document.body.append(this.loading);
     setTimeout(() => {
       try {
-        this.scene = new ArenaScene(m.seed, MOB_IDS);
+        this.scene = new ArenaScene(m.seed, MOB_IDS, !!m.island);
       } catch (err) {
         console.error('[arena] could not build the map', err);
         this.loading?.remove();
@@ -338,9 +345,7 @@ export class Arena {
       this.camYaw = 0;
       this.panelOpen = false;
       this.active = true;
-      const w = this.d.world;
-      w.inputEnabled = false;
-      w.clearKeys();
+      const w = this.d.stage;
       w.setRenderHeight(720);
       w.external = { update: (dt) => this.update(dt), render: (r) => this.render(r) };
       document.getElementById('crosshair')?.setAttribute('hidden', '');
@@ -357,8 +362,8 @@ export class Arena {
       this.hud.setCampus(this.campus);
       this.d.onStart(this.campus);
       if (this.campus) {
-        if (this.sandbox) this.hud.announce('THE SANDBOX', 'Every animal is unlocked and nobody can be hurt. Press B to become any animal you like.', 6500);
-        else this.hud.announce('WELCOME TO CAMPUS', 'Farm the herds, evolve at level 5 and 10, and spar freely: nobody can be hurt here. Press B to queue for the Tournament.', 6500);
+        if (this.sandbox) this.hud.announce('THE SANDBOX', 'Every animal is unlocked and you can be hurt: dummies and sparring partners are on the island. Press B to change animal.', 6500);
+        else this.hud.announce('THE LOBBY', 'A small island to train on: hit the dummies and try every move. Nobody can be hurt here. Press B to queue for the Tournament.', 6500);
       }
       else this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
     }, 60);
@@ -727,9 +732,8 @@ export class Arena {
     this.netEl?.remove();
     this.netEl = null;
     this.netShow = false;
-    const w = this.d.world;
+    const w = this.d.stage;
     w.external = undefined;
-    w.inputEnabled = true;
     w.setRenderHeight(480);
     this.freeCursor = false;
     this.guardHeld = false;
@@ -741,6 +745,8 @@ export class Arena {
     this.scene = null;
     this.active = false;
     this.campus = false;
+    this.island = false;
+    this.pvp = false;
     this.seedNow = -1;
     const v = this.d.getVoice();
     v?.setRange(VOICE_REF, VOICE_MAX);
@@ -803,7 +809,7 @@ export class Arena {
     if (e.code in KEYS_SKILL) {
       if (role === 0) {
         const slot = KEYS_SKILL[e.code];
-        const sk = slot === 0 ? this.def.skill : slot === 1 ? this.def.skill2 : null;
+        const sk = slot === 0 ? this.def.skill : slot === 1 ? this.def.skill2 : slot === 2 ? this.def.skill3 : null;
         const y = this.you;
         // a bird's soar: lift off on the key press, and let the server confirm it
         if (sk?.fx?.k === 'soar' && y && (y.cds[slot] ?? 1) <= 0 && y.sta >= (sk.cost ?? 0) && !y.noMove) {
@@ -854,7 +860,7 @@ export class Arena {
   }
 
   private boundFor(_x: number, _z: number): Bound {
-    return MAP_BOUND;
+    return this.island ? ISLAND_BOUND : MAP_BOUND;
   }
 
   private radius() {
@@ -952,7 +958,7 @@ export class Arena {
         if (this.guardHeld || you.guard) flags |= FL.guard;
         if (you.wind) flags |= FL.wind;
         if (you.counter > 0) flags |= FL.counter;
-        if (you.buffs.includes('soaring')) flags |= FL.soar;
+        if (this.soaring(you)) flags |= FL.soar;
         if (inp.at || this.guardHeld) this.visYaw = this.aimYaw(you.role === 0 ? 8 : 6);
         else { let d = this.camYaw - this.visYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); const m = 18 * dtWorld; this.visYaw += Math.max(-m, Math.min(m, d)); } // faces where the camera looks, eased so a quick flick does not snap the body
         const cd = Math.exp(-dtWorld * 9);
@@ -981,13 +987,6 @@ export class Arena {
     this.updateCamera(dt, you);
     this.netTick();
     sc.update(dtWorld, this.myTeam, g?.time ?? 0);
-    // the paper doll copies our animal's animation
-    if (you && you.role !== 3) {
-      const rs = this.roster.get(this.myId);
-      const sv = sc.fighter(this.myId);
-      this.doll.set(this.def.id, rs?.paint, this.myId);
-      this.doll.update(dtWorld, sv?.lastState, this.visYaw, this.camYaw);
-    }
 
     if (you && g) {
       if (this.clock - this.hintAt > 0.15) {
@@ -1090,7 +1089,7 @@ export class Arena {
   private updateCamera(dt: number, you: YouState | null) {
     const sc = this.scene!;
     const cam = sc.camera;
-    const rend = this.d.world.renderer;
+    const rend = this.d.stage.renderer;
     const size = rend.getSize(new THREE.Vector2());
     cam.aspect = size.x / Math.max(1, size.y);
     // the view widens when you dash or sprint, a little rush of speed
@@ -1172,7 +1171,6 @@ export class Arena {
   private render(r: THREE.WebGLRenderer) {
     if (!this.scene) return;
     r.render(this.scene.scene, this.scene.camera);
-    if (this.you && this.you.role !== 3 && this.hud.visible) this.doll.render(r, this.hud.dollRect());
   }
 
   // --- hints, map, voice -----------------------------------------------------------------------------

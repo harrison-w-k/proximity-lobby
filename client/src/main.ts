@@ -1,8 +1,6 @@
 import './theme.css';
-import { DEFAULT_LOOK, HATS, LOOK_COLORS, type Look } from '../../shared/look';
-import { initTouch, isTouchDevice } from './touch';
 import { Net } from './net';
-import { DEFAULT_FOV, DEFAULT_RENDER_HEIGHT, EYE_HEIGHT, World } from './world';
+import { DEFAULT_RENDER_HEIGHT, Stage } from './stage';
 import { Voice } from './voice';
 import { getSupabase } from './supabase';
 import { Sfx } from './sfx';
@@ -18,17 +16,15 @@ import type { Paint } from '../../shared/arena/paint';
 import { ANIMALS, ANIMAL_BY_ID, STARTERS, TREE_BY_ID } from '../../shared/arena/animals';
 /** Everyone starts as the stage 1 animal of a tree. */
 const starterOf = (id: string) => TREE_BY_ID.get(ANIMAL_BY_ID.get(id)?.tree ?? '')?.starter ?? 'house_cat';
-import { validAvatar } from '../../shared/avatar';
 import type { ServerMsg } from '../../shared/protocol';
 import { MAX_PLAYERS } from '../../shared/protocol';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const canvas = $<HTMLCanvasElement>('scene');
-const world = new World(canvas);
+const stage = new Stage(canvas);
 const net = new Net();
 const sfx = new Sfx();
-world.onSound = (e) => sfx.handle(e);
 // browsers only allow audio after a gesture, so wake it on the first click or key press
 for (const ev of ['pointerdown', 'keydown'] as const) window.addEventListener(ev, () => sfx.resume(), { once: true });
 // every button, tab and link clicks
@@ -41,8 +37,7 @@ document.addEventListener(
   true,
 );
 // Dev server only (stripped from production builds): lets automated checks pose the scene.
-if (import.meta.env.DEV) (window as unknown as { __world?: World }).__world = world;
-if (import.meta.env.DEV) setTimeout(() => Object.assign(window, { __arena: arena, __world: world }), 0);
+if (import.meta.env.DEV) setTimeout(() => Object.assign(window, { __arena: arena }), 0);
 let voice: Voice | null = null;
 let joined = false;
 let myAnimal = 'house_cat';
@@ -158,7 +153,6 @@ function chooseAnimal(id: string, paint: Paint | null | undefined = loadPaint(id
   }
   refreshAnimalUi();
   if (joined) {
-    world.setSelfAnimal(id, myPaint);
     net.send({ t: 'animal', a: id, paint: myPaint });
     if (!arena.active || arena.campus) net.send({ t: 'menter', animal: id, paint: myPaint }); // become this animal on the campus
   }
@@ -198,7 +192,7 @@ document.getElementById('animal-chip')?.addEventListener('click', () => {
   }
 });
 const arena = new Arena({
-  world,
+  stage,
   net,
   canvas,
   sfx,
@@ -206,17 +200,12 @@ const arena = new Arena({
   isBlocked: () => typing || menuOpen || menuIsOpen(),
   openSettings: () => openMenu(),
   onStart: (campus) => {
-    // make room for the paper doll and the animal card
-    $('hud').style.left = '196px';
-    $('chat').style.left = '312px';
     if (!campus) brMenu.close(); // a new animal in the campus keeps the menu open
     updatePaused();
   },
   onExit: () => {
-    $('hud').style.left = '';
-    $('chat').style.left = '';
     $('hud').hidden = false;
-    world.lock();
+    stage.lock();
     updatePaused();
   },
 });
@@ -225,14 +214,9 @@ arena.onQueue = (q) => {
   refreshBrButton();
 };
 for (const m of [brMenu, picker]) {
-  m.onOpen = () => {
-    world.inputEnabled = false;
-    world.clearKeys();
-    updatePaused();
-  };
+  m.onOpen = () => updatePaused();
   m.onClose = () => {
-    world.inputEnabled = true;
-    if (joined && (!arena.active || arena.campus)) world.lock();
+    if (joined && (!arena.active || arena.campus)) stage.lock();
     updatePaused();
   };
 }
@@ -270,9 +254,8 @@ function updateHud() {
 }
 setInterval(() => joined && updateHud(), 500);
 
-const touch = isTouchDevice();
-/** Playing = the mouse is captured (desktop) or the touch controls are up (phone). */
-const hasControl = () => touch || document.pointerLockElement === canvas;
+/** Playing = the mouse is captured. */
+const hasControl = () => document.pointerLockElement === canvas;
 
 function updatePaused() {
   $('paused').hidden = !joined || typing || menuOpen || hasControl() || arena.active || menuIsOpen();
@@ -280,29 +263,14 @@ function updatePaused() {
 // Losing the mouse (Esc, alt-tab) opens settings so the mouse can be used. Opening chat also
 // releases it, but that sets `typing` first so the menu stays closed.
 document.addEventListener('pointerlockchange', () => {
-  if (!touch && document.pointerLockElement !== canvas && !menuIsOpen()) {
+  if (document.pointerLockElement !== canvas && !menuIsOpen()) {
     if (arena.active) arena.onPointerLockLost();
     else openMenu();
   }
   updatePaused();
 });
-canvas.addEventListener('click', () => joined && !typing && world.lock());
+canvas.addEventListener('click', () => joined && !typing && stage.lock());
 
-
-// Aiming a throw: hold the left button to charge the bar, release to throw.
-document.addEventListener('mousedown', (e) => {
-  if (e.button === 0 && world.aiming && hasControl()) world.charging = true;
-});
-function releaseThrow() {
-  if (!world.aiming || !world.charging) return;
-  world.charging = false;
-  const held = world.holding;
-  if (held !== null) net.send({ t: 'throw', id: held, f: world.throwFlight(Math.max(0.08, world.charge)) });
-  world.cancelAim();
-}
-document.addEventListener('mouseup', (e) => {
-  if (e.button === 0) releaseThrow();
-});
 
 // ---------- settings menu ----------
 const settings = $('settings');
@@ -312,7 +280,7 @@ let menuOpen = false;
 let menuOpenedAt = 0;
 
 function setSensitivity(v: number, save: boolean) {
-  world.lookSensitivity = v;
+  stage.lookSensitivity = v;
   $('sens-val').textContent = `${v.toFixed(1)}×`;
   if (!save) return;
   try {
@@ -336,8 +304,6 @@ function openMenu() {
   if (menuOpen || !joined || typing) return;
   menuOpen = true;
   menuOpenedAt = performance.now();
-  world.inputEnabled = false;
-  world.clearKeys();
   settings.hidden = false;
   refreshMenu();
   renderPlayerList();
@@ -353,8 +319,7 @@ function closeMenu(relock: boolean) {
   menuOpen = false;
   setTesting(false);
   settings.hidden = true;
-  world.inputEnabled = true;
-  if (relock) world.lock();
+  if (relock) stage.lock();
   updatePaused();
 }
 
@@ -374,7 +339,7 @@ $('sens-reset').addEventListener('click', () => {
 // Render resolution (internal height; 1080 = native)
 const resInput = $<HTMLInputElement>('res');
 function setRes(v: number, save: boolean) {
-  world.setRenderHeight(v);
+  stage.setRenderHeight(v);
   $('res-val').textContent = v >= 1080 ? 'Native' : `${v}p`;
   if (!save) return;
   try {
@@ -455,40 +420,6 @@ function renderPlayerList() {
   }
   refreshRanges();
 }
-
-// While looking at a player (and not in a menu), the scroll wheel adjusts their volume.
-const targetBox = $('target');
-let lookId: string | null = null;
-
-let targetShown = '';
-function showTarget() {
-  if (!lookId) {
-    if (targetShown !== '') {
-      targetBox.hidden = true;
-      targetShown = '';
-    }
-    return;
-  }
-  const label = `${names.get(lookId) ?? 'Player'} · 🔊 ${pct(volumes.get(lookId) ?? 1)} `;
-  if (label === targetShown) return; // called every frame; only touch the DOM when the text changes
-  targetShown = label;
-  targetBox.hidden = false;
-  targetBox.replaceChildren(
-    document.createTextNode(label),
-    Object.assign(document.createElement('small'), { textContent: '(scroll to adjust)' }),
-  );
-}
-
-window.addEventListener(
-  'wheel',
-  (e) => {
-    if (!lookId || typing || menuOpen) return;
-    e.preventDefault();
-    setPlayerVolume(lookId, (volumes.get(lookId) ?? 1) - e.deltaY * 0.0005);
-    showTarget();
-  },
-  { passive: false },
-);
 
 // ---- Audio: devices, volumes and a mic test ----
 const store = {
@@ -668,8 +599,6 @@ function addChat(name: string, text: string, kind = '') {
 function openChat() {
   closeMenu(false);
   typing = true;
-  world.inputEnabled = false;
-  world.clearKeys();
   chatBox.classList.add('open');
   chatInput.hidden = false;
   chatInput.value = '';
@@ -722,14 +651,9 @@ function closeChat(send: boolean) {
   chatBox.classList.remove('open');
   chatInput.hidden = true;
   chatInput.blur();
-  world.inputEnabled = true;
-  world.lock();
+  stage.lock();
   updatePaused();
 }
-
-const touchUi = touch ? initTouch(world, { openMenu, openChat, releaseThrow }) : null;
-setInterval(() => touchUi?.show(joined && !menuOpen && !typing), 150);
-if (touch) document.body.classList.add('touch');
 
 window.addEventListener('keydown', (e) => {
   if (!joined) return;
@@ -750,116 +674,18 @@ window.addEventListener('keydown', (e) => {
     animalMenu().open();
   } else if (arena.active || menuIsOpen()) {
     // the match (or its menu) owns the keyboard
-  } else if ((e.code === 'KeyF' || e.code === 'KeyR') && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
-    // F picks up the nearest item or sets down what you carry; R aims a throw (hold click to charge)
-    const held = world.holding;
-    if (held !== null) {
-      if (e.code === 'KeyR') {
-        if (world.aiming) world.cancelAim();
-        else world.startAim();
-      } else {
-        world.cancelAim();
-        // set down in front of you; in mid-air just let go and it falls
-        const spot = world.dropSpot();
-        if (spot) net.send({ t: 'drop', id: held, ...spot });
-        else net.send({ t: 'throw', id: held, f: world.releaseFlight() });
-      }
-    } else if (e.code === 'KeyF') {
-      const id = world.nearestItem();
-      if (id !== null) net.send({ t: 'take', id });
-    }
-  } else if (e.code === 'KeyT' && !typing && !menuOpen && !e.ctrlKey && !e.metaKey && !e.repeat) {
-    world.cycleView();
   }
 });
 
 // ---------- per-frame sync ----------
-let lastSent = 0;
-let sx = NaN;
-let sz = NaN;
-let sry = NaN;
-let sy = NaN;
-let scrouch = false;
-const fwd = { x: 0, y: 0, z: 0 };
-
-world.onSentHome = () => addChat('•', 'You drifted too far out. Back to the island!');
-
-world.onFrame = () => {
-  if (!joined) return;
-  const now = performance.now();
-
-  if (now - lastSent > 33) {
-    lastSent = now;
-    const { x, z } = world.pos;
-    // NaN compares false with everything, so the very first report must be forced
-    const changed =
-      Number.isNaN(sx) ||
-      Math.abs(x - sx) > 1e-3 ||
-      Math.abs(z - sz) > 1e-3 ||
-      Math.abs(world.yaw - sry) > 1e-3 ||
-      Math.abs(world.feetY - sy) > 1e-3 ||
-      world.crouching !== scrouch;
-    if (changed) {
-      sx = x;
-      sz = z;
-      sry = world.yaw;
-      sy = world.feetY;
-      scrouch = world.crouching;
-      net.send({ t: 'pos', x, z, ry: world.yaw, y: sy, crouch: scrouch });
-    }
-  }
-
-  if (voice) {
-    // Hear in the direction *you* face, not where the camera is (the front view looks back at you).
-    const cp = Math.cos(world.pitch);
-    fwd.x = -Math.sin(world.yaw) * cp;
-    fwd.y = Math.sin(world.pitch);
-    fwd.z = -Math.cos(world.yaw) * cp;
-    voice.updateListener(world.pos.x, world.pos.y, world.pos.z, fwd.x, fwd.y, fwd.z);
-    for (const [id, a] of world.avatars) voice.setPeerPosition(id, a.group.position.x, a.group.position.y + EYE_HEIGHT, a.group.position.z);
-    voice.tick(now);
-    for (const id of world.avatars.keys()) world.setSpeaking(id, voice.speaking.has(id));
-    $('mic').classList.toggle('speaking', voice.speaking.has('me'));
-  }
-
-  // Who is under the crosshair (for the volume prompt)? Only while actually playing.
-  const playing = !menuOpen && !typing && hasControl();
-  const id = playing ? world.playerUnderCrosshair(20) : null;
-  if (id !== lookId || id) {
-    lookId = id;
-    showTarget();
-  }
-  const hint = '';
-  const bar = $('throw-bar');
-  if (bar.hidden === world.aiming) bar.hidden = !world.aiming;
-  $('throw-angle').hidden = !world.aiming;
-  if (world.aiming) {
-    $('throw-fill').style.width = `${Math.round(world.charge * 100)}%`;
-    $('throw-angle').textContent = `Angle ${Math.round((world.throwAngle * 180) / Math.PI)}\u00b0  (scroll)`;
-  }
-  const hintEl = $('pickup-hint');
-  if (hintEl.textContent !== hint) {
-    hintEl.textContent = hint;
-    hintEl.hidden = hint === '';
-  }
-};
+// the match feeds positions to the voice engine; this keeps its mixer running and lights the mic when you talk
+setInterval(() => {
+  if (!joined || !voice) return;
+  voice.tick(performance.now());
+  $('mic').classList.toggle('speaking', voice.speaking.has('me'));
+}, 50);
 
 // ---------- networking ----------
-world.onShove = (id, vx, vz) => net.send({ t: 'shove', id, vx, vz });
-world.onHit = (vx, vz, sev) => net.send({ t: 'hit', vx, vz, sev });
-world.onScore = (by) => addChat('\u2022', `${by === myId ? 'You' : (names.get(by) ?? 'Someone')} scored!`);
-
-// scroll while aiming a throw to raise or lower its angle
-window.addEventListener(
-  'wheel',
-  (e) => {
-    if (!world.aiming) return;
-    e.preventDefault();
-    world.adjustThrowAngle(-Math.sign(e.deltaY) * 0.05);
-  },
-  { passive: false },
-);
-
 net.onClose = () => {
   if (joined) $('dead').hidden = false;
 };
@@ -871,26 +697,19 @@ net.onMessage = (m: ServerMsg) => {
       joined = true;
       myId = m.id;
       sfx.join();
-      world.orbit = false;
-      world.setSelfId(m.id);
-      world.setSelfAnimal(myAnimal, myPaint);
       net.send({ t: 'animal', a: myAnimal, paint: myPaint });
       net.send({ t: 'menter', animal: myAnimal, paint: myPaint }); // walk into the campus
-      world.teleport(m.spawn.x, m.spawn.z);
       voice?.setIce(m.iceServers as RTCIceServer[]);
-      world.setItems(m.items);
       for (const p of m.players) {
         names.set(p.id, p.name);
         applySavedVolume(p.id, p.name);
-        world.addPlayer(p);
         void voice?.connect(p.id); // we're the newcomer, so we make the offers
       }
       $('join').hidden = true;
       $('hud').hidden = false;
       $('chat').hidden = false;
-      $('crosshair').hidden = false;
       updateHud();
-      world.lock();
+      stage.lock();
       updatePaused();
       break;
     case 'full':
@@ -906,7 +725,6 @@ net.onMessage = (m: ServerMsg) => {
     case 'joined':
       names.set(m.player.id, m.player.name);
       applySavedVolume(m.player.id, m.player.name);
-      world.addPlayer(m.player);
       addChat('•', `${m.player.name} joined`);
       sfx.playerJoin();
       updateHud();
@@ -920,31 +738,9 @@ net.onMessage = (m: ServerMsg) => {
       sfx.playerLeave();
       names.delete(m.id);
       volumes.delete(m.id);
-      world.removePlayer(m.id);
       voice?.removePeer(m.id);
       updateHud();
       if (menuOpen) renderPlayerList();
-      break;
-    case 'item':
-      world.setItem(m.item, m.fly, m.by);
-      break;
-    case 'look':
-      world.setPlayerLook(m.id, { c: m.c, h: m.h });
-      break;
-    case 'animal':
-      world.setPlayerAnimal(m.id, m.a, m.paint);
-      break;
-    case 'lfx':
-      world.playRemote(m.id, m.s, m.c);
-      break;
-    case 'lhit':
-      world.lobbyHit(m.by, m.to, m.n, m.kx, m.kz);
-      break;
-    case 'ragdoll':
-      world.ragdollPlayer(m.id, m.vx, m.vz, m.sev);
-      break;
-    case 'state':
-      for (const [id, x, z, ry, y, crouch] of m.p) world.applyState(id, x, z, ry, y ?? 0, crouch === 1);
       break;
     case 'chat':
       addChat(m.name, m.text);
@@ -961,9 +757,6 @@ net.onMessage = (m: ServerMsg) => {
     }
     case 'notice':
       addChat('•', m.text);
-      break;
-    case 'avatar':
-      world.setPlayerAvatar(m.id, m.img);
       break;
     case 'signal':
       void voice?.handleSignal(m.from, m.data);

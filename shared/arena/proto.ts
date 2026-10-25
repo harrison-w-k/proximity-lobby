@@ -37,6 +37,7 @@ export interface RosterEntry {
   bot: boolean;
   role: number; // ROLE_CODE
   paint?: [number, number]; // chosen colours
+  dummy?: boolean; // a target dummy on the island
 }
 
 export interface QueueInfo {
@@ -80,6 +81,7 @@ export interface YouState {
   speed: number; // current movement speed (m/s) used for prediction
   noMove: number; // 1 while stunned / grabbed / dashing: do not predict
   buffs: string[];
+  shield: number; // overhealth on top of your health, in health points
   view?: string; // a spectator is watching this fighter
   sense: number;
   ability: string; // active item ability, '' if none
@@ -101,7 +103,7 @@ export interface Global {
 
 export type ServerMatchMsg =
   | { t: 'mq'; q: QueueInfo }
-  | { t: 'mstart'; seed: number; you: string; roster: RosterEntry[]; nodes: [id: number, until: number][]; campus?: boolean }
+  | { t: 'mstart'; seed: number; you: string; roster: RosterEntry[]; nodes: [id: number, until: number][]; campus?: boolean; island?: boolean; pvp?: boolean }
   | { t: 'mros'; r: RosterEntry[] }
   | {
       t: 'snap';
@@ -143,6 +145,7 @@ export type MatchEvent =
   | { k: 'proj'; id: number; x: number; z: number; tx: number; tz: number; kind: string }
   | { k: 'lure'; x: number; z: number }
   | { k: 'soar'; id: string; x: number; z: number }
+  | { k: 'shield'; id: string; x: number; z: number } // overhealth gained
 
 // flag bits in snapshots
 export const FL = {

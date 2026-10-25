@@ -9,7 +9,7 @@ import {
   MOBS, TIER_SHARE, mobDef,
   mobIndex, type MobDef,
 } from './mobs';
-import { JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, medium, standY, stepPos, stepVertical, type Bound } from './move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, glideFall, medium, standY, stepPos, stepVertical, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
@@ -172,6 +172,9 @@ export interface Fighter extends Body {
   speedUntil: number;
   glideUntil: number;
   soarUntil: number; // a bird's soar: reduced fall and a faster glide until it lands
+  shield: number; // overhealth: absorbs damage before health does
+  shieldUntil: number;
+  dummy: boolean; // a target dummy: stands still, takes hits, heals back up
   mudUntil: number;
   tusk: number;
   muskUntil: number;
@@ -345,28 +348,62 @@ export class Match {
   readonly humans = new Set<string>();
   /** The campus: the lobby as a permanent, non-lethal match. Nobody can be hurt, there is no lava or clock, and players come and go. */
   readonly campus: boolean;
+  /** The campus is the small lobby island, with target dummies. */
+  readonly island: boolean;
+  /** Players can lose health here (the sandbox); in the lobby nobody but a dummy can. */
+  readonly pvp: boolean;
 
   constructor(
     seed: number,
     entrants: Entrant[],
     private host: Host,
-    opts: { campus?: boolean } = {},
+    opts: { campus?: boolean; island?: boolean; pvp?: boolean } = {},
   ) {
     this.campus = !!opts.campus;
+    this.island = !!opts.campus && !!opts.island;
+    this.pvp = !!opts.pvp;
     if (this.campus) this.phase = 1;
     this.seed = seed;
-    this.terrain = new Terrain(seed);
+    this.terrain = new Terrain(seed, this.island ? 'island' : 'wild');
     this.rnd = mulberry32(seed ^ 0xfaceb00c);
     this.createFighters(entrants);
-    this.populateStart();
-    this.scatterMorsels(400);
-    if (this.campus) {
-      // farming has to be worth it for the whole evolution path, so every tier of horde is out from the start
-      for (let i = 0; i < 110; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
-      for (let i = 0; i < 50; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 0);
+    if (this.island) this.placeDummies();
+    else {
+      this.populateStart();
+      this.scatterMorsels(400);
+      if (this.campus) {
+        // farming has to be worth it for the whole evolution path, so every tier of horde is out from the start
+        for (let i = 0; i < 110; i++) this.spawnWild(2, MAP_RADIUS * 0.7, 0);
+        for (let i = 0; i < 50; i++) this.spawnWild(3, MAP_RADIUS * 0.5, 0);
+      }
     }
     this.startTeams = new Set(this.fighters.map((f) => f.team)).size;
     for (const f of this.fighters) if (!f.bot) this.humans.add(f.id);
+  }
+
+  /** The training ground: dummies at a range of distances, in a cluster, behind a wall, up the plateau and by the pond. */
+  private placeDummies() {
+    const spots: [number, number][] = [
+      [6, 10], [11, 10], [17, 10], [24, 10], [32, 10], // a lane: reach, cones, dashes and shots
+      [-14, -18], [-12, -18], [-14, -16], [-12, -16], // a cluster for area moves
+      [-2, -19], // behind the wall
+      [24, -24], // on the plateau
+      [-19, 4], // by the pond
+      [0, 31], // beyond the jumping course
+    ];
+    spots.forEach(([x, z], i) => {
+      const f = this.newFighter({ id: `dummy${i}`, name: 'Dummy', animal: 'house_cat', team: 1000 + i, bot: true });
+      f.dummy = true;
+      f.maxHp = f.hp = 600;
+      f.r = 0.6;
+      f.x = x;
+      f.z = z;
+      f.y = standY(this.terrain, x, z);
+      f.yaw = Math.PI;
+      f.inv.fill(null);
+      this.fighters.push(f);
+      this.byId.set(f.id, f);
+    });
   }
 
   // --- setup ---------------------------------------------------------------------------------
@@ -380,7 +417,7 @@ export class Match {
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
       cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, whiffUntil: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
-      speedUntil: 0, glideUntil: 0, soarUntil: 0, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
+      speedUntil: 0, glideUntil: 0, soarUntil: 0, shield: 0, shieldUntil: 0, dummy: false, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, deathX: 0, deathZ: 0,
      
@@ -476,17 +513,17 @@ export class Match {
 
   roster(): RosterEntry[] {
     return this.fighters.map((f) => ({
-      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], paint: f.paint,
+      id: f.id, name: f.name, animal: f.def.id, team: f.team, bot: f.bot, role: ROLE_CODE[f.role], paint: f.paint, dummy: f.dummy || undefined,
     }));
   }
 
   /** Skills the fighter currently has: slots Q E R F. */
   slotSkills(f: Fighter): (Skill | null)[] {
-    return [f.def.skill, f.def.skill2, null, null]; // Q: the signature skill, E: a second move from stage 2 on
+    return [f.def.skill, f.def.skill2, f.def.skill3, null]; // Q: the signature skill, E: a second move from stage 2 on, R: a third from stage 3
   }
 
   recompute(f: Fighter, fill = false) {
-    const skills: Skill[] = [f.def.innate];
+    const skills: Skill[] = [f.def.innate, f.def.style];
     skills.push(classSkill(f.def.cls));
     f.mods = sumMods(skills);
     const oldMax = f.maxHp;
@@ -539,6 +576,7 @@ export class Match {
       const tf = t as Fighter;
       if (tf.role === 'out') return false;
       if (src === null) return true;
+      if (src.kind === 'f' && (src as Fighter).dummy) return false; // dummies never hit back
       if (src.kind === 'f') {
         const sf = src as Fighter;
         if (sf.team === tf.team && sf !== tf) return false;
@@ -634,8 +672,7 @@ export class Match {
     this.removePlayer(e.id);
     const team = 1 + this.fighters.reduce((m, f) => Math.max(m, f.team), -1);
     const f = this.newFighter({ ...e, team, bot: false });
-    const spot = f.def.swim === 'water' ? this.terrain.findWater(0, 0, this.rnd) : this.terrain.randomLand(this.rnd, 170, 30);
-    const p = spot ?? this.terrain.randomLand(this.rnd, 170, 30);
+    const p = this.spawnSpot(f);
     f.x = p.x;
     f.z = p.z;
     f.y = standY(this.terrain, f.x, f.z);
@@ -648,6 +685,16 @@ export class Match {
     this.teamsAlive.add(team);
     this.rosterDirty = true;
     return f;
+  }
+
+  /** Where a fighter drops in on the campus: the middle of the island, or anywhere out on the big map. */
+  private spawnSpot(f: Fighter): { x: number; z: number } {
+    const water = f.def.swim === 'water';
+    if (this.island) {
+      const w = water ? this.terrain.findWater(-26, 8, this.rnd) : null;
+      return w ?? this.terrain.randomLand(this.rnd, 10, 3);
+    }
+    return (water ? this.terrain.findWater(0, 0, this.rnd) : null) ?? this.terrain.randomLand(this.rnd, 170, 30);
   }
 
   /** Campus: a player leaves (or goes off to a real match). */
@@ -669,7 +716,7 @@ export class Match {
 
   /** The message that starts the match on a client. */
   startMsg(id: string): ServerMatchMsg {
-    return { t: 'mstart', seed: this.seed, you: id, roster: this.roster(), nodes: [...this.nodeUntil], campus: this.campus || undefined };
+    return { t: 'mstart', seed: this.seed, you: id, roster: this.roster(), nodes: [...this.nodeUntil], campus: this.campus || undefined, island: this.island || undefined, pvp: this.pvp || undefined };
   }
 
   release(id: string) {
@@ -764,7 +811,15 @@ export class Match {
   private fireSkill(f: Fighter, skill: Skill, fx: Effect, yaw: number) {
     this.emit({ k: 'strike', id: f.id, s: skill.id, x: f.x, z: f.z, yaw }, f.x, f.z);
     this.runEffect(f, skill, fx);
+    if (skill.shield) this.addShield(f, f.maxHp * skill.shield.pct, skill.shield.dur);
     if (fx.k !== 'submerge' && fx.k !== 'buff' && fx.k !== 'heal' && f.subUntil > this.time) f.subUntil = 0;
+  }
+
+  /** Temporary overhealth: it soaks up damage first and wears off, but never stacks past 60% of max health. */
+  private addShield(f: Fighter, amount: number, dur: number) {
+    f.shield = Math.min(f.maxHp * 0.6, f.shield + amount);
+    f.shieldUntil = Math.max(f.shieldUntil, this.time + dur);
+    this.emit({ k: 'shield', id: f.id, x: f.x, z: f.z }, f.x, f.z);
   }
 
   private statusTo(src: Fighter | Mob | null, t: Body, st: Status[] | undefined, base: number) {
@@ -1087,7 +1142,7 @@ export class Match {
 
   // --- damage --------------------------------------------------------------------------------
 
-  hurt(t: Body, raw: number, src: Body | null, o: { kind?: string; noReflect?: boolean; lava?: boolean; dot?: boolean; blockable?: boolean; heavy?: boolean } = {}): number {
+  hurt(t: Body, raw: number, src: Body | null, o: { kind?: string; noReflect?: boolean; lava?: boolean; dot?: boolean; blockable?: boolean; heavy?: boolean; reflected?: boolean } = {}): number {
     this.lastResult = 'hit';
     if (raw <= 0 || t.hp <= 0) return 0;
     const srcF = src?.kind === 'f' ? (src as Fighter) : null;
@@ -1148,7 +1203,13 @@ export class Match {
         return 0;
       }
     }
-    if (!this.campus) f.hp -= amount; // in the campus the numbers fly but nobody loses anything
+    // overhealth soaks up the blow first
+    if (f.shield > 0 && !o.lava) {
+      const soak = Math.min(f.shield, amount);
+      f.shield -= soak;
+      amount -= soak;
+    }
+    if (!this.campus || this.pvp || f.dummy) f.hp -= amount; // in the lobby the numbers fly but nobody loses anything
     f.lastHurt = this.time;
     f.lastCombat = this.time;
     f.chan = null;
@@ -1160,12 +1221,23 @@ export class Match {
       srcF.dmgDealt += amount;
       srcF.lastCombat = this.time;
       if (srcF.mods.lifesteal > 0) srcF.hp = Math.min(srcF.maxHp, srcF.hp + amount * srcF.mods.lifesteal);
+      if (srcF.mods.overOnHit > 0 && !o.dot && !o.reflected) this.addShield(srcF, Math.min(srcF.maxHp * 0.3, srcF.shield + srcF.maxHp * srcF.mods.overOnHit) - srcF.shield, 6);
     }
     if (!o.dot && !o.lava) this.emit({ k: 'hit', id: f.id, x: f.x, z: f.z, n: Math.round(amount) }, f.x, f.z);
     // thorns
     const refl = f.mods.reflect + this.buffSum(f, 'reflect');
-    if (refl > 0 && src && !o.noReflect && !o.lava && !o.dot) this.hurt(src, amount * refl, f, { noReflect: true, kind: 'quill' });
+    if (refl > 0 && src && !o.noReflect && !o.lava && !o.dot) this.hurt(src, amount * refl, f, { noReflect: true, kind: 'quill', reflected: true });
     if (f.mods.attackerBleed > 0 && src && src.kind === 'f' && !o.dot && !o.lava) this.statusTo(f, src, [{ s: 'bleed', dur: f.mods.attackerBleed, dps: 0.2 }], f.dv.dmg);
+    if (f.hp <= 0 && f.dummy) {
+      // a dummy never falls: it gets back up, and rewards whoever knocked it down
+      f.hp = f.maxHp;
+      f.shield = 0;
+      if (srcF && srcF.role === 'alive') {
+        this.gainXp(srcF, 30);
+        this.toast(srcF.id, 'Dummy down: +30 XP');
+      }
+      return amount;
+    }
     if (f.hp <= 0) {
       if (f.mods.cheatDeath > 0 && !f.usedCheat && f.role === 'alive') {
         f.usedCheat = true;
@@ -1216,8 +1288,39 @@ export class Match {
     }
   }
 
+  /** The sandbox: nobody is eliminated. You are credited, then drop back in at full health. */
+  private respawn(f: Fighter, killer: Fighter | null, how: string) {
+    if (killer && killer !== f && killer.role === 'alive') {
+      killer.kills++;
+      this.gainXp(killer, killXp(f.totalXp, f.level, killer.level) * 0.5);
+    }
+    this.emit({ k: 'kill', killer: killer?.id ?? '', victim: f.id, how }, f.x, f.z);
+    const p = this.spawnSpot(f);
+    f.x = p.x;
+    f.z = p.z;
+    f.y = standY(this.terrain, f.x, f.z);
+    f.jy = 0;
+    f.jv = 0;
+    f.hp = f.maxHp;
+    f.sta = f.dv.maxSta;
+    f.shield = 0;
+    f.buffs = [];
+    f.bleed = undefined;
+    f.slow = undefined;
+    f.chan = null;
+    f.dash = undefined;
+    f.grab = undefined;
+    f.holding = undefined;
+    f.swing = null;
+    f.stunUntil = 0;
+    f.invUntil = this.time + 2;
+    f.cmds.length = 0;
+    this.toast(f.id, 'You were knocked out. Back to the middle of the island.');
+  }
+
   private kill(f: Fighter, killer: Fighter | null, how: string) {
     if (f.role !== 'alive') return;
+    if (this.campus) return this.respawn(f, killer, how);
     // a living player falls: drop everything as a loot pile, credit the kill
     const items = f.inv.filter((i): i is InvItem => !!i && (i.k !== 'water' || i.n > 0));
     f.inv.fill(null);
@@ -1687,6 +1790,7 @@ export class Match {
   }
 
   private maintainPopulation() {
+    if (this.island) return; // no wildlife on the lobby island
     if (this.time - this.lastPop < 4) return;
     this.lastPop = this.time;
     this.scatterMorsels(40);
@@ -1970,6 +2074,8 @@ export class Match {
       if (f.hot.until > t) f.hp = Math.min(f.maxHp, f.hp + f.hot.perSec * dt);
       else f.hot = undefined;
     }
+    if (f.shield > 0 && t > f.shieldUntil) f.shield = Math.max(0, f.shield - f.maxHp * 0.25 * dt); // overhealth fades away
+    if (f.dummy && t - f.lastHurt > 3 && f.hp < f.maxHp) f.hp = Math.min(f.maxHp, f.hp + f.maxHp * 0.4 * dt);
     if (f.mods.regenOOC > 0 && t - f.lastHurt > 6 && f.role === 'alive') f.hp = Math.min(f.maxHp, f.hp + f.maxHp * f.mods.regenOOC * dt);
     if (f.hp <= 0) return;
 
@@ -2022,7 +2128,7 @@ export class Match {
     if (f.swing) base *= 0.45; // committed to the swing
     else if (f.guarding) base *= 0.75;
     f.walkSpeed = base;
-    const bound: Bound = MAP_BOUND;
+    const bound: Bound = this.island ? ISLAND_BOUND : MAP_BOUND;
     f.moving = false;
     f.sprinting = false;
     if (f.dash) {
@@ -2122,7 +2228,7 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
-      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), f.soarUntil > this.time);
+      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), this.gliding(f));
       if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
         f.soarUntil = 0;
         this.landed(f);
@@ -2131,7 +2237,7 @@ export class Match {
     }
     f.moving = true;
     f.sprinting = sprinting;
-    const soaring = f.soarUntil > this.time;
+    const soaring = this.gliding(f);
     if (soaring && f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.05) sp *= SOAR_SPEED; // gliding is quick
     stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
     stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), soaring);
@@ -2141,6 +2247,11 @@ export class Match {
     }
     // a player always faces the camera, so strafing and backpedalling never turn the animal around; bots face where they walk
     f.yaw += clampTurn(angDiff(f.bot ? yawOf(dx, dz) : f.input.yaw, f.yaw), (f.def.size === 'large' ? 7 : 12) * dt);
+  }
+
+  /** Wings out: a soar in progress, or a bird dropping from higher than a jump. */
+  private gliding(f: Fighter) {
+    return f.soarUntil > this.time || glideFall(f.def.tree === 'birds', f.jy, f.jv, this.terrain.floorAt(f.x, f.z, f.jy));
   }
 
   /** Back on the ground: if we came down inside a rock, step out of it. */
@@ -2246,7 +2357,7 @@ export class Match {
     this.updateClock();
     this.updateAwake();
     for (const f of this.fighters) {
-      if (f.bot && f.hp > 0) botThink(this, f, DT);
+      if (f.bot && f.hp > 0 && !f.dummy) botThink(this, f, DT);
     }
     for (const f of this.fighters) this.updateFighter(f);
     this.updateProjs();
@@ -2317,7 +2428,7 @@ export class Match {
     if (f.swing) fl |= FL.wind | (f.swing.heavy ? FL.heavy : 0);
     if (f.jy - this.terrain.floorAt(f.x, f.z, f.jy) > 0.05) fl |= FL.air;
     if (f.counterUntil > t) fl |= FL.counter;
-    if (f.soarUntil > t) fl |= FL.soar;
+    if (this.gliding(f)) fl |= FL.soar;
     return fl;
   }
 
@@ -2353,7 +2464,7 @@ export class Match {
       lvl: f.level, xp: Math.round(f.xp), need: f.level >= MAX_LEVEL ? 1 : xpNeed(f.level), pts: f.pts, alloc: f.alloc, evolve: f.role === 'alive' ? evolveOptions(f.def, f.level).map((a) => a.id) : [],
       cds: cds.map((c) => Math.round(c * 10) / 10), cdMax, dash: Math.max(0, Math.round((f.dashAt - t) * 10) / 10), dashMax: DASH_COOLDOWN * (1 + f.mods.dashCd), inv: f.inv, role: ROLE_CODE[f.role], speed: f.walkSpeed || f.dv.speed,
       jy: Math.round(f.jy * 100) / 100, jv: Math.round(f.jv * 100) / 100, parryWin: PARRY_WINDOW + f.mods.parryWin, parryCd: Math.max(0, Math.round((f.guardCd - t) * 10) / 10), guard: f.guarding, wind: !!f.swing, guardAge: f.guarding ? Math.round((t - f.guardAt) * 100) / 100 : 0, combo: this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % comboOf(f.def.id).length : 0, comboLen: comboOf(f.def.id).length, comboHeavy: heavyMask(comboOf(f.def.id)), counter: Math.max(0, Math.round((f.counterUntil - t) * 10) / 10),
-      noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), sense: Math.round(f.dv.sense),
+      noMove: f.stunUntil > t || f.grab || f.dash || f.chan ? 1 : 0, buffs: this.statusNames(f), shield: Math.round(f.shield), sense: Math.round(f.dv.sense),
       ability: f.ability && f.ability.until > t ? f.ability.k : '', channel: f.chan ? { k: f.chan.k, left: Math.max(0, f.chan.until - t), total: f.chan.total } : null, kills: f.kills,
     };
     return you;

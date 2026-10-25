@@ -55,7 +55,7 @@ const chain = (seq: readonly Strike[]) =>
 function animalCard(a: AnimalDef): string {
   const cap = 0.36 * STAGE_BUDGET[a.stage - 1];
   const bars = STAT_KEYS.map((k) => `<span>${STAT_NAMES[k]}</span><i style="width:${Math.min(100, (a.stats[k] / cap) * 100)}%"></i><em>${a.stats[k]}</em>`).join('');
-  const sk2 = a.skill2 ? `<div class="ab"><b>${a.skill2.name}</b> (E): ${a.skill2.desc}</div>` : '';
+  const sk2 = (a.skill2 ? `<div class="ab"><b>${a.skill2.name}</b> (E): ${a.skill2.desc}</div>` : '') + (a.skill3 ? `<div class="ab"><b>${a.skill3.name}</b> (R): ${a.skill3.desc}</div>` : '');
   return (
     `<div class="animal"><h4>${ANIMAL_EMOJI[a.id] ?? '🐾'} ${a.name} <small>${a.role} · stage ${a.stage} · ${a.size}${a.swim === 'water' ? ' · fish' : a.swim === 'semi' ? ' · swimmer' : ''}</small></h4>` +
     `<div class="bl">${a.blurb}</div><div class="st">${bars}</div>` +

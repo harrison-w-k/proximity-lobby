@@ -75,6 +75,7 @@ export interface Mods {
   reach?: number; // fraction of attack reach
   noise?: number; // extra noise (fraction)
   stealth?: number; // wild animals notice you this much less
+  overOnHit?: number; // every hit you land grants this fraction of max health as overhealth (up to 30%)
 }
 
 export interface Skill {
@@ -85,6 +86,7 @@ export interface Skill {
   cost?: number; // stamina
   fx?: Effect;
   mods?: Mods;
+  shield?: { pct: number; dur: number }; // using it grants temporary overhealth: this fraction of max health for this long
 }
 
 const act = (id: string, name: string, desc: string, cd: number, fx: Effect, cost = 0): Skill => ({ id, name, desc, cd, fx, cost });
@@ -116,6 +118,8 @@ export interface AnimalDef {
   innate: Skill; // a passive that comes with the form
   skill: Skill; // the signature skill, on Q. Evolving replaces it.
   skill2: Skill | null; // stage 2 and 3 forms carry a second move, on E
+  skill3: Skill | null; // stage 3 forms carry a third, on R
+  style: Skill; // the playstyle of the whole tree: a passive every form shares
   cls: ClassId;
 }
 
@@ -153,11 +157,12 @@ interface FormIn {
   landMul?: number;
 }
 
+const NO_STYLE: Skill = { id: 'none', name: '', desc: '' };
 const FORMS: AnimalDef[] = [];
 const form = (f: FormIn) =>
   FORMS.push({
     id: f.id, name: f.name, tree: f.tree, stage: f.stage, size: f.size, role: f.role, stats: split(STAGE_BUDGET[f.stage - 1], f.w),
-    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, from: null, innate: f.passive, skill: f.skill, skill2: null, cls: f.cls,
+    swim: f.swim ?? 'land', landMul: f.landMul ?? 1, weakness: f.weak, blurb: f.blurb, from: null, innate: f.passive, skill: f.skill, skill2: null, skill3: null, style: NO_STYLE, cls: f.cls,
   });
 const slow = (dur: number, f: number): Status => ({ s: 'slow', dur, f });
 const bleed = (dur: number, dps: number): Status => ({ s: 'bleed', dur, dps });
@@ -376,6 +381,7 @@ form({ id: 'angler', name: 'Anglerfish', tree: 'fish', stage: 3, size: 'medium',
   skill: act('lure_light', 'Lure', 'A glowing light: everything within 14 m is marked and slowed.', 18, { k: 'aoe', r: 14, dmg: 0.4, st: [mark(4), slow(3, 0.5)] }) });
 
 // ---- more stage 2 and stage 3 forms: every tree has three stage 2 forms with two final forms each ----
+const SWOOP = act('swoop', 'Swoop', 'A diving strike from above that hits hard and knocks the target back.', 14, { k: 'dash', dist: 8, dmg: 1.8, knock: 1.5 }, 12);
 const SOAR = act('soar', 'Soar', 'Beat your wings and rise, then glide a long way: no real flight, and you come down at the end.', 40, { k: 'soar', dur: 5, lift: 15 }, 10);
 
 // Cats
@@ -610,6 +616,36 @@ for (const f of FORMS) {
   if (f.stage < 2) continue;
   const parent = FORMS.find((o) => o.id === f.from)!;
   f.skill2 = f.tree === 'birds' ? SOAR : parent.skill;
+  // a final form has three moves: its own, its parent's (or a bird's soar), and then the starter's (or a bird's swoop)
+  if (f.stage === 3) f.skill3 = f.tree === 'birds' ? SWOOP : FORMS.find((o) => o.id === TREES.find((t) => t.id === f.tree)!.starter)!.skill;
+}
+
+// What each tree plays like: a passive that every form of it shares, on top of its own passive, class and skills.
+export const TREE_STYLE: Record<string, Skill> = {
+  cats: pas('style_cats', 'Ambush Predator', 'Hits from a bush or the water land 25% harder, dash recharges 20% faster, and you make 20% less noise.', { ambush: 0.25, dashCd: -0.2, noise: -0.2 }),
+  canines: pas('style_canines', 'Pack Runner', '+4% speed, stamina recovers 25% faster, and marked prey takes 15% more damage.', { speed: 0.04, stamRegen: 0.25, markDmg: 0.15 }),
+  mustelids: pas('style_mustelids', 'Ferocity', 'Hits heal you for 6% of the damage, +25% damage when under 40% health, but a shorter reach.', { lifesteal: 0.06, lowHpDmg: 0.25, reach: -0.1 }),
+  bears: pas('style_bears', 'Thick Hide', '+8% health but 4% slower. Every hit you land grants 3% of your health as overhealth.', { hp: 0.08, speed: -0.04, overOnHit: 0.03 }),
+  reptiles: pas('style_reptiles', 'Cold Blooded', '8% damage reduction, immune to bleeding and slowly regrows out of combat, but stamina recovers 20% slower.', { dr: 0.08, bleedImmune: 1, regenOOC: 0.012, stamRegen: -0.2 }),
+  bugs: pas('style_bugs', 'Venom Swarm', 'Hits make targets bleed for 1.5 s and wild animals notice you 20% less, but you have 10% less health.', { bleedOnHit: 1.5, stealth: 0.2, hp: -0.1 }),
+  fish: pas('style_fish', 'Apex Swimmer', 'Swim 20% faster and deal 20% more to targets under 40% health.', { waterSpeed: 0.2, executeDmg: 0.2 }),
+  birds: pas('style_birds', 'Airborne', 'Dash recharges 15% faster and +3% speed, but 8% less health. Falls from a height become glides.', { dashCd: -0.15, speed: 0.03, hp: -0.08 }),
+};
+for (const f of FORMS) f.style = TREE_STYLE[f.tree] ?? NO_STYLE;
+
+// Temporary overhealth: a layer of health on top of your own that wears off. Which moves grant it, and how much.
+const OVERHEAL: Record<string, [number, number]> = {
+  gut_feeling: [0.15, 8], pack_hunt: [0.12, 6], dig_in: [0.2, 6], thick_hide: [0.25, 7], climb: [0.1, 5], salmon_feast: [0.25, 8],
+  shell: [0.2, 5], carapace: [0.2, 6], inflate: [0.3, 5], mud_gulp: [0.2, 8], plate_shield: [0.25, 6], carrion_feast: [0.2, 8],
+  blood_frenzy: [0.1, 5], endurance: [0.1, 7], sprint: [0.08, 4],
+};
+for (const f of FORMS) {
+  for (const s of [f.skill, f.skill2, f.skill3]) {
+    const o = s && OVERHEAL[s.id];
+    if (!s || !o || s.shield) continue;
+    s.shield = { pct: o[0], dur: o[1] };
+    s.desc += ` Grants ${Math.round(o[0] * 100)}% overhealth for ${o[1]} s.`;
+  }
 }
 
 export const ANIMALS: AnimalDef[] = FORMS;
@@ -646,7 +682,7 @@ export function sumMods(skills: Skill[]): Required<Mods> {
   const m: Required<Mods> = {
     hp: 0, dmg: 0, speed: 0, dr: 0, reflect: 0, lifesteal: 0, waterSpeed: 0, stamRegen: 0, senses: 0, markDmg: 0,
     lowHpDmg: 0, executeDmg: 0, eatBoost: 0, bleedOnHit: 0, cheatDeath: 0, regenOOC: 0, bleedImmune: 0, ambush: 0, attackerBleed: 0,
-    preyXp: 0, dashCd: 0, parryWin: 0, guardCost: 0, reach: 0, noise: 0, stealth: 0,
+    preyXp: 0, dashCd: 0, parryWin: 0, guardCost: 0, reach: 0, noise: 0, stealth: 0, overOnHit: 0,
   };
   for (const s of skills) {
     if (!s.mods) continue;

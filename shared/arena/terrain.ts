@@ -6,6 +6,16 @@ export const MAP_RADIUS = 350; // m: a 700 m x 700 m map, with lava closing in f
 export const CELL = 2.5; // m per height-grid cell
 const GRID = Math.ceil((MAP_RADIUS * 2) / CELL) + 1;
 export const WATER_Y = 0;
+
+/** The lobby island: where everything on it stands. */
+export const ISLAND = {
+  shore: 44,
+  plateau: { x: 24, z: -24, r: 8, h: 5 },
+  pond: { x: -26, z: 8, r: 10 },
+  grove: { x: 30, z: 18 },
+  bushes: { x: -30, z: -24 },
+  grass: { x: -6, z: -32, r: 9 },
+};
 export const DEEP_Y = -1.2; // below this you swim
 const RIVER_W = 0.11; // half-width of a river in noise units: tuned so about half the map is water
 const RIVER_SCALE = 150;
@@ -40,8 +50,18 @@ export class Terrain {
   private cellsOfRes = new Map<number, number[]>();
   readonly attempt: number;
 
-  constructor(seed: number) {
+  /** 'island' is the small lobby map: a hand-built island with a pond, a plateau, obstacles and target dummies' ground. */
+  readonly kind: 'wild' | 'island';
+
+  constructor(seed: number, kind: 'wild' | 'island' = 'wild') {
     this.seed = seed | 0;
+    this.kind = kind;
+    if (kind === 'island') {
+      this.attempt = 0;
+      this.fillIsland();
+      this.placeIsland();
+      return;
+    }
     let attempt = 0;
     for (;; attempt++) {
       this.fill(this.seed + attempt * 7919);
@@ -54,6 +74,77 @@ export class Terrain {
 
   private idx(gx: number, gz: number) {
     return gz * GRID + gx;
+  }
+
+  // --- the island ---------------------------------------------------------------------------
+
+  private fillIsland() {
+    const sm = (a: number, b: number, x: number) => {
+      const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const P = ISLAND.plateau;
+    const inward = { x: -P.x / Math.hypot(P.x, P.z), z: -P.z / Math.hypot(P.x, P.z) };
+    for (let gz = 0; gz < GRID; gz++) {
+      for (let gx = 0; gx < GRID; gx++) {
+        const x = gx * CELL - MAP_RADIUS;
+        const z = gz * CELL - MAP_RADIUS;
+        const i = this.idx(gx, gz);
+        const r = Math.hypot(x, z);
+        const detail = fbm(x / 14 + 5, z / 14 + 9, 11, 2);
+        // flat ground in the middle, a beach, then deep sea
+        let hgt = 1.6 + (-3.4 - 1.6) * sm(ISLAND.shore, ISLAND.shore + 18, r) + (detail - 0.5) * 0.35 * (1 - sm(30, 46, r));
+        // the plateau: a long gentle ramp up on the side facing the middle, a cliff on the other sides
+        const dp = Math.hypot(x - P.x, z - P.z);
+        if (dp < P.r + 20) {
+          const cosA = dp < 1e-3 ? 1 : ((x - P.x) * inward.x + (z - P.z) * inward.z) / dp;
+          const w = 0.6 + 15 * Math.min(1, Math.max(0, cosA * 1.4 + 0.1));
+          hgt += P.h * (1 - sm(P.r, P.r + w, dp));
+        }
+        // the pond
+        const dq = Math.hypot(x - ISLAND.pond.x, z - ISLAND.pond.z);
+        hgt -= 4.4 * (1 - sm(ISLAND.pond.r * 0.45, ISLAND.pond.r, dq));
+        this.h[i] = hgt;
+        let bio: Biome = Biome.Grassland;
+        if (dq < ISLAND.pond.r + 6) bio = Biome.Wetlands;
+        else if (dp < P.r + 4) bio = Biome.Highlands;
+        else if (Math.hypot(x - ISLAND.grove.x, z - ISLAND.grove.z) < 12) bio = Biome.Forest;
+        this.b[i] = bio;
+        this.grass[i] = Math.hypot(x - ISLAND.grass.x, z - ISLAND.grass.z) < ISLAND.grass.r ? 1 : 0;
+      }
+    }
+  }
+
+  private placeIsland() {
+    const add = (kind: ResKind, x: number, z: number, s: number, solid: number, h: number) =>
+      this.addRes({ id: this.res.length, kind, x, z, s, r: solid * s, h });
+    // a jumping course: low stones you hop over, then three steps that climb
+    [[-9, 24, 0.6], [-2, 24, 0.8], [5, 24, 1.05]].forEach(([x, z, s]) => add('stone', x, z, s, 0.8, s * 0.8));
+    [[14, 26, 1.0], [18.5, 26, 1.6], [23, 26, 2.3]].forEach(([x, z, s]) => add('rock', x, z, s, 0.8, s * 0.9));
+    // a wall to dash into, throw things over, and hide a dummy behind
+    for (let i = 0; i < 6; i++) add('rock', -7 + i * 2.6, -14, 1.5, 0.8, 1.35);
+    // a grove of trees that blocks sight
+    [[-2, 3], [3, -1], [-3, -4], [2, 4], [6, 1]].forEach(([dx, dz]) => add('tree', ISLAND.grove.x + dx, ISLAND.grove.z + dz, 1.2, 0.4, 99));
+    // bushes to hide in
+    [[-3, 1], [2, -2], [0, 3], [-1, -3]].forEach(([dx, dz]) => add('bush', ISLAND.bushes.x + dx, ISLAND.bushes.z + dz, 1.3, 0, 99));
+    // mud and reeds
+    add('mud', 0, -34, 1, 0, 0);
+    add('mud', 5, -32, 1, 0, 0);
+    for (let k = 0; k < 14; k++) {
+      const a = (k / 14) * Math.PI * 2;
+      add('reed', ISLAND.pond.x + Math.cos(a) * (ISLAND.pond.r - 1.5), ISLAND.pond.z + Math.sin(a) * (ISLAND.pond.r - 1.5), 0.9, 0, 0);
+    }
+    // food: berries and herbs to heal with
+    add('berry', 8, -6, 1, 0, 99);
+    add('berry', -10, 12, 1, 0, 99);
+    add('herb', 12, 6, 1, 0, 99);
+    // a few rocks round the edge of the beach
+    [[-40, -20], [38, 8], [-30, 34], [10, 42]].forEach(([x, z], k) => add('rock', x, z, 2 + (k % 2) * 0.8, 0.8, (2 + (k % 2) * 0.8) * 0.9));
+    this.spawns = [];
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      this.spawns.push({ x: Math.cos(a) * 8, z: Math.sin(a) * 8 });
+    }
   }
 
   private fill(seed: number) {

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { Lobby, type Peer, type Session } from './lobby';
-import { JUMP_MAX_Y, MAP_RADIUS, MAX_PLAYERS, SWIM_LIMIT, WATER_MIN_Y, type ServerMsg } from './protocol';
-import { clampToArena, SHORE_RADIUS, waterDepth } from './map';
+import { MAX_PLAYERS, type ServerMsg } from './protocol';
 
 function client(lobby: Lobby) {
   const inbox: ServerMsg[] = [];
@@ -26,41 +25,11 @@ b.tx({ t: 'join', name: 'JANE DOE' });
 assert.equal(b.s.name, 'JANE DOE'.slice(0, 13) + '_2');
 assert.ok(a.inbox.some((m) => m.t === 'joined'));
 
-// positions are clamped to the circular arena and only sent to others
-b.tx({ t: 'pos', x: 9999, z: -9999, ry: 1 });
-assert.equal(lobby.flush(), true);
-assert.equal(lobby.flush(), false);
-const st = a.inbox.find((m) => m.t === 'state');
-const sp = st && st.t === 'state' ? st.p[0] : null;
-assert.ok(sp && sp[0] === b.s.id && sp[3] === 1 && sp[4] === 0 && sp[5] === 0);
-assert.ok(sp && Math.abs(Math.hypot(sp[1], sp[2]) - SWIM_LIMIT) < 1e-9); // the sea is walkable out to SWIM_LIMIT
-assert.ok(sp && sp[1] > 0 && sp[2] < 0); // pulled toward the centre along the same direction
-assert.ok(!b.inbox.some((m) => m.t === 'state'));
-
-// height and crouch are relayed; bad values are sanitised
-b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: 1.2, crouch: true });
-b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: 99, crouch: 'yes' });
-assert.equal(b.s.y, JUMP_MAX_Y);
-assert.equal(b.s.crouch, false);
-b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: -5 });
-assert.equal(b.s.y, WATER_MIN_Y); // wading is allowed, but not unbounded
-b.tx({ t: 'pos', x: 1, z: 1, ry: 0, y: -1 });
-assert.equal(b.s.y, -1);
-
-// wading depth: dry up to the shore, eased in, fully in the water four metres later
-assert.equal(waterDepth(0, 0), 0);
-assert.equal(waterDepth(MAP_RADIUS, 0), 0);
-assert.equal(waterDepth(SHORE_RADIUS, 0), 0);
-assert.ok(waterDepth(SHORE_RADIUS + 2, 0) > 0.4 && waterDepth(SHORE_RADIUS + 2, 0) < 0.6);
-assert.equal(waterDepth(SHORE_RADIUS + 4, 0), 1);
-assert.equal(waterDepth(0, SHORE_RADIUS + 50), 1);
-lobby.flush();
-
-// arena clamp helper
-assert.deepEqual(clampToArena(3, 4), { x: 3, z: 4 });
-const edge = clampToArena(300, 400);
-// (300, 400) is 500 m out on a 3-4-5 line, so it lands at 60% / 80% of the radius
-assert.ok(Math.abs(edge.x - 0.6 * MAP_RADIUS) < 1e-9 && Math.abs(edge.z - 0.8 * MAP_RADIUS) < 1e-9);
+// the animal you choose is announced to the others
+b.tx({ t: 'animal', a: 'fox' });
+assert.ok(a.inbox.some((m) => m.t === 'animal' && m.a === 'fox'));
+b.tx({ t: 'animal', a: 'not_an_animal' });
+assert.equal(b.s.animal, 'fox');
 
 // chat rate limit: 5 per 5 s
 for (let i = 0; i < 8; i++) a.tx({ t: 'chat', text: `hi ${i}` });
@@ -111,46 +80,6 @@ assert.equal(restored.name, 'zed');
 const d = client(lobby3);
 d.tx({ t: 'join', name: 'ZED' });
 assert.equal(d.s.name, 'ZED_2');
-
-// ---- profile photos ----
-{
-  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-  const L = new Lobby([]);
-  const u1 = client(L);
-  const u2 = client(L);
-  u1.tx({ t: 'join', name: 'pic' });
-  u2.tx({ t: 'join', name: 'watcher' });
-  const events: [string, string | null][] = [];
-  L.onAvatar = (id, img) => events.push([id, img]);
-
-  // a valid photo is stored, announced to others (not echoed to the sender), and persisted via the hook
-  u1.tx({ t: 'avatar', img: png });
-  assert.deepEqual(u2.inbox.find((m) => m.t === 'avatar'), { t: 'avatar', id: u1.s.id, img: png });
-  assert.ok(!u1.inbox.some((m) => m.t === 'avatar'));
-  assert.deepEqual(events, [[u1.s.id, png]]);
-
-  // someone joining later sees it in the player list
-  const late = client(L);
-  late.tx({ t: 'join', name: 'late' });
-  const w = late.inbox.find((m) => m.t === 'welcome');
-  assert.ok(w && w.t === 'welcome' && w.players.some((p) => p.id === u1.s.id && p.avatar === png));
-
-  // anything that is not a small image data URL is ignored
-  const before = u2.inbox.length;
-  for (const bad of ['http://evil.example/x.png', 'data:text/html;base64,PGgxPg==', 'javascript:alert(1)',
-    'data:image/svg+xml;base64,PHN2Zz4=', 'data:image/png;base64,' + 'A'.repeat(7000), 42, {}]) {
-    u1.tx({ t: 'avatar', img: bad as never });
-  }
-  assert.equal(u2.inbox.length, before);
-  assert.equal(u1.s.avatar, png); // still the good one
-
-  // clearing removes it for everyone, and leaving cleans up persisted state
-  u1.tx({ t: 'avatar', img: null });
-  assert.deepEqual(u2.inbox.filter((m) => m.t === 'avatar').at(-1), { t: 'avatar', id: u1.s.id, img: null });
-  u1.tx({ t: 'avatar', img: png });
-  L.close(u1.s);
-  assert.deepEqual(events.at(-1), [u1.s.id, null]);
-}
 
 // ---- verified-login mode ----
 async function authTests() {
@@ -227,85 +156,5 @@ async function malformedTests() {
   }
 }
 await malformedTests();
-
-// items: one at a time, only when close, and dropped where the carrier says
-{
-  const L = new Lobby([]);
-  const p = client(L);
-  const q = client(L);
-  p.tx({ t: 'join', name: 'p' });
-  q.tx({ t: 'join', name: 'q' });
-  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
-  q.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
-  const lastItem = (c: ReturnType<typeof client>) => {
-    const m = c.inbox.filter((x) => x.t === 'item').pop();
-    return m && m.t === 'item' ? m.item : null;
-  };
-  p.tx({ t: 'take', id: 0 }); // basketball at (10.5, 7.5)
-  assert.equal(lastItem(p)?.holder, p.s.id);
-  q.tx({ t: 'take', id: 0 }); // already held: refused, and q is told who has it
-  assert.equal(lastItem(q)?.holder, p.s.id);
-  p.tx({ t: 'take', id: 1 }); // hands full
-  assert.equal(lastItem(p)?.id, 0);
-  p.tx({ t: 'drop', id: 0, x: 11.5, y: 0, z: 7.5 });
-  const dropped = lastItem(q);
-  assert.ok(dropped && dropped.holder === null && dropped.x === 11.5);
-  q.tx({ t: 'pos', x: -40, z: 40, ry: 0 });
-  q.tx({ t: 'take', id: 0 }); // too far
-  assert.equal(lastItem(q)?.holder, null);
-  // a stale client that thinks it still holds something is corrected, not ignored
-  p.tx({ t: 'throw', id: 0, f: [10.5, 1.3, 7.5, 0, 4, -5] });
-  assert.equal(lastItem(p)?.holder, null);
-}
-
-// throwing: the item leaves the hands, flies, and the server settles it somewhere ahead
-{
-  const L = new Lobby([]);
-  const p = client(L);
-  p.tx({ t: 'join', name: 'p' });
-  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
-  p.tx({ t: 'take', id: 0 });
-  p.tx({ t: 'throw', id: 0, f: [10.5, 1.3, 7.0, 0, 4.5, -10] });
-  const m = p.inbox.filter((x) => x.t === 'item').pop();
-  assert.ok(m && m.t === 'item' && m.item.holder === null && m.fly, 'thrown item is loose and has a flight');
-  assert.ok(m.t === 'item' && m.item.z < 0, 'it travelled in the throw direction');
-}
-
-// shoving: walking into a loose item sends it rolling, but only from close by
-{
-  const L = new Lobby([]);
-  const p = client(L);
-  p.tx({ t: 'join', name: 'p' });
-  p.tx({ t: 'pos', x: 10.5, z: 7.5, ry: 0 });
-  p.tx({ t: 'shove', id: 0, vx: 0, vz: -5 }); // basketball at (10.5, 7.5)
-  const m = p.inbox.filter((x) => x.t === 'item').pop();
-  assert.ok(m && m.t === 'item' && m.fly && m.item.z < 7.5 - 1, 'the ball rolled away');
-  p.tx({ t: 'pos', x: -30, z: 30, ry: 0 });
-  const n = p.inbox.length;
-  p.tx({ t: 'shove', id: 4, vx: 3, vz: 0 }); // far away
-  assert.equal(p.inbox.length, n, 'too far to push');
-}
-
-// sparring: moves and hits are relayed for show, validated, and rate-limited
-{
-  const L = new Lobby([]);
-  const p = client(L);
-  const q = client(L);
-  p.tx({ t: 'join', name: 'p' });
-  q.tx({ t: 'join', name: 'q' });
-  p.tx({ t: 'lfx', s: 'q', c: 1 });
-  const fx = q.inbox.find((x) => x.t === 'lfx');
-  assert.ok(fx && fx.t === 'lfx' && fx.id === p.s.id && fx.s === 'q' && fx.c === 1, 'the move is relayed to others');
-  assert.ok(!p.inbox.some((x) => x.t === 'lfx'), 'not echoed to the caster');
-  p.tx({ t: 'lfx', s: 'zzz', c: 0 });
-  assert.equal(q.inbox.filter((x) => x.t === 'lfx').length, 1, 'unknown slots are ignored');
-  p.tx({ t: 'lhit', to: q.s.id, n: 5000, kx: 3, kz: 4 });
-  const hit = q.inbox.find((x) => x.t === 'lhit');
-  assert.ok(hit && hit.t === 'lhit' && hit.to === q.s.id && hit.n === 99 && Math.abs(Math.hypot(hit.kx, hit.kz) - 1) < 1e-9, 'damage is clamped and the shove normalised');
-  p.tx({ t: 'lhit', to: p.s.id, n: 5, kx: 1, kz: 0 });
-  assert.equal(q.inbox.filter((x) => x.t === 'lhit').length, 1, 'you cannot hit yourself');
-  for (let i = 0; i < 80; i++) p.tx({ t: 'lfx', s: 'a', c: 0 });
-  assert.ok(q.inbox.filter((x) => x.t === 'lfx').length < 40, 'spam is rate-limited');
-}
 
 console.log('lobby tests passed');

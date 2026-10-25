@@ -331,9 +331,6 @@ export class Hud {
   private prevInv: string[] = [];
   private prevXp = 0;
   private levelRing = el('div', 'br-levelring');
-  private dollFrame = el('div', 'br-doll', '<div class="tag"></div>');
-  private info = el('div', 'br-info wood');
-  private infoKey = '';
   onStat: (k: StatKey) => void = () => {};
   onEvolve: (to: string) => void = () => {};
   onResume: () => void = () => {};
@@ -400,6 +397,7 @@ export class Hud {
     rows.append(this.skillRow, el('div', '', '&nbsp;'), this.invRow);
     bottom.append(this.buffs, rows, bars);
 
+    this.help.hidden = true; // the controls show on the pause screen
     this.help.innerHTML = '<b>WASD</b> move · <b>Space</b> jump · <b>Shift</b> dash<br><b>LMB</b> attack chain · <b>RMB</b> parry<br><b>Q</b>/<b>E</b> skills · <b>1-6</b> items · <b>Tab</b> evolve<br><b>Alt</b> cursor · <b>F3</b> network';
     this.panel.hidden = true;
     this.end.hidden = true;
@@ -408,7 +406,7 @@ export class Hud {
     this.chan.hidden = true;
     this.chan.innerHTML = '<i></i>';
     this.cursor.hidden = true;
-    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.evolveEl, this.levelRing, this.dollFrame, this.info, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, bottom, this.help, this.end, this.pause);
+    this.root.append(this.vig, this.lavaVig, this.lowhp, this.dizzyEl, this.blind, this.reticle, this.callouts, this.streakEl, this.zoneEl, this.evolveEl, this.levelRing, this.top, this.banner, mapbox, this.feed, this.hint, this.chan, this.cursor, this.panel, bottom, this.help, this.end, this.pause);
     document.body.append(this.root);
     this.buildPause();
   }
@@ -576,7 +574,7 @@ export class Hud {
   // --- the frame ----------------------------------------------------------------------------------
 
   private skillFor(def: AnimalDef, _you: YouState, slot: number): { skill: Skill | null; locked: string } {
-    return slot === 0 ? { skill: def.skill, locked: '' } : slot === 1 ? { skill: def.skill2, locked: '' } : { skill: null, locked: '' };
+    return slot === 0 ? { skill: def.skill, locked: '' } : slot === 1 ? { skill: def.skill2, locked: '' } : slot === 2 ? { skill: def.skill3, locked: '' } : { skill: null, locked: '' };
   }
 
   render(c: HudCtx) {
@@ -601,13 +599,13 @@ export class Hud {
     }
 
     if (c.campus) {
-      (this.root.querySelector('#br-ph') as HTMLElement).textContent = this.sandbox ? 'Sandbox' : 'Campus';
-      (this.root.querySelector('#br-clock') as HTMLElement).textContent = 'Free roam';
-      (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${c.roster.size} here`;
+      (this.root.querySelector('#br-ph') as HTMLElement).textContent = this.sandbox ? 'Sandbox' : 'Lobby';
+      (this.root.querySelector('#br-clock') as HTMLElement).textContent = this.sandbox ? 'You can be hurt' : 'Nobody can be hurt';
+      (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${[...c.roster.values()].filter((r) => !r.dummy).length} here`;
       const q = c.queue;
       this.ring.classList.toggle('warn', !this.sandbox && !!q && q.startsIn !== null && q.startsIn <= 10);
       this.ring.textContent = this.sandbox
-        ? 'Nobody can be hurt here · press B to change animal'
+        ? 'Dummies and sparring partners on the island · press B to change animal'
         : q?.you
         ? q.startsIn !== null
           ? `Tournament starts in ${q.startsIn}s · ${q.queued} queued`
@@ -616,7 +614,7 @@ export class Hud {
           ? `A Tournament starts in ${q.startsIn}s: press B to join (${q.queued} queued)`
           : q?.inMatch
             ? 'A Tournament is running: press B to queue for the next one'
-            : 'Nobody can be hurt here · press B to queue for the Tournament';
+            : 'Hit the dummies · press B to queue for the Tournament';
     }
     const body = role === 0;
     this.skillRow.parentElement!.parentElement!.style.display = role === 3 ? 'none' : '';
@@ -651,10 +649,10 @@ export class Hud {
     const buffs = you.buffs.map((b) => `<span>${b.replace(/_/g, ' ')}</span>`).join('') + (you.ability ? `<span>${you.ability}</span>` : '');
     if (this.buffs.innerHTML !== buffs) this.buffs.innerHTML = buffs;
 
-    // skill slots: Q is the signature skill; stage 2 and 3 animals also have E
+    // skill slots: Q is the signature skill; stage 2 animals also have E, stage 3 also R
     for (let i = 0; i < 4; i++) {
       const e = this.skillEls[i];
-      e.root.style.display = i === 0 || (i === 1 && def.skill2) ? '' : 'none';
+      e.root.style.display = i === 0 || (i === 1 && def.skill2) || (i === 2 && def.skill3) ? '' : 'none';
       let name = '';
       let ready = false;
       let locked = false;
@@ -716,7 +714,6 @@ export class Hud {
     const hh = hl ? `<div class="t">HUNTED</div>${hl}` : '';
     if (this.hunted.innerHTML !== hh) this.hunted.innerHTML = hh;
 
-    this.renderInfo(you, def, role);
     this.renderPanel(c);
     this.blind.style.opacity = you.buffs.includes('blind') ? '0.8' : '0';
   }
@@ -824,9 +821,11 @@ export class Hud {
   private pauseNote: HTMLElement | null = null;
   /** In the campus there is nothing to leave: it is the lobby. */
   sandbox = false;
+  private campusOn = false;
   setCampus(on: boolean) {
+    this.campusOn = on;
     if (this.leaveBtn) this.leaveBtn.hidden = on;
-    if (this.pauseNote) this.pauseNote.textContent = on ? (this.sandbox ? 'The sandbox keeps running. Press B to change animal.' : 'The campus keeps running. Press B to queue for the Tournament.') : 'The match keeps running. If you leave, an AI takes your animal.';
+    if (this.pauseNote) this.pauseNote.textContent = on ? (this.sandbox ? 'The sandbox keeps running. Press B to change animal.' : 'The lobby keeps running. Press B to queue for the Tournament.') : 'The match keeps running. If you leave, an AI takes your animal.';
   }
 
   private buildPause() {
@@ -844,6 +843,7 @@ export class Hud {
     this.pause.append(box);
   }
   showPause(on: boolean) {
+    this.help.hidden = !on;
     this.pause.hidden = !on;
   }
   get pauseVisible() {
@@ -925,33 +925,10 @@ export class Hud {
   }
 
   /** Where the paper doll is drawn (CSS pixels from the top-left of the window). */
-  dollRect() {
-    const r = this.dollFrame.getBoundingClientRect();
-    return { x: r.left + 5, y: r.top + 5, w: r.width - 10, h: r.height - 10 };
-  }
   get visible() {
     return !this.root.hidden;
   }
 
-  /** The animal card in the bottom-left corner: who you are, your class and what it costs and gives. */
-  private renderInfo(you: YouState, def: AnimalDef, role: number) {
-    const cls = CLASS_BY_ID.get(def.cls)!;
-    this.dollFrame.style.display = role === 3 ? 'none' : '';
-    this.info.style.display = role === 3 ? 'none' : '';
-    const form = '';
-    (this.dollFrame.querySelector('.tag') as HTMLElement).textContent = '';
-    const key = JSON.stringify([def.id, you.lvl, you.alloc, you.evolve.length, role]);
-    if (key === this.infoKey) return;
-    this.infoKey = key;
-    const rows = STAT_KEYS.map((k) => {
-      const v = def.stats[k] + you.alloc[k];
-      return `<span>${STAT_NAMES[k]}</span><i style="width:${Math.min(100, (v / 50) * 100)}%"></i><em>${v}</em>`;
-    }).join('');
-    this.info.innerHTML =
-      `<div class="hd"><span class="em">${EMOJI[def.id] ?? '🐾'}</span><div><b>${def.name}</b><small>${cls.icon} ${cls.name} · Lv ${you.lvl}${form ? ` · ${form}` : ''}</small></div></div>` +
-      `<div class="st">${rows}</div>` +
-      `<div class="pk">${cls.perks.map((p) => `<div class="p">+ ${p.replace(/^\+\s?/, '')}</div>`).join('')}${cls.drawbacks.map((p) => `<div class="d">− ${p.replace(/^[-−]\s?/, '')}</div>`).join('')}</div>`;
-  }
 
   /** You were parried: the whole screen wobbles and blurs while your animal reels. */
   dizzy(seconds: number) {

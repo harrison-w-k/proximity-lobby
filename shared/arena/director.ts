@@ -38,7 +38,7 @@ export class Director {
   private inMatch = new Set<string>();
   /** The campus: the lobby as a permanent match nobody can die in. */
   campus: Match | null = null;
-  /** The sandbox room: any animal of any stage can be chosen, and there is no queue for matches. */
+  /** The sandbox room: any animal of any stage can be chosen, you can be hurt, and there is no queue for matches. */
   sandbox = false;
   private inCampus = new Set<string>();
   private campusAcc = 0;
@@ -88,15 +88,16 @@ export class Director {
     const name = this.host.players().find((x) => x.id === id)?.name;
     if (!name) return;
     if (!this.campus) {
+      // the lobby is real players only; the sandbox has a few sparring partners that fight back (all on one team)
       const bots: Entrant[] = [];
       const used = new Set<string>();
-      for (let n = 0; n < 8; n++) {
+      for (let n = 0; this.sandbox && n < 3; n++) {
         let nm = BOT_NAMES[(n * 3) % BOT_NAMES.length];
         while (used.has(nm)) nm += '_';
         used.add(nm);
-        bots.push({ id: `cbot${n}`, name: nm, animal: this.sandbox ? ANIMALS[(n * 7) % ANIMALS.length].id : STARTERS[n % STARTERS.length].id, team: n, bot: true });
+        bots.push({ id: `cbot${n}`, name: nm, animal: ANIMALS[(n * 23 + 11) % ANIMALS.length].id, team: 0, bot: true });
       }
-      this.campus = new Match(424242, bots, { send: (pid, msg) => this.host.send(pid, msg) }, { campus: true });
+      this.campus = new Match(424242, bots, { send: (pid, msg) => this.host.send(pid, msg) }, { campus: true, island: true, pvp: this.sandbox });
       this.campusAcc = 0;
       this.campusLast = Date.now();
     }
