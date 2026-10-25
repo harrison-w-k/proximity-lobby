@@ -295,7 +295,7 @@ export class Arena {
       this.scene.setRoster(m.roster, this.myId);
       this.haveSnap = false;
       this.pending = [];
-      this.seq = 0;
+      // (the step counter keeps counting up across a restart: a fresh fighter on the server takes any higher number)
       this.acc = 0;
       this.lastLvl = 1;
       this.lastEvolve = 0;
@@ -341,7 +341,7 @@ export class Arena {
       this.hud.showPause(true); // click to play: the mouse can only be captured from a click
       this.haveSnap = false;
       this.pending = [];
-      this.seq = 0;
+      // (the step counter keeps counting up across a restart: a fresh fighter on the server takes any higher number)
       this.acc = 0;
       this.lastLvl = 1;
       this.lastZone = '';

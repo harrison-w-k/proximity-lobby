@@ -559,7 +559,7 @@ export function buildRealQuad(spec: QuadSpec, seed: number, id: string): Built {
 // reptiles
 // ======================================================================================================
 
-const scales = (base: number, belly: number, a: number, x: number, y: number, z: number, cell: number, dark: number): number => {
+export const scales = (base: number, belly: number, a: number, x: number, y: number, z: number, cell: number, dark: number): number => {
   const c = Math.cos(a);
   const t = THREE.MathUtils.smoothstep(-c, 0.0, 0.5);
   tmpC.setHex(base);
@@ -570,7 +570,7 @@ const scales = (base: number, belly: number, a: number, x: number, y: number, z:
   return tmpC.getHex();
 };
 
-function reptileEyes(head: THREE.Group, hs: number, eyeC: number, size: number, y: number, z: number, x: number): THREE.Object3D[] {
+export function reptileEyes(head: THREE.Group, hs: number, eyeC: number, size: number, y: number, z: number, x: number): THREE.Object3D[] {
   const eyes: THREE.Object3D[] = [];
   for (const s of [-1, 1]) {
     const eye = new THREE.Group();
@@ -896,12 +896,12 @@ function buildSnake(spec: QuadSpec, id = 'cobra'): Built {
   for (let i = 0; i < n; i++) {
     const u = i / (n - 1); // 0 tail, 1 head
     const z = -L * 0.5 + L * 0.9 * u - Math.max(0, u - 0.72) * L * 0.3;
-    const x = Math.sin(u * 9) * 0.28 * (1 - u * 0.75);
+    const x = Math.sin(u * (python ? 9 : cobra ? 8 : 11)) * (python ? 0.5 : cobra ? 0.16 : 0.38) * (1 - u * 0.75);
     const raise = Math.pow(Math.max(0, (u - 0.66) / 0.34), 1.5);
-    const y = 0.07 - ty + raise * L * (cobra ? 0.42 : python ? 0.12 : 0.22);
+    const y = 0.07 - ty + raise * L * (cobra ? 0.5 : python ? 0.1 : 0.2);
     path.push([x, y, z]);
     const body = Math.sin(Math.min(1, u * 1.25) * Math.PI * 0.55);
-    radii.push(Math.max(0.012, (python ? 0.19 : cobra ? 0.14 : 0.16) * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
+    radii.push(Math.max(0.012, (python ? 0.3 : cobra ? 0.11 : 0.17) * Math.pow(body, 0.75) * (u > 0.7 ? 0.62 + 0.38 * (1 - (u - 0.7) / 0.3) : 1)));
   }
   const tp = new Parts();
   tp.addGeo(

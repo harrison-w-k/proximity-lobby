@@ -513,13 +513,13 @@ export class Terrain {
   }
 
   /** A random point on dry land inside `radius`. */
-  randomLand(rnd: () => number, radius: number, minRadius = 0): { x: number; z: number } {
+  randomLand(rnd: () => number, radius: number, minRadius = 0, clear = 0.8): { x: number; z: number } {
     for (let i = 0; i < 80; i++) {
       const a = rnd() * Math.PI * 2;
       const r = minRadius + Math.sqrt(rnd()) * (radius - minRadius);
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      if (this.heightAt(x, z) > WATER_Y + 0.3 && !this.collide(x, z, 0.8).hit) return { x, z };
+      if (this.heightAt(x, z) > WATER_Y + 0.3 && !this.collide(x, z, clear).hit) return { x, z };
     }
     return { x: 0, z: 8 };
   }

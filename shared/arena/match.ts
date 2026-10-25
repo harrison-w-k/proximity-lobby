@@ -619,7 +619,10 @@ export class Match {
     if (!f || f.bot) return;
     switch (msg.t) {
       case 'min': {
-        if (!(msg.s > f.lastCmd) || !Number.isFinite(msg.s)) return;
+        if (!Number.isFinite(msg.s)) return;
+        // a counter that starts over (a reconnect, a new animal) must not be ignored until it climbs past the old one
+        if (msg.s <= f.lastCmd && this.time - f.lastInputAt > 1) f.lastCmd = 0;
+        if (!(msg.s > f.lastCmd)) return;
         // After a stall the queued steps arrive in a burst. The time the server spent waiting is credited to the player
         // (once, never more than they actually lost), so they catch up instead of being dragged back. Flooding gains nothing.
         const gap = this.time - f.lastInputAt;
@@ -695,7 +698,7 @@ export class Match {
     const water = f.def.swim === 'water';
     if (this.island) {
       const w = water ? this.terrain.findWater(-26, 8, this.rnd) : null;
-      return w ?? this.terrain.randomLand(this.rnd, 10, 3);
+      return w ?? this.terrain.randomLand(this.rnd, 10, 3, Math.max(0.8, f.r + 0.5)); // big animals need more room to start free
     }
     return (water ? this.terrain.findWater(0, 0, this.rnd) : null) ?? this.terrain.randomLand(this.rnd, 170, 30);
   }

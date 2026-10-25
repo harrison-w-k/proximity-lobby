@@ -149,4 +149,15 @@ const players = [{ id: 'p1', name: 'Ann' }, { id: 'p2', name: 'Bo' }];
   assert.ok((m as any).canHit(a, dm), 'a dummy can be hit at once');
   assert.ok(glideFall(true, 0.8, -1, 0) && !glideFall(false, 0.8, -1, 0), 'birds glide after a jump, others do not');
 }
+// a step counter that starts over is not ignored while it climbs back past the old one
+{
+  const m = new Match(7, [{ id: 'a', name: 'A', animal: 'fox', team: 0, bot: false }], { send: () => {} }, { campus: true, island: true });
+  const a = m.byId.get('a')!;
+  m.handle('a', { t: 'min', s: 900, dt: 33, x: 1, z: 0, yaw: 0, sp: 0, cr: 0, at: 0, j: 0 });
+  for (let i = 0; i < Math.ceil(2 / DT); i++) m.tick();
+  const x0 = a.x;
+  m.handle('a', { t: 'min', s: 1, dt: 33, x: 1, z: 0, yaw: 0, sp: 0, cr: 0, at: 0, j: 0 });
+  for (let i = 0; i < 10; i++) m.tick();
+  assert.ok(a.lastCmd === 1 && Math.abs(a.x - x0) > 0.01, 'a restarted step counter still moves the animal');
+}
 console.log('island tests passed');

@@ -210,7 +210,7 @@ const tmpC = new THREE.Color();
 const tmpD = new THREE.Color();
 
 /** Resample a ring list into many more rings (a smooth curve through the originals), so painted stripes and spots are not smeared. */
-function densify(rings: Ring[], n: number): Ring[] {
+export function densify(rings: Ring[], n: number): Ring[] {
   const out: Ring[] = [];
   const m = rings.length - 1;
   const cr = (p0: number, p1: number, p2: number, p3: number, t: number) =>

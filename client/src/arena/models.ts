@@ -5,6 +5,7 @@ import { toonMat } from './toon';
 import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
 import { REAL_QUAD, buildRealQuad } from './realquad';
 import { MAMMAL, buildMammal } from './mammals';
+import { LIZARD, buildLizardR } from './reptiles';
 import { REAL_BIRD, buildRealBird, wingPose, type BirdParts } from './birds';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
@@ -1113,11 +1114,11 @@ PS.monitor = { ...SPECS.croc, fur: 0x6a7048, belly: 0xc2c090, paw: 0x4a5030, sca
 PS.snapping_turtle = { ...SPECS.turtle, fur: 0x5a6a3a, scale: 0.85 };
 PS.komodo = { ...SPECS.croc, fur: 0x6e5f4a, belly: 0xc8b890, paw: 0x4a3e2e, scale: 0.7, head: { s: 0.4, snout: 0.5, snoutH: 0.24, snoutC: 0x7e6e56, drop: 0.1 }, extras: undefined, tail: { len: 1.5, t: 0.26, up: 0 } };
 PS.viper = {
-  len: 1.6, w: 0.16, h: 0.16, legLen: 0.03, legT: 0.02, fur: 0x8a7a3a, belly: 0xe8e0b0, paw: 0x8a7a3a, crawl: true, scale: 0.7,
+  len: 1.1, w: 0.16, h: 0.16, legLen: 0.03, legT: 0.02, fur: 0x8a7a3a, belly: 0xe8e0b0, paw: 0x8a7a3a, crawl: true, scale: 0.7,
   head: { s: 0.22, snout: 0.06, snoutC: 0x8a7a3a, drop: -0.05 }, ears: 'none', tail: { len: 1.0, t: 0.1, up: 0 }, eye: 0xe0b020,
 };
 PS.python = {
-  len: 3.0, w: 0.3, h: 0.3, legLen: 0.05, legT: 0.03, fur: 0x8a6a3a, belly: 0xe8dcb4, paw: 0x8a6a3a, crawl: true, scale: 0.85,
+  len: 3.6, w: 0.3, h: 0.3, legLen: 0.05, legT: 0.03, fur: 0x8a6a3a, belly: 0xe8dcb4, paw: 0x8a6a3a, crawl: true, scale: 0.85,
   head: { s: 0.26, snout: 0.08, snoutC: 0x8a6a3a, drop: -0.05 }, ears: 'none', tail: { len: 2.0, t: 0.14, up: 0 }, eye: 0xd8b040,
 };
 PS.sea_turtle = { ...SPECS.turtle, fur: 0x6a8a58, belly: 0xe2dca8, paw: 0x4a6a40, scale: 1.2, len: 1.1, w: 0.85, h: 0.26, legLen: 0.14 };
@@ -1211,7 +1212,7 @@ export function makePlayerRig(animal: string): Rig {
     return new BirdPlayerRig(bb, bdef ? SIZE[bdef.size].radius : 0.5, bb.bird);
   }
   const spec = PS[animal] ?? PS.house_cat;
-  const b = MAMMAL.has(animal) ? buildMammal({ ...spec, id: animal }, animal) : REAL_QUAD.has(animal) ? buildRealQuad({ ...spec, id: animal }, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
+  const b = LIZARD.has(animal) ? buildLizardR({ ...spec, id: animal }, animal) : MAMMAL.has(animal) ? buildMammal({ ...spec, id: animal }, animal) : REAL_QUAD.has(animal) ? buildRealQuad({ ...spec, id: animal }, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
   const def = ANIMAL_BY_ID.get(animal);
   const radius = def ? SIZE[def.size].radius : 0.5;
   return new QuadRig(b, radius);
