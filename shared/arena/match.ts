@@ -174,6 +174,8 @@ export interface Fighter extends Body {
   soarUntil: number; // a bird's soar: reduced fall and a faster glide until it lands
   shield: number; // overhealth: absorbs damage before health does
   shieldUntil: number;
+  momentum: number; // landing blows in a row builds momentum: faster and harder-hitting, until you stop connecting
+  momentumUntil: number;
   dummy: boolean; // a target dummy: stands still, takes hits, heals back up
   mudUntil: number;
   tusk: number;
@@ -417,7 +419,7 @@ export class Match {
       x: 0, z: 0, y: 0, yaw: 0, hp: 1, maxHp: 1, r: 0.5, sta: 100,
       input: { s: 0, dx: 0, dz: 0, yaw: 0, sprint: false, crouch: false, at: false },
       cdAt: [0, 0, 0, 0], dashAt: 0, streak: 0, streakAt: -99, combo: 0, comboAt: -9, swing: null, guarding: false, guardAt: -9, guardCd: 0, whiffUntil: 0, counterUntil: 0, jy: 0, jv: 0, atkAt: 0, buffs: [], markUntil: 0, stunUntil: 0, scareUntil: 0, blindUntil: 0, subUntil: 0, invUntil: 0,
-      speedUntil: 0, glideUntil: 0, soarUntil: 0, shield: 0, shieldUntil: 0, dummy: false, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
+      speedUntil: 0, glideUntil: 0, soarUntil: 0, shield: 0, shieldUntil: 0, momentum: 0, momentumUntil: 0, dummy: false, mudUntil: 0, tusk: 0, muskUntil: 0, reedUntil: 0, usedCheat: false,
       inv: new Array(INV_SLOTS).fill(null), chan: null, ability: null, kills: 0, dmgDealt: 0, place: 0, lastHurt: -99, lastCombat: -99,
       hunted: false, lastAttacker: '', recentAttackers: new Map(), atkFlash: 0, roarFlash: 0, deathX: 0, deathZ: 0,
      
@@ -546,6 +548,9 @@ export class Match {
     }
     return v;
   }
+  private momentumOf(f: Fighter) {
+    return f.momentumUntil > this.time ? f.momentum : 0;
+  }
   private hasFree(f: Fighter) {
     return f.buffs.some((b) => b.free && b.until >= this.time);
   }
@@ -560,6 +565,7 @@ export class Match {
     if (f.subUntil > this.time) m += 0.5 + f.mods.ambush;
     else if (f.mods.ambush > 0 && f.role === 'alive' && this.terrain.inBush(f.x, f.z)) m += f.mods.ambush;
     if (f.counterUntil > this.time) m += 0.5; // a parry opens the enemy up
+    m += this.momentumOf(f) * 0.03;
     if (f.blindUntil > this.time) m -= 0.25;
     if (f.scareUntil > this.time) m -= 0.25;
     return Math.max(0.2, m);
@@ -1204,10 +1210,11 @@ export class Match {
       }
     }
     // overhealth soaks up the blow first
+    let soaked = 0;
     if (f.shield > 0 && !o.lava) {
-      const soak = Math.min(f.shield, amount);
-      f.shield -= soak;
-      amount -= soak;
+      soaked = Math.min(f.shield, amount);
+      f.shield -= soaked;
+      amount -= soaked;
     }
     if (!this.campus || this.pvp || f.dummy) f.hp -= amount; // in the lobby the numbers fly but nobody loses anything
     f.lastHurt = this.time;
@@ -1221,9 +1228,13 @@ export class Match {
       srcF.dmgDealt += amount;
       srcF.lastCombat = this.time;
       if (srcF.mods.lifesteal > 0) srcF.hp = Math.min(srcF.maxHp, srcF.hp + amount * srcF.mods.lifesteal);
+      if (!o.dot && !o.lava) {
+        srcF.momentum = this.momentumOf(srcF) >= 5 ? 5 : this.momentumOf(srcF) + 1;
+        srcF.momentumUntil = this.time + 2.5;
+      }
       if (srcF.mods.overOnHit > 0 && !o.dot && !o.reflected) this.addShield(srcF, Math.min(srcF.maxHp * 0.3, srcF.shield + srcF.maxHp * srcF.mods.overOnHit) - srcF.shield, 6);
     }
-    if (!o.dot && !o.lava) this.emit({ k: 'hit', id: f.id, x: f.x, z: f.z, n: Math.round(amount) }, f.x, f.z);
+    if (!o.dot && !o.lava) this.emit({ k: 'hit', id: f.id, x: f.x, z: f.z, n: Math.round(amount + soaked), soak: soaked > 0 ? Math.round(soaked) : undefined, heavy: o.heavy || amount + soaked > f.maxHp * 0.18 || undefined }, f.x, f.z);
     // thorns
     const refl = f.mods.reflect + this.buffSum(f, 'reflect');
     if (refl > 0 && src && !o.noReflect && !o.lava && !o.dot) this.hurt(src, amount * refl, f, { noReflect: true, kind: 'quill', reflected: true });
@@ -2122,6 +2133,7 @@ export class Match {
     let base = f.dv.speed * (1 + this.buffSum(f, 'speed')) * med.mul;
     if (f.def.landMul < 1 && !med.swim && !med.shallow && f.role === 'alive') base *= f.def.landMul; // fish out of water
     if (f.speedUntil > t) base *= 1.12;
+    base *= 1 + 0.04 * this.momentumOf(f);
     if (f.slow && f.slow.until > t) base *= 1 - f.slow.f;
     else f.slow = undefined;
     if (f.subUntil > t) base *= 1.2;
@@ -2444,6 +2456,7 @@ export class Match {
     if (f.scareUntil > t) out.push('scared');
     if (f.hot) out.push('healing');
     if (f.speedUntil > t) out.push('swift');
+    if (this.momentumOf(f) >= 2) out.push(`momentum x${f.momentum}`);
     if (f.tusk > 0) out.push(`tusk x${f.tusk}`);
     if (f.subUntil > t) out.push('submerged');
     if (f.reedUntil > t) out.push('hidden in reeds');
@@ -2489,7 +2502,7 @@ export class Match {
       const cx = focus.x;
       const cz = focus.z;
       const sense = me.dv.sense;
-      const f: [string, number, number, number, number, number, number, number][] = [];
+      const f: [string, number, number, number, number, number, number, number, number, number, number][] = [];
       for (const o of this.fighters) {
         if (o === me || o.role === 'out') continue;
         const d = Math.hypot(o.x - cx, o.z - cz);
@@ -2497,9 +2510,9 @@ export class Match {
         const friend = o.team === me.team;
         const hidden = o.subUntil > this.time || o.reedUntil > this.time || (this.terrain.inBush(o.x, o.z) && !o.moving);
         if (hidden && !friend && d > Math.max(8, sense * 0.2)) continue;
-        f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0), Math.round(o.jy * 100) / 100]);
+        f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0), Math.round(o.jy * 100) / 100, Math.max(0, Math.round(o.hp)), o.maxHp, Math.round(o.shield)]);
       }
-      if (focus !== me) f.push([focus.id, r1(focus.x), r1(focus.z), Math.round(focus.yaw * 100) / 100, Math.round((focus.hp / focus.maxHp) * 100), focus.level, this.flags(focus), Math.round(focus.jy * 100) / 100]);
+      if (focus !== me) f.push([focus.id, r1(focus.x), r1(focus.z), Math.round(focus.yaw * 100) / 100, Math.round((focus.hp / focus.maxHp) * 100), focus.level, this.flags(focus), Math.round(focus.jy * 100) / 100, Math.max(0, Math.round(focus.hp)), focus.maxHp, Math.round(focus.shield)]);
       const m: [number, number, number, number, number, number, number][] = [];
       const nearMobs: { m: Mob; d: number }[] = [];
       for (const o of this.mobs) {

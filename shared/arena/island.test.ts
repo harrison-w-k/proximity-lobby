@@ -126,4 +126,18 @@ const players = [{ id: 'p1', name: 'Ann' }, { id: 'p2', name: 'Bo' }];
   m.hurt(b, 10, a);
   assert.ok(a.shield > 0, 'a hit grants overhealth (Thick Hide)');
 }
+// momentum: landing blows in a row makes you hit harder, and it fades when you stop
+{
+  const m = new Match(7, [{ id: 'a', name: 'A', animal: 'fox', team: 0, bot: false }, { id: 'b', name: 'B', animal: 'weasel', team: 1, bot: true }], { send: () => {} }, { campus: true, island: true, pvp: true });
+  const a = m.byId.get('a')!;
+  const b = m.byId.get('b')!;
+  assert.equal(a.momentum, 0);
+  for (let i = 0; i < 7; i++) m.hurt(b, 1, a);
+  assert.equal(a.momentum, 5, 'momentum builds to five');
+  const mult = (m as unknown as { dmgMult(f: unknown, t: unknown): number }).dmgMult.bind(m);
+  const withMomentum = mult(a, b);
+  m.time += 3;
+  assert.ok(withMomentum > mult(a, b) + 0.1, 'it adds damage');
+  assert.equal((m as unknown as { momentumOf(f: unknown): number }).momentumOf(a), 0, 'it fades');
+}
 console.log('island tests passed');

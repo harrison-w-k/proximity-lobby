@@ -44,7 +44,14 @@ export class Sfx {
       const ctx = new AudioContext();
       const master = ctx.createGain();
       master.gain.value = this.volume;
-      master.connect(ctx.destination);
+      // a gentle compressor glues the layers together, so a big hit punches instead of clipping
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 14;
+      comp.ratio.value = 5;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.16;
+      master.connect(comp).connect(ctx.destination);
       // one second of white noise, reused by every sound
       const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
       const data = buf.getChannelData(0);
@@ -237,12 +244,39 @@ export class Sfx {
 
   // ---------- animal battle royale ----------
   bite(heavy = false) {
-    this.burst('bandpass', 2400, 600, 0.09, heavy ? 0.22 : 0.14, 1.2);
-    this.tone(heavy ? 150 : 220, 80, 0.12, heavy ? 0.16 : 0.1, 'sawtooth');
+    this.impact(heavy ? 0.8 : 0.4, heavy);
   }
 
-  swing() {
-    this.burst('highpass', 900, 3000, 0.12, 0.08, 0.6);
+  /** A hit landing: a low thump, a crack of noise and a snap on top, all pitched a little differently each time. `power` is 0..1. */
+  impact(power: number, onMe = false) {
+    const p = Math.max(0.1, Math.min(1, power));
+    this.tone(this.jitter(150 - p * 70), 45, 0.1 + p * 0.1, 0.16 + p * 0.16, 'sine'); // the thump
+    this.burst('bandpass', this.jitter(2600), 500, 0.07 + p * 0.06, 0.12 + p * 0.12, 1.3); // the crack
+    this.tone(this.jitter(onMe ? 210 : 320), 90, 0.07, 0.06 + p * 0.06, 'sawtooth'); // the snap
+    if (p > 0.6) this.burst('lowpass', 900, 120, 0.28, 0.2, 0.7, 0.02); // a heavy hit rumbles
+  }
+
+  /** The attacker's own confirmation that the blow landed. */
+  hitConfirm(heavy = false) {
+    this.tone(heavy ? 1250 : 980, heavy ? 1250 : 980, 0.06, 0.06, 'triangle');
+    if (heavy) this.tone(1650, 1650, 0.09, 0.05, 'triangle', 0.04);
+  }
+
+  /** Overhealth gained: a bright, rising shimmer. */
+  shieldUp() {
+    [660, 880, 1320].forEach((f, i) => this.tone(f, f * 1.02, 0.16, 0.06, 'triangle', i * 0.05));
+    this.burst('highpass', 3000, 6000, 0.2, 0.04, 0.6);
+  }
+
+  /** A blow soaked up by overhealth: a soft glassy tick. */
+  shieldHit() {
+    this.tone(this.jitter(1500), 900, 0.1, 0.09, 'triangle');
+    this.tone(this.jitter(2300), 1700, 0.07, 0.04, 'sine');
+  }
+
+  swing(heavy = false) {
+    this.burst('highpass', this.jitter(900), heavy ? 2400 : 3400, heavy ? 0.2 : 0.12, heavy ? 0.12 : 0.08, 0.6);
+    if (heavy) this.tone(140, 90, 0.14, 0.06, 'sine');
   }
 
   roar() {

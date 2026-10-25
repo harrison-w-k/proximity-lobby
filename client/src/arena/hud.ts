@@ -171,6 +171,9 @@ const CSS = `
 .br-bar.hp > i { position: relative; z-index: 1; }
 .br-bar.hp > u { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(#fff4d0, #e9c98a); opacity: .85; z-index: 0; border-radius: 999px; transition: width .08s; }
 .br-bar span { z-index: 2; }
+.br-bar.hp > b { position: absolute; left: 0; top: 0; height: 11px; width: 0; z-index: 1; background: linear-gradient(#fff2a8, #ffc934 60%, #e09a14); border-radius: 999px; box-shadow: 0 0 10px rgba(255,210,63,.9); transition: width .12s linear; }
+.br-bar.hp.over { border-color: #ffc934; box-shadow: inset 0 3px 0 rgba(0,0,0,.4), 0 0 14px rgba(255,201,52,.75); }
+.br-bar.hp span em { font-style: normal; color: #ffe27a; margin-left: 8px; }
 .br-bar.xp.gain > i { animation: brgain .5s ease-out; }
 @keyframes brgain { 0% { filter: brightness(2.2); box-shadow: 0 0 14px #78d6e8; } 100% { filter: none; } }
 .br-slot.flash { animation: brready .45s ease-out; }
@@ -386,7 +389,7 @@ export class Hud {
     bars.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:3px';
     const hpRow = el('div', '');
     hpRow.style.cssText = 'display:flex;gap:8px;align-items:center';
-    this.hp.innerHTML = '<i></i><u></u><span></span>';
+    this.hp.innerHTML = '<i></i><u></u><b></b><span></span>';
     this.sta.innerHTML = '<i></i><span></span>';
     this.xp.innerHTML = '<i></i><span></span>';
     this.hp.style.flex = '1';
@@ -621,7 +624,10 @@ export class Hud {
     // bars
     const hpPct = Math.max(0, Math.min(100, (you.hp / you.maxHp) * 100));
     (this.hp.firstElementChild as HTMLElement).style.width = `${hpPct}%`;
-    (this.hp.lastElementChild as HTMLElement).textContent = `${Math.ceil(you.hp)} / ${you.maxHp}`;
+    const over = you.shield ?? 0;
+    (this.hp.lastElementChild as HTMLElement).innerHTML = `${Math.ceil(you.hp)} / ${you.maxHp}${over > 0 ? `<em>+${over}</em>` : ''}`;
+    (this.hp.querySelector('b') as HTMLElement).style.width = `${Math.min(100, (over / you.maxHp) * 100)}%`;
+    this.hp.classList.toggle('over', over > 0);
     // the pale chip behind the health bar shows what you just lost, then drains away
     const nowMs = performance.now();
     if (hpPct < this.lastHpPct - 0.3) this.ghostAt = nowMs + 450;

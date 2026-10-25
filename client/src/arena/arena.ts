@@ -76,6 +76,8 @@ export class Arena {
   private hitstop = 0;
   private slowmo = 0;
   private fovNow = 62;
+  /** A short widening of the view when a blow lands; it settles back on its own. */
+  private fovPunch = 0;
   private localCombo = 0;
   private localComboAt = -9;
   private localSwingAt = -9;
@@ -481,23 +483,42 @@ export class Arena {
     switch (e.k) {
       case 'hit': {
         const me = e.id === this.myId;
-        sc.floater(e.x, sc.groundY(e.x, e.z) + 2.2, e.z, String(e.n), me ? '#ff6b5a' : '#ffffff', me ? 1.2 : 1);
-        sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xff4b3a, 5, 2.5, 0.35);
+        const soak = e.soak ?? 0;
+        const dealt = e.n - soak;
+        const heavy = !!e.heavy;
+        const power = Math.min(1, e.n / 40 + (heavy ? 0.3 : 0));
+        const gy = sc.groundY(e.x, e.z);
+        // the number grows with the blow; overhealth that soaked some of it shows as its own gold number
+        if (dealt > 0 || !soak) sc.floater(e.x, gy + 2.2, e.z, String(dealt), me ? '#ff6b5a' : heavy ? '#ffd23f' : '#ffffff', (me ? 1.2 : 1) * (0.9 + power * 0.7));
+        if (soak) sc.floater(e.x, gy + 2.9, e.z, `🛡 ${soak}`, '#ffd23f', 0.9);
+        sc.burst(e.x, gy + 1, e.z, dealt <= 0 ? 0xffd23f : 0xff4b3a, 4 + Math.round(power * 10), 2.5 + power * 2.5, 0.35);
         const v = sc.fighter(e.id);
         if (v) v.hurt = 1;
         if (me) {
-          this.d.sfx.bite(true);
+          if (dealt <= 0) this.d.sfx.shieldHit();
+          else this.d.sfx.impact(power, true);
           this.addShake(Math.min(0.9, 0.25 + e.n / 60));
+          this.fovPunch = Math.max(this.fovPunch, 2 + power * 5);
         } else {
-          this.nearSfx(e.x, e.z, () => this.d.sfx.bite());
+          if (dealt <= 0) this.nearSfx(e.x, e.z, () => this.d.sfx.shieldHit());
+          else this.nearSfx(e.x, e.z, () => this.d.sfx.impact(power));
           if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 3.5 && this.clock - this.localSwingAt < 0.45) {
-            this.hitstop = Math.max(this.hitstop, e.n > 20 ? 0.07 : 0.035);
-            this.addShake(0.18);
-            this.hud.hitMarker(e.n > 20);
+            // our own blow landed: freeze a beat, kick the view, and tell the hand it connected
+            this.hitstop = Math.max(this.hitstop, heavy ? 0.09 : 0.035 + power * 0.04);
+            this.addShake(0.12 + power * 0.3);
+            this.fovPunch = Math.max(this.fovPunch, 1.5 + power * 4);
+            this.hud.hitMarker(heavy || e.n > 20);
+            this.d.sfx.hitConfirm(heavy);
           }
         }
         break;
       }
+      case 'shield':
+        sc.floater(e.x, sc.groundY(e.x, e.z) + 2.6, e.z, '🛡 Overhealth', '#ffd23f', 0.9);
+        sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xffd23f, 12, 2.5, 0.6);
+        if (e.id === this.myId) this.d.sfx.shieldUp();
+        else this.nearSfx(e.x, e.z, () => this.d.sfx.shieldUp(), 30);
+        break;
       case 'mobhit':
         sc.floater(e.x, sc.groundY(e.x, e.z) + 1.4, e.z, String(e.n), '#ffe27a', 0.8);
         if (Math.hypot(e.x - this.pos.x, e.z - this.pos.z) < 4 && this.clock - this.localSwingAt < 0.5) this.hud.hitMarker(e.n > 20);
@@ -1095,7 +1116,8 @@ export class Arena {
     // the view widens when you dash or sprint, a little rush of speed
     const dashing = !!you && you.dash > you.dashMax - 0.3;
     const sprinting = this.keys.has('ShiftLeft') && performance.now() - this.shiftAt > 200 && (this.you?.speed ?? 0) > 0;
-    const targetFov = 62 + (dashing ? 14 : 0) + (sprinting ? 4 : 0);
+    this.fovPunch *= Math.exp(-dt * 10);
+    const targetFov = 62 + (dashing ? 14 : 0) + (sprinting ? 4 : 0) + this.fovPunch;
     this.fovNow += (targetFov - this.fovNow) * (1 - Math.exp(-dt * 12));
     cam.fov = this.fovNow;
     cam.updateProjectionMatrix();

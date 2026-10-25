@@ -21,6 +21,10 @@ export interface FighterView {
   group: THREE.Group;
   plate: THREE.Sprite;
   plateKey: string;
+  dummy?: boolean;
+  hpAbs: number;
+  maxHp: number;
+  ovh: number; // overhealth
   shadow: THREE.Mesh;
   x: number;
   z: number;
@@ -642,32 +646,76 @@ varying vec3 vWP;`)
 
   private drawPlate(v: FighterView, mine: number): THREE.CanvasTexture {
     const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 64;
+    c.width = 320;
+    c.height = 96;
     const g = c.getContext('2d')!;
     const friend = v.team === mine;
-    g.font = 'bold 22px "Courier New", monospace';
+    const hunted = (v.flags & FL.hunted) !== 0;
+    const round = (x: number, y: number, w: number, h: number, r: number) => {
+      g.beginPath();
+      g.roundRect(x, y, w, h, r);
+    };
+    // the name, with a soft dark edge
+    g.font = '700 26px "Baloo 2", "Trebuchet MS", sans-serif';
     g.textAlign = 'center';
-    g.lineWidth = 5;
-    g.strokeStyle = '#0b3b3f';
-    const label = v.name;
-    g.strokeText(label, 128, 22);
-    g.fillStyle = (v.flags & FL.hunted) !== 0 ? '#ffd23f' : friend ? '#9bf08a' : '#ffffff';
-    g.fillText(label, 128, 22);
-    // level and health
-    g.fillStyle = '#08272a';
-    g.fillRect(34, 32, 188, 14);
-    g.fillStyle = friend ? '#58c23a' : '#e5483a';
-    g.fillRect(36, 34, Math.max(0, (184 * v.hp) / 100), 10);
-    g.font = 'bold 16px "Courier New", monospace';
-    const sub = `Lv ${v.level}`;
-    g.strokeText(sub, 128, 60);
-    g.fillStyle = '#cfe3ff';
-    g.fillText(sub, 128, 60);
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.lineWidth = 6;
+    g.strokeStyle = 'rgba(8,24,28,.9)';
+    g.strokeText(v.name, 160, 20);
+    g.fillStyle = hunted ? '#ffd23f' : v.dummy ? '#ffd9a0' : friend ? '#a6f594' : '#ffffff';
+    g.fillText(v.name, 160, 20);
+    // the health bar: rounded, with the overhealth as a gold layer along its top edge
+    const bx = 64;
+    const by = 44;
+    const bw = 244;
+    const bh = 24;
+    const frac = Math.max(0, Math.min(1, v.hpAbs > 0 || v.maxHp > 1 ? v.hpAbs / Math.max(1, v.maxHp) : v.hp / 100));
+    g.fillStyle = 'rgba(8,24,28,.92)';
+    round(bx - 3, by - 3, bw + 6, bh + 6, 11);
+    g.fill();
+    g.save();
+    round(bx, by, bw, bh, 8);
+    g.clip();
+    g.fillStyle = '#1b3a3f';
+    g.fillRect(bx, by, bw, bh);
+    const col = v.dummy ? ['#ffb347', '#e0842a'] : friend ? ['#7be05a', '#3c9a2c'] : frac < 0.3 ? ['#ff6a5a', '#c42a1c'] : ['#f05a4a', '#b8281b'];
+    const grad = g.createLinearGradient(0, by, 0, by + bh);
+    grad.addColorStop(0, col[0]);
+    grad.addColorStop(1, col[1]);
+    g.fillStyle = grad;
+    g.fillRect(bx, by, bw * frac, bh);
+    g.fillStyle = 'rgba(255,255,255,.22)'; // a glossy highlight
+    g.fillRect(bx, by, bw * frac, bh * 0.38);
+    if (v.ovh > 0) {
+      const sf = Math.min(1, v.ovh / Math.max(1, v.maxHp));
+      g.fillStyle = '#ffd23f';
+      g.fillRect(bx, by, bw * sf, 7);
+      g.fillStyle = 'rgba(255,255,255,.5)';
+      g.fillRect(bx, by, bw * sf, 2);
+    }
+    g.restore();
+    // the numbers
+    const label = v.maxHp > 1 ? `${Math.ceil(v.hpAbs)} / ${Math.round(v.maxHp)}${v.ovh > 0 ? `  +${Math.round(v.ovh)}` : ''}` : `${Math.round(v.hp)}%`;
+    g.font = '700 19px "Baloo 2", "Trebuchet MS", sans-serif';
+    g.lineWidth = 4;
+    g.strokeText(label, bx + bw / 2, by + bh / 2 + 1);
+    g.fillStyle = '#ffffff';
+    g.fillText(label, bx + bw / 2, by + bh / 2 + 1);
+    // the level, in a little badge
+    if (!v.dummy) {
+      g.fillStyle = 'rgba(8,24,28,.92)';
+      round(6, by - 3, 50, bh + 6, 11);
+      g.fill();
+      g.fillStyle = '#ffe27a';
+      g.font = '700 16px "Baloo 2", "Trebuchet MS", sans-serif';
+      g.fillText(`Lv ${v.level}`, 31, by + bh / 2 + 1);
+    }
     g.font = '20px sans-serif';
-    if ((v.flags & FL.hunted) !== 0) g.fillText('🎯', 238, 22);
-    if (friend && !v.self) g.fillText('🛡️', 18, 24); // a teammate
-    if (v.speaking) g.fillText('🔊', 238, 50);
+    g.fillStyle = '#fff';
+    if (hunted) g.fillText('🎯', 300, 20);
+    if (friend && !v.self && !v.dummy) g.fillText('🛡️', 20, 20);
+    if (v.speaking) g.fillText('🔊', 300, 84);
     const tex = new THREE.CanvasTexture(c);
     tex.minFilter = THREE.LinearFilter;
     return tex;
@@ -699,7 +747,7 @@ varying vec3 vWP;`)
         const group = new THREE.Group();
         group.add(rig.root);
         const plate = new THREE.Sprite(new THREE.SpriteMaterial({ map: undefined, transparent: true, depthWrite: false, depthTest: false }));
-        plate.scale.set(2.8, 0.7, 1);
+        plate.scale.set(4.0, 1.2, 1);
         plate.renderOrder = 20;
         group.add(plate);
         const shadow = this.makeShadow(rig.radius * 1.1);
@@ -707,14 +755,14 @@ varying vec3 vWP;`)
         const evolved = !!old && old.animal !== r.animal;
         v = {
           id: r.id, name: r.name, animal: r.animal, team: r.team, role: r.role, rig, group, plate, plateKey: '', shadow,
-          x: old?.x ?? 0, z: old?.z ?? 0, tx: old?.tx ?? 0, tz: old?.tz ?? 0, yaw: old?.yaw ?? 0, tyaw: old?.tyaw ?? 0, hp: 100, level: old?.level ?? 1, flags: 0, speed: 0,
+          x: old?.x ?? 0, z: old?.z ?? 0, tx: old?.tx ?? 0, tz: old?.tz ?? 0, yaw: old?.yaw ?? 0, tyaw: old?.tyaw ?? 0, hp: 100, hpAbs: 0, maxHp: 1, ovh: 0, dummy: r.dummy, level: old?.level ?? 1, flags: 0, speed: 0,
           seen: old?.seen ?? 0, attack: 0, hurt: 0, self: r.id === selfId, swim: false, lastX: old?.x ?? 0, lastZ: old?.z ?? 0, speedS: 0, speaking: false, cue: null, guard: false, guardStart: -9, jy: 0, vy: 0, shield: this.makeShield(),
         };
         if (evolved) v.pop = 1;
         group.add(v.shield);
         v.stars = this.makeStars(rig.height + 0.15);
         group.add(v.stars);
-        plate.position.y = rig.height + 0.3;
+        plate.position.y = rig.height + 0.45;
         group.visible = false;
         shadow.visible = false;
         this.scene.add(group, shadow);
@@ -932,9 +980,9 @@ varying vec3 vWP;`)
   }
 
   /** Server says where the other fighters are. */
-  applyFighters(list: [string, number, number, number, number, number, number, number][], _arenaClock?: number) {
+  applyFighters(list: [string, number, number, number, number, number, number, number, number, number, number][], _arenaClock?: number) {
     const now = this.clock; // the scene's own clock: the arena's runs at a different speed during hit-stop
-    for (const [id, x, z, yaw, hp, lvl, flags, jy] of list) {
+    for (const [id, x, z, yaw, hp, lvl, flags, jy, hpAbs, maxHp, shield] of list) {
       const v = this.fighters.get(id);
       if (!v) continue;
       if (now - v.seen > 0.8) {
@@ -946,6 +994,9 @@ varying vec3 vWP;`)
       v.tz = z;
       v.tyaw = yaw;
       v.hp = hp;
+      v.hpAbs = hpAbs;
+      v.maxHp = maxHp;
+      v.ovh = shield;
       v.level = lvl;
       if ((flags & FL.atk) && !(v.flags & FL.atk)) v.attack = 1;
       v.flags = flags;
@@ -1470,9 +1521,9 @@ varying vec3 vWP;`)
         if (v.pop === 0) v.pop = undefined;
       } else if (v.rig.root.scale.x !== 1) v.rig.root.scale.setScalar(1);
       if (v.stars) this.spinStars(v.stars, (v.flags & FL.stun) !== 0, now, Math.max(0.35, v.rig.radius * 0.7));
-      v.rig.setTint((v.evolveUntil ?? 0) > now ? 0xbff0ff : (v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : v.self ? null : v.team === mineTeam ? 0x2f9bff : 0xff3a3a); // blue teammates, red hostiles
+      v.rig.setTint((v.evolveUntil ?? 0) > now ? 0xbff0ff : (v.flags & FL.marked) !== 0 ? 0xffd23f : (v.flags & FL.hunted) !== 0 ? 0xff7a1a : v.self || v.dummy ? null : v.team === mineTeam ? 0x2f9bff : 0xff3a3a); // blue teammates, red hostiles
       // hide models in bushes/underwater from far away is the server's job; here just the plate
-      const key = `${v.hp}|${v.level}|${v.flags & 1}|${v.role}|${mineTeam}`;
+      const key = `${v.hpAbs}|${v.maxHp}|${v.ovh}|${v.level}|${v.flags & (FL.hunted | 1)}|${v.role}|${mineTeam}|${v.speaking ? 1 : 0}`;
       if (key !== v.plateKey) {
         v.plateKey = key;
         const old = (v.plate.material as THREE.SpriteMaterial).map;

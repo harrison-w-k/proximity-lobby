@@ -110,7 +110,7 @@ export type ServerMatchMsg =
       ack: number;
       you: YouState;
       g: Global;
-      f: [id: string, x: number, z: number, yaw: number, hp: number, lvl: number, flags: number, jy: number][];
+      f: [id: string, x: number, z: number, yaw: number, hp: number, lvl: number, flags: number, jy: number, hpAbs: number, maxHp: number, shield: number][];
       m: [id: number, def: number, x: number, z: number, yaw: number, hp: number, flags: number][];
       d: [id: number, kind: string, x: number, z: number, n: number][]; // ground drops near you
       ev: MatchEvent[];
@@ -118,7 +118,7 @@ export type ServerMatchMsg =
   | { t: 'mend'; winner: string; team: number; results: { id: string; name: string; animal: string; lvl: number; kills: number; place: number; dmg: number }[] };
 
 export type MatchEvent =
-  | { k: 'hit'; id: string; x: number; z: number; n: number; crit?: boolean }
+  | { k: 'hit'; id: string; x: number; z: number; n: number; crit?: boolean; soak?: number; heavy?: boolean }
   | { k: 'mobhit'; x: number; z: number; n: number }
   | { k: 'skill'; id: string; s: string; x: number; z: number; yaw: number; r?: number; w?: number } // a skill was started (w = seconds of wind-up)
   | { k: 'strike'; id: string; s: string; x: number; z: number; yaw: number } // the skill lands
