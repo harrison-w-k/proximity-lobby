@@ -368,9 +368,9 @@ export class Arena {
       this.d.onStart(this.campus);
       if (this.campus) {
         if (this.sandbox) this.hud.announce('THE SANDBOX', 'Every animal is unlocked and you can be hurt: dummies and sparring partners are on the island. Press B to change animal.', 6500);
-        else this.hud.announce('THE LOBBY', 'A small island to train on: hit the dummies and try every move. Nobody can be hurt here. Press B to change animal and T for the Tournament.', 6500);
+        else this.hud.announce('THE LOBBY', 'A small island to train on: hit the dummies and try every move. Nobody can be hurt here. Press B to change animal and T for the Battle Royale.', 6500);
       }
-      else this.hud.announce(this.def.name.toUpperCase(), 'Recess has begun: scatter, farm the hordes and level up. The lava is coming.', 4200);
+      else this.hud.announce(this.def.name.toUpperCase(), 'Scatter and farm the hordes to level up. The lava is coming.', 4200);
     }, 60);
   }
 
@@ -470,7 +470,7 @@ export class Arena {
   private onRoleChange(from: number, to: number) {
     this.panelOpen = false;
     if (to === 3) {
-      this.hud.announce('ELIMINATED', 'You are out. Watch the survivors, or press Esc to head back to the campus.', 5500);
+      this.hud.announce('ELIMINATED', 'You are out. Watch the survivors, or press Esc to head back to the lobby.', 5500);
       this.d.sfx.death();
     }
     void from;

@@ -584,7 +584,7 @@ export class Hud {
     const { you, g, def } = c;
     const role = you.role; // 0 alive, 3 out (spectating)
     const t = g.time;
-    (this.root.querySelector('#br-ph') as HTMLElement).textContent = ['Recess', 'Study Hall', 'Pop Quiz', 'Final Exam', 'Graduation'][g.phase];
+    (this.root.querySelector('#br-ph') as HTMLElement).textContent = ['Scatter', 'Farm', 'Clash', 'Cull', 'Final'][g.phase];
     (this.root.querySelector('#br-clock') as HTMLElement).textContent = fmt(t);
     (this.root.querySelector('#br-alive') as HTMLElement).textContent = `${g.alive} alive`;
     // lava status
@@ -611,13 +611,13 @@ export class Hud {
         ? 'Dummies and sparring partners on the island · press B to change animal'
         : q?.you
         ? q.startsIn !== null
-          ? `Tournament starts in ${q.startsIn}s · ${q.queued} queued`
-          : 'You are queued for the Tournament'
+          ? `Battle Royale starts in ${q.startsIn}s · ${q.queued} queued`
+          : 'You are queued for the Battle Royale'
         : q && q.startsIn !== null
-          ? `A Tournament starts in ${q.startsIn}s: press T to join (${q.queued} queued)`
+          ? `A Battle Royale starts in ${q.startsIn}s: press T to join (${q.queued} queued)`
           : q?.inMatch
-            ? 'A Tournament is running: press T to queue for the next one'
-            : 'Hit the dummies · B changes animal · T is the Tournament';
+            ? 'A Battle Royale is running: press T to queue for the next one'
+            : 'Hit the dummies · B changes animal · T is the Battle Royale';
     }
     const body = role === 0;
     this.skillRow.parentElement!.parentElement!.style.display = role === 3 ? 'none' : '';
@@ -783,7 +783,7 @@ export class Hud {
     const box = el('div', 'box wood');
     const won = res.team === myTeam;
     const me = res.results.find((r) => r.id === myId);
-    const grade = (place: number) => (place === 1 ? 'A+' : place === 2 ? 'A' : place === 3 ? 'A-' : place <= 5 ? 'B' : place <= 8 ? 'C' : place <= 12 ? 'D' : 'F');
+    const grade = (place: number) => (place === 1 ? 'Winner' : place <= 3 ? 'Top 3' : place <= 8 ? 'Top 8' : '');
     const comment = !me
       ? 'A spirited effort from the whole class.'
       : me.place === 1
@@ -795,7 +795,7 @@ export class Hud {
             : me.place <= 8
               ? 'Shows promise. Study the lava lines more closely.'
               : 'Needs to attend more office hours. Try again!';
-    box.append(el('h2', '', won ? 'TOP OF THE CLASS!' : 'REPORT CARD'));
+    box.append(el('h2', '', won ? 'VICTORY!' : 'GAME OVER'));
     box.append(el('div', '', `Class champion: <b style="color:var(--amber)">${res.winner}</b>`));
     box.append(el('div', 'note', `“${comment}”`));
     if (me) box.append(el('div', 'stamp' + (me.place <= 3 ? ' gold' : ''), grade(me.place)));
@@ -803,7 +803,7 @@ export class Hud {
       .slice(0, 20)
       .map((r, i) => `<tr class="row ${r.id === myId ? 'me' : ''}" style="--i:${i}"><td>${r.place}</td><td>${r.name}</td><td>${ANIMAL_BY_ID.get(r.animal)?.name ?? r.animal}</td><td>Lv ${r.lvl}</td><td>${r.kills}</td><td>${r.dmg}</td><td class="gr">${grade(r.place)}</td></tr>`)
       .join('');
-    box.append(el('table', '', `<tr><th>#</th><th>Student</th><th>Animal</th><th>Level</th><th>Kills</th><th>Damage</th><th>Grade</th></tr>${rows}`));
+    box.append(el('table', '', `<tr><th>#</th><th>Player</th><th>Animal</th><th>Level</th><th>Kills</th><th>Damage</th><th>Result</th></tr>${rows}`));
     if (won) {
       for (let i = 0; i < 36; i++) {
         const c = el('i', 'br-conf');

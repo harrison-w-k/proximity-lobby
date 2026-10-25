@@ -186,7 +186,7 @@ export class BrMenu {
     this.root.hidden = true;
     const panel = document.createElement('div');
     panel.className = 'panel wood';
-    panel.innerHTML = '<h2>The Grand Tournament</h2><div class="sub">20 animals, one campus, a lava line that keeps closing in. Level up on the hordes, evolve twice, outlast everyone.</div>';
+    panel.innerHTML = '<h2>Animal Battle Royale</h2><div class="sub">20 animals, one island, a lava line that keeps closing in. Level up on the hordes, evolve twice, outlast everyone.</div>';
 
     // everything scrolls in the body; the queue buttons stay put in the footer
     const mbody = document.createElement('div');
@@ -502,11 +502,11 @@ export class BrMenu {
   /** The one-line status for the lobby button. */
   summary(): string {
     const q = this.q;
-    if (!q) return '🎓 Tournament [T]';
+    if (!q) return '🐾 Battle Royale [T]';
     if (q.you) return q.startsIn !== null ? `🐾 Queued · starts in ${Math.max(0, q.startsIn - Math.floor((performance.now() - this.qAt) / 1000))}s` : '🐾 Queued';
     if (q.inMatch) return '🐾 Match running [T]';
     if (q.queued > 0) return `🐾 ${q.queued} queued [T]`;
-    return '🎓 Tournament [T]';
+    return '🐾 Battle Royale [T]';
   }
 
   private render() {

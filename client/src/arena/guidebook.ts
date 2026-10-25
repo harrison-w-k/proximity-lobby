@@ -67,7 +67,7 @@ function animalCard(a: AnimalDef): string {
 function render(tab: Tab): string {
   if (tab === 'basics') {
     return (
-      `<h3>The match</h3><p>20 animals drop onto one campus while a lava line closes in. Kill hordes and each other for XP, level up, spend points on stats, and evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}. Fall and you spectate. The last one standing wins.</p>` +
+      `<h3>The match</h3><p>20 animals drop onto one island while a lava line closes in. Kill hordes and each other for XP, level up, spend points on stats, and evolve at level ${EVOLVE_LEVELS[0]} and ${EVOLVE_LEVELS[1]}. Fall and you spectate. The last one standing wins.</p>` +
       `<h3>Controls</h3><p><b>WASD</b> move · <b>Space</b> jump · tap <b>Shift</b> dash · <b>LMB</b> attack (hold to chain) · tap <b>RMB</b> parry · <b>Q</b> and <b>E</b> skills · <b>F</b> pick up or set down · <b>R</b> aim a throw · <b>Tab</b> upgrades and evolving · <b>Left Alt</b> cursor · <b>F3</b> network readout.</p>` +
       `<h3>Parrying</h3><p>Raise your guard for half a second. A hit that lands inside it stuns the attacker for 1.5 s. A parry that catches nothing leaves you fumbling for 1.5 s, and the next parry takes 3 s to come back. Heavy strikes (★) break a guard.</p>` +
       `<h3>Classes</h3><div class="grid">${CLASSES.map((c) => `<div class="card"><b>${c.icon} ${c.name}</b><br>${c.blurb}<br>${c.perks.map((p) => `+ ${p.replace(/^\+\s?/, '')}`).join('<br>')}<br>${c.drawbacks.map((p) => `− ${p.replace(/^-\s?/, '')}`).join('<br>')}</div>`).join('')}</div>`

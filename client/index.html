@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>Utopia Academy</title>
+  <title>Proximity Lobby</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Bangers&family=Limelight&family=Poiret+One&display=swap" />
@@ -517,8 +517,8 @@
     #join-stage .hint { position: absolute; right: 16px; bottom: 12px; font-size: 14px; color: rgba(255,255,255,.6); pointer-events: none; }
     @media (max-width: 860px) { #join-stage { height: 250px; } #join-stage .role { display: none; } }
 
-    /* ================= Utopian academy =================
-       Navy ink, parchment and gold trim: a sunlit school where the lessons are survival. */
+    /* ================= Utopian =================
+       Navy ink, parchment and gold trim: a sunlit island where survival is the game. */
     :root { --serif: 'Limelight', Georgia, 'Times New Roman', serif; --gold: #e8b830; }
     .hero h1, .card h2, .panel-head h1, #join-stage .nm b, .group-title { font-family: var(--serif); letter-spacing: .02em; }
     .hero h1 { text-transform: none; font-size: clamp(40px, 6.2vw, 78px); line-height: .98; }
@@ -604,8 +604,8 @@
     <div class="hero">
       <div class="portal-ring" aria-hidden="true"></div>
       <div class="eyebrow">Evolve or perish &middot; Proximity voice</div>
-      <h1><span>Utopia</span><span class="l2">Academy</span></h1>
-      <p class="tagline">Welcome to campus. Walk up and say hello: voices get louder as you get closer, and fade as people drift apart.</p>
+      <h1><span>Proximity</span><span class="l2">Lobby</span></h1>
+      <p class="tagline">Walk up and say hello. Voices get louder as you get closer, and fade as people drift apart.</p>
       <div id="join-stage">
         <div class="glow"></div>
         <div class="nm"><b id="js-name"></b><span id="js-cls"></span></div>
@@ -631,7 +631,7 @@
       <input id="auth-code" type="text" inputmode="numeric" placeholder="Code from the email" autocomplete="one-time-code" hidden />
       <div id="play-setup">
         <div class="room-pick" role="radiogroup" aria-label="Where do you want to play?">
-          <button type="button" class="room" role="radio" data-room="br"><span class="ic">🏝️</span><span class="tx"><b>Lobby</b><small>A calm island with dummies to hit. Be any animal, and queue for the Tournament.</small></span></button>
+          <button type="button" class="room" role="radio" data-room="br"><span class="ic">🏝️</span><span class="tx"><b>Lobby</b><small>A calm island with dummies to hit. Be any animal, and queue for the Battle Royale.</small></span></button>
           <button type="button" class="room" role="radio" data-room="sandbox"><span class="ic">🧪</span><span class="tx"><b>Sandbox</b><small>Every animal unlocked, and you can be hurt. Sparring partners fight back.</small></span></button>
         </div>
         <div class="animal-pick">
@@ -659,7 +659,7 @@
   <div id="hud" hidden>
     <div id="players" class="chip"></div>
     <div id="mic" class="chip"></div>
-    <button id="br-open" class="btn small primary" type="button">🎓 Tournament [T]</button>
+    <button id="br-open" class="btn small primary" type="button">🐾 Battle Royale [T]</button>
   </div>
 
   <div id="chat" hidden>

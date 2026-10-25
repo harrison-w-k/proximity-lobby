@@ -25,6 +25,7 @@ interface Mem {
   dazeUntil: number; // attention lapses: it just stands there
   nextDaze: number;
   wobble: number;
+  skill: number; // 0.5 sloppy .. 1 sharp: aim, ability use, parrying, attention
 }
 
 const mem = new WeakMap<Fighter, Mem>();
@@ -47,8 +48,9 @@ function memOf(m: Match, f: Fighter): Mem {
   if (!s) {
     s = {
       style: m.rnd(), focus: null, retarget: 0, wanderX: f.x, wanderZ: f.z, wanderUntil: 0, lastX: f.x, lastZ: f.z, stuckAt: 0, detourUntil: 0, detourSign: 1,
-      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0.01 + m.rnd() * 0.04, dazeUntil: 0, nextDaze: m.time + 3 + m.rnd() * 6, wobble: m.rnd() * 6,
+      statPlan: PLANS[f.def.id] ?? [...STAT_KEYS], nextAct: 0, nextOrder: 0, guardUntil: 0, react: 0, dazeUntil: 0, nextDaze: m.time + 3 + m.rnd() * 6, wobble: m.rnd() * 6, skill: 0.5 + m.rnd() * 0.5,
     };
+    s.react = 0.02 + s.skill * 0.07; // sharper bots see a blow coming earlier and parry it
     mem.set(f, s);
   }
   return s;
@@ -126,8 +128,8 @@ export function botThink(m: Match, f: Fighter, dt: number) {
   if (f.role === 'out') return;
   // every so often a bot simply stops paying attention
   if (m.time > s.nextDaze) {
-    s.dazeUntil = m.time + 0.8 + m.rnd() * 1.8;
-    s.nextDaze = s.dazeUntil + 2 + m.rnd() * 5;
+    s.dazeUntil = m.time + (0.8 + m.rnd() * 1.8) * (1.4 - s.skill);
+    s.nextDaze = s.dazeUntil + (2 + m.rnd() * 5) * (0.6 + s.skill);
   }
   if (m.time < s.dazeUntil && f.hp > 0) {
     stop(f);
@@ -349,8 +351,8 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
     }
   }
   const yaw = Math.atan2(t.x - f.x, t.z - f.z);
-  i.yaw = yaw + (m.rnd() - 0.5) * 1.4; // poor aim
-  i.at = d < reach + 0.5 && m.rnd() < 0.5;
+  i.yaw = yaw + (m.rnd() - 0.5) * (1.5 - s.skill * 1.3); // aim tightens with skill
+  i.at = d < reach + 0.5 && m.rnd() < 0.4 + s.skill * 0.5;
   // skills
   if (m.time < s.nextAct - 1.3) return;
   const sk = m.slotSkills(f);
@@ -388,7 +390,7 @@ function fight(m: Match, f: Fighter, s: Mem, t: Fighter | Mob, retreating: boole
         use = false;
         break;
     }
-    if (use && m.rnd() < 0.04) m.castSkill(f, slot, yaw);
+    if (use && m.rnd() < 0.03 + s.skill * 0.14) m.castSkill(f, slot, yaw);
   }
 }
 export const _internal = { WATER_Y };
@@ -415,7 +417,7 @@ function botGuard(m: Match, f: Fighter, s: Mem) {
     }
   }
   // sharper players parry more often; cautious ones guard more
-  if (threat && m.rnd() < 0.05 + (1 - s.style) * 0.05) {
+  if (threat && m.rnd() < 0.08 + s.skill * 0.4 + (1 - s.style) * 0.05) {
     m.setGuard(f, true);
     s.guardUntil = m.time + 0.5;
   }

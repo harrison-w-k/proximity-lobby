@@ -28,7 +28,7 @@ const CATCHUP_MAX = 1.5; // s of extra movement a player may bank to catch up af
 const STALL_GAP = 0.15; // s without a step from a connected player: the network stalled (idle players still send every ~0.1 s)
 const MOB_REFRESH = 0.3; // s: the longest a mob beyond MOB_NEAR goes without an update (the client keeps them 1.0 to 1.4 s)
 const MOB_NEAR = 25; // m: animals this close to you are sent every tick
-export const PHASE_NAMES = ['Recess', 'Study Hall', 'Pop Quiz', 'Final Exam', 'Graduation'];
+export const PHASE_NAMES = ['Scatter', 'Farm', 'Clash', 'Cull', 'Final'];
 export const PHASE_AT = [0, 90, 240, 420, 600];
 export const MATCH_LEN = 720;
 export const PVP_DAMAGE = 0.6; // blows between players land at 60%: fights last longer
@@ -220,6 +220,7 @@ interface Swing {
   fx?: Effect;
   yaw: number;
   wind: number;
+  beat?: boolean; // chained right as the last recovery ended: a well-timed combo
 }
 
 type MobState = 'idle' | 'flee' | 'attack' | 'investigate' | 'stampede';
@@ -975,13 +976,13 @@ export class Match {
     return bs[0] ?? null;
   }
 
-  private inCone(f: Fighter, b: Body, range: number, arcDeg: number): boolean {
+  private inCone(f: Fighter, b: Body, range: number, arcDeg: number, yaw = f.yaw): boolean {
     const dx = b.x - f.x;
     const dz = b.z - f.z;
     const d = Math.hypot(dx, dz);
     if (d - b.r > range) return false;
     if (d < b.r + f.r + 0.4) return true;
-    return Math.abs(angDiff(yawOf(dx, dz), f.yaw)) <= (arcDeg * Math.PI) / 360;
+    return Math.abs(angDiff(yawOf(dx, dz), yaw)) <= (arcDeg * Math.PI) / 360;
   }
 
   /** Every animal can dash: a short burst of speed, for timing a dodge or a chase. */
@@ -1012,6 +1013,8 @@ export class Match {
     if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.chan || f.guarding) return;
     const seq = comboOf(f.def.id);
     const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % seq.length : 0;
+    const gap = this.time - f.atkAt;
+    const beat = combo > 0 && gap >= 0.04 && gap < 0.2; // a press just after the recovery ends; a held button re-fires inside a tick and misses it
     const c = seq[combo];
     const free = this.hasFree(f);
     if (!free) {
@@ -1024,8 +1027,9 @@ export class Match {
     f.comboAt = this.time;
     f.lastCombat = this.time;
     f.atkFlash = wind + 0.2;
-    f.swing = { at: this.time + wind, start: this.time, kind: 'basic', combo, heavy: c.heavy, yaw: f.yaw, wind };
-    f.atkAt = this.time + (c.wind + c.rec) / rof;
+    f.swing = { at: this.time + wind, start: this.time, kind: 'basic', combo, heavy: c.heavy, yaw: f.yaw, wind, beat };
+    const mashed = combo > 0 && gap < 0.04; // a held button chains with no rhythm: sloppy, slower recovery
+    f.atkAt = this.time + (c.wind + c.rec * (mashed ? 1.35 : 1)) / rof;
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
     this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: c.heavy, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw, s: c.kind, rc: c.rec }, f.x, f.z);
     this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
@@ -1064,13 +1068,19 @@ export class Match {
     }
     const c = comboOf(f.def.id)[sw.combo] ?? COMBO[0];
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
-    const bs = this.bodies(f.x, f.z, reach, (b) => b !== f && this.canHit(f, b)).filter((b) => this.inCone(f, b, reach, c.arc));
+    const bs = this.bodies(f.x, f.z, reach, (b) => b !== f && this.canHit(f, b)).filter((b) => this.inCone(f, b, reach, c.arc, sw.yaw)); // the blow goes where it was aimed when it began: step out of it
     bs.sort((a, b) => dist(a, f) - dist(b, f));
     const cleave = f.def.size === 'large' && f.role === 'alive' ? 2 : 1;
     for (const b of bs.slice(0, cleave)) {
-      const amount = f.dv.dmg * c.dmg * this.dmgMult(f, b);
+      // catching an enemy mid wind-up is a counter hit; a combo chained on the beat hits harder
+      const caught = b.kind === 'f' ? (b as Fighter).swing : null;
+      const amount = f.dv.dmg * c.dmg * this.dmgMult(f, b) * (caught ? 1.25 : 1) * (sw.beat ? 1.15 : 1);
       this.hurt(b, amount, f, { kind: 'bite', blockable: true, heavy: sw.heavy });
       if (this.lastResult !== 'hit') continue;
+      if (caught && !caught.heavy && caught.kind === 'basic') {
+        (b as Fighter).swing = null; // a counter hit interrupts a light swing
+        (b as Fighter).atkAt = Math.max((b as Fighter).atkAt, this.time + 0.4);
+      }
       if (f.mods.bleedOnHit > 0) this.statusTo(f, b, [{ s: 'bleed', dur: f.mods.bleedOnHit, dps: 0.2 }], f.dv.dmg);
       if (f.tusk > 0) {
         f.tusk--;
@@ -1080,6 +1090,11 @@ export class Match {
       if (c.fx && b.hp > 0) this.strikeFx(f, b, c.fx);
     }
     if (f.subUntil > this.time && bs.length) f.subUntil = 0;
+    if (!bs.length) {
+      // swinging at nothing leaves you open and winded
+      f.atkAt = Math.max(f.atkAt, this.time + 0.35);
+      if (!this.hasFree(f)) f.sta = Math.max(0, f.sta - 6);
+    }
   }
 
   /** The extra effect a strike carries (bleed, slow, a shove, or knocking the target's own swing out). */
@@ -1175,6 +1190,12 @@ export class Match {
     if (f.invUntil > this.time && !o.lava) {
       if (o.blockable) {
         this.lastResult = 'dodge';
+        if (f.dash) {
+          // a dash timed into a blow is a perfect dodge: the dash comes back, stamina returns, and the next hit is stronger
+          f.dashAt = this.time;
+          f.sta = Math.min(f.dv.maxSta, f.sta + 15);
+          f.counterUntil = this.time + 1.2;
+        }
         this.emit({ k: 'dodge', id: f.id, x: f.x, z: f.z }, f.x, f.z);
       }
       return 0;

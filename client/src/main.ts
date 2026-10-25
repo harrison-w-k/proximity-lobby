@@ -216,7 +216,7 @@ function refreshBrButton() {
   const b = document.getElementById('br-open');
   if (b) {
     b.textContent = room === 'sandbox' ? '🧪 Change animal [B]' : brMenu.summary();
-    b.title = room === 'sandbox' ? '' : 'Queue for the Tournament (press T; B changes animal)';
+    b.title = room === 'sandbox' ? '' : 'Queue for the Battle Royale (press T; B changes animal)';
     b.className = 'br-btn';
     b.hidden = arena.active && !arena.campus;
   }
@@ -227,7 +227,7 @@ document.getElementById('br-open')?.addEventListener('click', () => {
     if (room === 'sandbox') {
       picker.current = myAnimal;
       picker.open();
-    } else brMenu.open(); // the lobby's button is the Tournament queue; B picks any animal
+    } else brMenu.open(); // the lobby's button is the Battle Royale queue; B picks any animal
   }
 });
 let typing = false;
@@ -695,7 +695,7 @@ net.onMessage = (m: ServerMsg) => {
       myId = m.id;
       sfx.join();
       net.send({ t: 'animal', a: myAnimal });
-      net.send({ t: 'menter', animal: myAnimal }); // walk into the campus
+      net.send({ t: 'menter', animal: myAnimal }); // walk into the lobby
       voice?.setIce(m.iceServers as RTCIceServer[]);
       for (const p of m.players) {
         names.set(p.id, p.name);

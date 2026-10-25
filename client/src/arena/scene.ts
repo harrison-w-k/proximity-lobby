@@ -1525,7 +1525,7 @@ varying vec3 vWP;`)
         }
       }
       this.prevJy.set(v.id, airH);
-      const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: airH, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0, soar: (v.flags & FL.soar) !== 0 };
+      const st: RigState = { turn, speed: v.speedS, attack: v.attack, hurt: v.hurt, stun: (v.flags & FL.stun) !== 0, flee: false, swim: v.swim, t: now, pose, guard: guarding, air: airH, vy: v.vy, warn, counter: (v.flags & FL.counter) !== 0, soar: (v.flags & FL.soar) !== 0, crouch: (v.flags & FL.crouch) !== 0 };
       v.lastState = st;
       v.rig.update(dt, st);
       if ((v.evolveUntil ?? 0) > now) v.rig.root.scale.setScalar(1 + Math.sin(now * 16) * 0.04);

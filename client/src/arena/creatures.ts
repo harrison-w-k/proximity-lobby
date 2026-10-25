@@ -413,6 +413,7 @@ export class BugRig implements Rig {
   private shadow: THREE.Mesh;
   private shadowR: number;
   private baseBodyY = 0;
+  private cr = 0;
   constructor(private b: BugBuilt, radius: number, scale: number) {
     this.root.add(b.root);
     b.root.scale.setScalar(scale);
@@ -451,8 +452,11 @@ export class BugRig implements Rig {
       l.g.rotation.y = yaw * -l.side * -1;
       l.g.rotation.z = l.side * (lift + (s.air ?? 0 > 0 ? 0.35 : 0));
     }
+    this.cr += ((s.crouch ? 1 : 0) - this.cr) * Math.min(1, dt * 12);
     const bob = Math.abs(Math.sin(this.phase)) * 0.012 * moving;
-    b.body.position.y = bob + (pose?.y ?? 0) + (s.guard ? -0.04 : 0);
+    // crouching: the legs splay flat and the body presses down between them
+    for (const l of b.legs) l.g.rotation.z += l.side * this.cr * 0.3;
+    b.body.position.y = bob + (pose?.y ?? 0) + (s.guard ? -0.04 : 0) - this.cr * 0.06;
     b.body.position.z = pose?.z ?? 0;
     b.body.rotation.x = (pose?.rx ?? 0) * 0.6;
     b.body.rotation.y = (pose?.ry ?? 0) * 0.5;
@@ -813,6 +817,7 @@ export class RealFishRig implements Rig {
   private flash = 0;
   private tint: number | null = null;
   private baseY: number;
+  private cr = 0;
   constructor(name: string, radius: number) {
     const f = FISH_P[name];
     const built = buildFish(name);
@@ -850,7 +855,9 @@ export class RealFishRig implements Rig {
     this.uni.uPh.value = this.phase;
     this.uni.uAmp.value = (0.05 + 0.1 * fast) * this.uni.uLen.value * 0.35 + (s.attack > 0.1 ? 0.04 : 0);
     const pose = s.pose;
-    this.g.position.y = this.baseY + Math.sin(s.t * 1.8 + this.phase * 0.1) * 0.03 + (pose?.y ?? 0);
+    this.cr += ((s.crouch ? 1 : 0) - this.cr) * Math.min(1, dt * 12);
+    this.g.position.y = this.baseY + Math.sin(s.t * 1.8 + this.phase * 0.1) * 0.03 + (pose?.y ?? 0) - this.cr * this.baseY * 0.5; // sinks toward the bed
+    this.g.scale.y = 1 - this.cr * 0.2;
     this.g.position.z = pose?.z ?? 0;
     this.g.rotation.x = (pose?.rx ?? 0) + (s.vy ? -Math.max(-0.4, Math.min(0.4, s.vy * 0.05)) : 0);
     this.g.rotation.y = pose?.ry ?? 0;

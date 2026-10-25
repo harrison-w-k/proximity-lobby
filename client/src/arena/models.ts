@@ -27,6 +27,12 @@ export interface RigState {
   warn?: number; // 0..1: this animal is winding up a blow, glow so it can be read
   counter?: boolean;
   soar?: boolean; // gliding on outstretched wings
+  crouch?: boolean; // holding C: hunkered down close to the ground
+}
+
+/** Ease a 0..1 crouch amount toward its target so the pose settles in and out instead of snapping. */
+function easeCrouch(cur: number, s: RigState, dt: number) {
+  return cur + ((s.crouch ? 1 : 0) - cur) * Math.min(1, dt * 12);
 }
 
 export interface Rig {
@@ -401,6 +407,7 @@ class QuadRig implements Rig {
   private headY = 0;
   private wasAir = 0;
   private squash = 0;
+  private cr = 0;
   private seed = Math.random() * 100;
   private shadow: THREE.Mesh;
   private shadowR: number;
@@ -458,12 +465,16 @@ class QuadRig implements Rig {
     const p = s.pose;
     const g = s.guard ? 1 : 0;
     // legs: the walk cycle, plus whatever the current move or pose asks for
-    const tuckF = air * -0.9 + g * -0.18;
-    const tuckB = air * 0.7 + g * 0.18;
+    this.cr = easeCrouch(this.cr, s, dt);
+    const cr = this.cr * (1 - air);
+    // crouching: the legs fold under the body (front reaching forward, back tucked), and the animal sinks onto them
+    const tuckF = air * -0.9 + g * -0.18 + cr * -0.5;
+    const tuckB = air * 0.7 + g * 0.18 + cr * 0.6;
     b.legs[0].rotation.x = sw * amp + tuckF + (p?.fl ?? 0);
     b.legs[1].rotation.x = sw * amp + tuckB + (p?.bl ?? 0);
     b.legs[2].rotation.x = -sw * amp + tuckF + (p?.fr ?? 0);
     b.legs[3].rotation.x = -sw * amp + tuckB + (p?.br ?? 0);
+    for (const l of b.legs) l.scale.y = 1 - cr * 0.5; // the legs fold up so the belly sits near the ground
     if (b.spec.crawl) for (const [i, l] of b.legs.entries()) l.rotation.z = (i === 0 || i === 3 ? 1 : -1) * (0.25 + g * 0.25);
     // landing squash and takeoff stretch
     if (this.wasAir && !air) this.squash = 1;
@@ -477,9 +488,9 @@ class QuadRig implements Rig {
     b.torso.scale.y += breathe;
     const hop = Math.abs(Math.sin(this.phase)) * 0.06 * moving;
     const recoil = Math.min(1, s.hurt);
-    b.torso.position.y = this.baseY + hop - (s.swim ? 0.25 : 0) - g * 0.1 + (p?.y ?? 0);
+    b.torso.position.y = this.baseY + hop - (s.swim ? 0.25 : 0) - g * 0.1 - cr * b.spec.legLen * 0.5 +(p?.y ?? 0);
     b.torso.position.z = (p?.z ?? 0) - recoil * 0.18;
-    b.torso.rotation.x = (p?.rx ?? 0) + g * 0.1 - recoil * 0.3 + air * -Math.max(-0.5, Math.min(0.5, (s.vy ?? 0) * 0.06));
+    b.torso.rotation.x = (p?.rx ?? 0) + g * 0.1 + cr * 0.08 - recoil * 0.3 + air * -Math.max(-0.5, Math.min(0.5, (s.vy ?? 0) * 0.06));
     b.torso.rotation.y = p?.ry ?? 0;
     b.torso.rotation.z = Math.sin(this.phase * 0.5) * 0.04 * moving + (s.stun ? Math.sin(s.t * 20) * 0.12 : 0) + (p?.rz ?? 0) + Math.max(-0.22, Math.min(0.22, -(s.turn ?? 0) * 0.06)) * moving;
     b.head.position.z = this.headZ + s.attack * 0.2 * (b.spec.scale ?? 1);
@@ -487,7 +498,7 @@ class QuadRig implements Rig {
     b.head.position.y = this.headY + Math.sin(this.phase * 2) * 0.02 * moving * (b.spec.scale ?? 1);
     b.torso.rotation.x += Math.min(0.16, s.speed * 0.012) * (1 - air);
     b.torso.rotation.y += Math.sin(this.phase) * (b.spec.crawl ? 0.14 : 0.025) * moving; // the spine sways, a lizard's most
-    b.head.rotation.x = (p?.hx ?? 0) + s.attack * 0.25 - (s.stun ? 0.4 : 0) + g * 0.4;
+    b.head.rotation.x = (p?.hx ?? 0) + s.attack * 0.25 - (s.stun ? 0.4 : 0) + g * 0.4 + this.cr * 0.3;
     const glance = Math.sin(s.t * 0.55 + this.seed) > 0.55 ? Math.sin(s.t * 1.3 + this.seed) * 0.5 : 0;
     b.head.rotation.y = (p?.hy ?? 0) + glance * idle;
     b.head.rotation.x += Math.sin(s.t * 7 + this.seed) * 0.025 * idle * (glance !== 0 ? 1 : 0); // a sniff while it looks around
@@ -806,6 +817,7 @@ class MergedRig implements Rig {
   private mesh: THREE.Mesh;
   private phase = Math.random() * 6;
   private flash = 0;
+  private cr = 0;
   constructor(
     group: THREE.Group,
     private fish: boolean,
@@ -851,7 +863,8 @@ class MergedRig implements Rig {
     else if (this.tint !== null) mat.emissive.setHex(this.tint).multiplyScalar(0.45 + e);
     else mat.emissive.setRGB(e, e * 0.3, e * 0.3);
     // fleeing animals crouch low; so do winding-up ones, ready to spring
-    m.scale.y = this.scale * (s.flee ? 0.92 : (s.warn ?? 0) > 0 ? 0.82 : 1);
+    this.cr = easeCrouch(this.cr, s, dt);
+    m.scale.y = this.scale * (s.flee ? 0.92 : (s.warn ?? 0) > 0 ? 0.82 : 1) * (1 - this.cr * 0.35);
   }
 }
 
@@ -862,6 +875,7 @@ class BirdRig implements Rig {
   private b: Built;
   private mats: Mat[] = [];
   private flash = 0;
+  private cr = 0;
   private phase = Math.random() * 6;
   private tint: number | null = null;
   constructor(spec: BirdSpec, scale: number) {
@@ -891,7 +905,10 @@ class BirdRig implements Rig {
     this.b.legs[0].rotation.x = Math.sin(this.phase) * 0.6 * moving;
     this.b.legs[1].rotation.x = -Math.sin(this.phase) * 0.6 * moving;
     this.b.head.rotation.x = s.attack * 0.6 + (s.pose?.hx ?? 0);
-    this.b.torso.position.y = this.b.hip + 0.1 + (flying ? Math.sin(this.phase * 1.1) * 0.05 : 0) + (s.pose?.y ?? 0);
+    this.cr = easeCrouch(this.cr, s, dt);
+    this.b.torso.position.y = this.b.hip + 0.1 + (flying ? Math.sin(this.phase * 1.1) * 0.05 : 0) + (s.pose?.y ?? 0) - this.cr * this.b.hip * 0.6; // settles down onto its legs
+    this.b.head.rotation.x += this.cr * 0.3;
+    for (const l of this.b.legs) l.scale.y = 1 - this.cr * 0.5;
     this.b.torso.position.z = s.pose?.z ?? 0;
     this.b.torso.rotation.x = s.pose?.rx ?? 0;
     this.flash = Math.max(this.flash, s.hurt);
@@ -914,6 +931,7 @@ class FishRig implements Rig {
   private mats: Mat[] = [];
   private flash = 0;
   private phase = Math.random() * 6;
+  private cr = 0;
   private tint: number | null = null;
   constructor(spec: FishSpec, scale: number) {
     this.g = buildFish(spec);
@@ -933,7 +951,9 @@ class FishRig implements Rig {
   update(dt: number, s: RigState) {
     this.phase += dt * (6 + s.speed * 2);
     this.g.rotation.y = Math.sin(this.phase) * 0.3;
-    this.g.position.y = 0.3 + Math.sin(s.t * 2 + this.phase) * 0.06 + (s.pose?.y ?? 0);
+    this.cr = easeCrouch(this.cr, s, dt);
+    this.g.position.y = 0.3 + Math.sin(s.t * 2 + this.phase) * 0.06 + (s.pose?.y ?? 0) - this.cr * 0.12; // sinks toward the bed
+    this.g.scale.y = 1 - this.cr * 0.25;
     this.g.position.z = s.pose?.z ?? 0;
     this.g.rotation.x = s.pose?.rx ?? 0;
     this.flash = Math.max(this.flash, s.hurt);
