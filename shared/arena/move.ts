@@ -164,21 +164,48 @@ export const glideFall = (bird: boolean, jy: number, jv: number, floor: number) 
  * Advance the vertical motion of a jump. `jy` is the height above the ground, `floor` the top of the rock you are over
  * (0 on the bare ground): you stand on it, land on it, and fall when you walk off it.
  */
-export function stepVertical(s: { jy: number; jv: number; land?: number }, dt: number, floor = 0, glide = false) {
+export function stepVertical(s: { jy: number; jv: number; land?: number }, dt: number, floor = 0, glide = false, wings = false) {
   if (s.jy <= floor + 1e-3 && s.jv <= 0) {
-    if (s.jv < -1) s.land = -s.jv; // how hard it came down, for fall damage
+    if (s.jv < -1 && !wings) s.land = -s.jv; // how hard it came down, for fall damage
     s.jy = floor;
     s.jv = 0;
     return;
   }
-  s.jv -= GRAVITY * dt;
+  if (!wings) s.jv -= GRAVITY * dt; // wings out: glideTick set the vertical speed
   if (glide && s.jv < -SOAR_FALL) s.jv = -SOAR_FALL; // gliding: wings out, so the fall is slow
   s.jy += s.jv * dt;
   if (s.jy <= floor && s.jv <= 0) {
-    if (s.jv < -1) s.land = -s.jv;
+    if (s.jv < -1 && !wings) s.land = -s.jv; // a glider lands softly
     s.jy = floor;
     s.jv = 0;
   }
+}
+
+// Elytra-style gliding: the camera pitch is the wing angle. Diving trades height for speed, pulling up trades speed for
+// height, and a shallow glide slowly bleeds speed. There is no crash damage while the wings are out.
+export const GLIDE_MIN = 9; // m/s: slowest forward speed
+export const GLIDE_TOP = 40; // m/s: terminal dive speed
+export const GLIDE_START = 15; // m/s when the wings open
+export const GLIDE_REST_PITCH = 0.3; // camera pitch (rad) that flies level-ish
+export const GLIDE_DRAG = 0.011;
+export const GLIDE_PULL = 20; // m/s² of speed gained or lost per unit of pitch
+
+/** The wing angle (rad, positive = nose down) for a camera pitch. */
+export const glideAngle = (camPitch: number) => Math.max(-0.75, Math.min(1.2, camPitch - GLIDE_REST_PITCH));
+
+/**
+ * One tick of an elytra glide: updates the speed `gs` and the vertical speed `jv`, and returns the forward speed (m/s).
+ * `open` is the speed the wings open at when this is the first tick.
+ */
+export function glideTick(s: { jv: number; gs?: number }, camPitch: number, dt: number, open = GLIDE_START): number {
+  const a = glideAngle(camPitch);
+  let gs = s.gs && s.gs > 0 ? s.gs : open;
+  gs += (GLIDE_PULL * Math.sin(a) - GLIDE_DRAG * gs * gs) * dt;
+  gs = Math.max(GLIDE_MIN, Math.min(GLIDE_TOP, gs));
+  s.gs = gs;
+  const sink = 1.1 + Math.max(0, 14 - gs) * 0.25; // slow wings drop
+  s.jv = Math.max(-45, Math.min(20, -gs * Math.sin(a) - sink));
+  return gs * Math.cos(a);
 }
 
 /** Over an updraft a glider is carried up (the lift is re-applied each tick, since gravity pulls it back). */

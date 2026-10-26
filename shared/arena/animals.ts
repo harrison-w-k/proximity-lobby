@@ -382,7 +382,7 @@ form({ id: 'angler', name: 'Anglerfish', tree: 'fish', stage: 3, size: 'medium',
 
 // ---- more stage 2 and stage 3 forms: every tree has three stage 2 forms with two final forms each ----
 const SWOOP = act('swoop', 'Swoop', 'A diving strike from above that hits hard and knocks the target back.', 14, { k: 'dash', dist: 8, dmg: 1.8, knock: 1.5 }, 12);
-const SOAR = act('soar', 'Soar', 'Beat your wings and rise, then glide a long way: no real flight, and you come down at the end.', 40, { k: 'soar', dur: 5, lift: 15 }, 10);
+const SOAR = act('soar', 'Soar', 'Beat your wings and rise, then glide a long way: no real flight, and you come down at the end.', 14, { k: 'soar', dur: 5, lift: 15 }, 10);
 
 // Cats
 form({ id: 'ocelot', name: 'Ocelot', tree: 'cats', stage: 2, size: 'medium', role: 'Climber', w: [18, 22, 24, 16, 20], cls: 'skirmisher',

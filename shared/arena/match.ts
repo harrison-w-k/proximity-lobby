@@ -9,7 +9,7 @@ import {
   MOBS, TIER_SHARE, mobDef,
   mobIndex, type MobDef,
 } from './mobs';
-import { ISLAND_BOUND, JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, fallDamage, glideFall, medium, slopeFor, standY, stepPos, stepVertical, thermalLift, type Bound } from './move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, fallDamage, glideFall, glideTick, medium, slopeFor, standY, stepPos, stepVertical, thermalLift, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
@@ -91,6 +91,7 @@ export interface Input {
   sprint: boolean;
   crouch: boolean;
   at: boolean;
+  pitch?: number; // camera pitch: the wing angle while gliding
 }
 
 interface Body {
@@ -162,6 +163,8 @@ export interface Fighter extends Body {
   slamming?: boolean; // a stage 2+ bird diving onto the ground
   slamAt?: number; // the slam is ready again at this time
   slamUntil?: number;
+  slamH?: number; // height the dive started from
+  gs?: number; // forward glide speed
   bounceAt?: number;
   softUntil?: number; // a soft landing (after a geyser) takes no fall damage until then
   jv: number;
@@ -644,6 +647,7 @@ export class Match {
         f.lastInputAt = this.time;
         const i = f.input;
         if (Number.isFinite(msg.yaw)) i.yaw = msg.yaw;
+        if (Number.isFinite(msg.pt)) i.pitch = Math.max(-0.5, Math.min(1.5, msg.pt as number));
         i.at = msg.at === 1;
         const l = Math.hypot(msg.x, msg.z);
         const k = l > 1 ? 1 / l : 1;
@@ -1054,7 +1058,8 @@ export class Match {
    */
   private startSlam(f: Fighter): boolean {
     if (f.def.tree !== 'birds' || f.def.stage < 2 || f.slamming || this.time < (f.slamAt ?? 0)) return false;
-    if (!this.gliding(f) || f.jy - this.terrain.floorAt(f.x, f.z, f.jy) < 2.5) return false;
+    if (!this.gliding(f) || f.jy - this.terrain.floorAt(f.x, f.z, f.jy) < 1.5) return false;
+    f.slamH = f.jy - this.terrain.floorAt(f.x, f.z, f.jy);
     f.slamming = true;
     f.slamUntil = this.time + 3;
     f.slamAt = this.time + SLAM_COOLDOWN;
@@ -1071,11 +1076,13 @@ export class Match {
     f.slamming = false;
     f.softUntil = this.time + 1; // it meant to land like that
     const r = SLAM_RADIUS + f.r;
+    // the peregrine's stoop hits harder the higher it falls from
+    const hMult = f.def.id === 'falcon' ? Math.min(3, 0.8 + (f.slamH ?? 0) / 12) : 1;
     const bs = this.bodies(f.x, f.z, r, (b) => b !== f && this.canHit(f, b));
     for (const b of bs) {
       const d = dist(b, f);
       const falloff = 1 - Math.min(0.4, Math.max(0, d - b.r) / r); // the centre takes the most
-      this.hurt(b, f.dv.dmg * SLAM_DAMAGE * this.dmgMult(f, b) * falloff, f, { kind: 'slam', heavy: true });
+      this.hurt(b, f.dv.dmg * SLAM_DAMAGE * hMult * this.dmgMult(f, b) * falloff, f, { kind: 'slam', heavy: true });
       if (this.lastResult !== 'hit' || b.hp <= 0) continue;
       if (b.kind === 'f') (b as Fighter).stunUntil = Math.max((b as Fighter).stunUntil, this.time + 0.6);
       else (b as Mob).stunUntil = Math.max((b as Mob).stunUntil, this.time + 0.8);
@@ -2332,6 +2339,27 @@ export class Match {
       }
     }
     const wasAir = f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.001 || f.jv > 0.001;
+    // wings out and in the air: elytra flight, steered by the camera (no walking, no crash damage)
+    const floor0 = this.terrain.floorAt(f.x, f.z, f.jy);
+    const wings = !blocked && !f.chan && this.gliding(f) && f.jy > floor0 + 0.05 && !(f.jv > 0.001 && !(f.gs && f.gs > 0));
+    if (!wings) f.gs = 0;
+    else {
+      const gyaw = f.bot ? f.yaw : f.input.yaw;
+      const hs = glideTick(f, f.bot ? 0.45 : f.input.pitch ?? 0.42, dt, f.soarUntil > this.time ? 22 : undefined);
+      f.moving = true;
+      f.sprinting = false;
+      stepPos(this.terrain, f, Math.sin(gyaw), Math.cos(gyaw), hs * dt, f.r, bound, f.jy, slopeFor(f.def));
+      thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), true);
+      stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), false, true);
+      f.yaw += clampTurn(angDiff(gyaw, f.yaw), 12 * dt);
+      if (f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
+        f.land = 0;
+        f.gs = 0;
+        f.soarUntil = 0;
+        this.landed(f);
+      }
+      return;
+    }
     const k = Math.hypot(dx, dz);
     const moving = k > 0.05;
     let sp = base;

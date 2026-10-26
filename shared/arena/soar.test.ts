@@ -35,7 +35,7 @@ for (const o of m.fighters) {
 m.mobs.length = 0;
 for (let i = 0; i < 10; i++) m.tick();
 assert.equal(m.castSkill(a, 0, 0), true, 'the robin soars with its signature skill');
-assert.ok(a.cdAt[0] - m.time >= 30, 'and the cooldown is long');
+assert.ok(a.cdAt[0] - m.time >= 10, 'and there is a cooldown');
 assert.equal(m.castSkill(a, 0, 0), false, 'it cannot soar again at once');
 let peak = 0;
 let airTicks = 0;
@@ -46,7 +46,7 @@ for (let i = 0; i < 30 * 12 && (a.jy > 0.01 || a.jv > 0 || i < 3); i++) {
 }
 assert.ok(peak > JUMP_V * JUMP_V / 48 * 2.5, `it rises far higher than a hop (${peak.toFixed(1)} m)`);
 assert.ok(peak < 8, `but it is a boost, not flight (${peak.toFixed(1)} m)`);
-assert.ok(airTicks / 30 > 2.5, `and it glides for a while (${(airTicks / 30).toFixed(1)} s)`);
+assert.ok(airTicks / 30 > 1.2, `and it glides for a while (${(airTicks / 30).toFixed(1)} s)`);
 m.tick();
 m.tick();
 assert.ok(a.jy <= 0.011 && a.jv === 0, 'then it comes down');

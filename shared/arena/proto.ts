@@ -17,7 +17,7 @@ export type ClientMatchMsg =
   | { t: 'menter'; animal: string } // walk into the campus as this animal
   | { t: 'mq'; animal: string; team?: string; spawn?: string } // join the queue for the next match (and where to drop)
   | { t: 'mqx' } // leave the queue
-  | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1 } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
+  | { t: 'min'; s: number; dt: number; x: number; z: number; yaw: number; sp: 0 | 1; cr: 0 | 1; at: 0 | 1; j?: 0 | 1; pt?: number } // a timed step: seq, ms it covers, direction (-1..1), camera yaw, sprint, crouch, attack held
   | { t: 'mskill'; i: number; yaw: number } // use the skill in slot 0..3 (Q E R F)
   | { t: 'mstat'; k: StatKey }
   | { t: 'mevolve'; to: string } // evolve into this form (needs level 5 / 10)

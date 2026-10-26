@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
 import { COMBO, COMBO_RESET, PARRY_WINDOW, comboOf, type StrikeKind } from '../../../shared/arena/combat';
-import { ISLAND_BOUND, JUMP_COST, JUMP_V, SOAR_SPEED, glideFall, medium, slopeFor, stepPos, stepVertical, thermalLift, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, SOAR_SPEED, glideFall, glideTick, medium, slopeFor, stepPos, stepVertical, thermalLift, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
@@ -58,7 +58,7 @@ export class Arena {
   private roster = new Map<string, RosterEntry>();
   private you: YouState | null = null;
   private g: Global | null = null;
-  private pos = { x: 0, z: 0, jy: 0, jv: 0 }; // jy / jv: the jump, predicted like the walk
+  private pos: { x: number; z: number; jy: number; jv: number; gs?: number } = { x: 0, z: 0, jy: 0, jv: 0 }; // jy / jv: the jump, predicted like the walk
   private haveSnap = false;
   private camYaw = 0;
   private camPitch = 0.42;
@@ -413,7 +413,7 @@ export class Arena {
       this.pos.z = you.z;
     } else {
       this.pending = this.pending.filter((c) => c.s > m.ack);
-      const r = { x: you.x, z: you.z, jy: you.jy ?? 0, jv: you.jv ?? 0 };
+      const r = { x: you.x, z: you.z, jy: you.jy ?? 0, jv: you.jv ?? 0, gs: this.pos.gs };
       if (!you.noMove) {
         for (const c of this.pending) this.simStep(r, c, c.dt, you);
         if (this.acc > 0) this.simStep(r, this.cur, this.acc, you);
@@ -943,9 +943,20 @@ export class Arena {
   }
 
   /** One step of our own movement, exactly as the server will run it (so the two agree). */
-  private simStep(st: { x: number; z: number; jy: number; jv: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
+  private simStep(st: { x: number; z: number; jy: number; jv: number; gs?: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
     const sc = this.scene!;
     if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && you.sta >= JUMP_COST && !sc.terrain.isDeep(st.x, st.z)) st.jv = JUMP_V;
+    // wings out in the air: elytra flight steered by the camera, exactly as the server runs it
+    const floor = sc.terrain.floorAt(st.x, st.z, st.jy);
+    const wings = !you.noMove && this.soaring(you) && st.jy > floor + 0.05 && !(st.jv > 0.001 && !(st.gs && st.gs > 0));
+    if (!wings) st.gs = 0;
+    else {
+      const hs = glideTick(st, this.camPitch, dt, you.buffs.includes('soaring') ? 22 : undefined);
+      stepPos(sc.terrain, st, Math.sin(this.camYaw), Math.cos(this.camYaw), hs * dt, this.radius(), this.boundFor(st.x, st.z), st.jy, slopeFor(this.def));
+      thermalLift(sc.terrain, st, sc.terrain.floorAt(st.x, st.z, st.jy), true);
+      stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy), false, true);
+      return;
+    }
     if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy, slopeFor(this.def));
     thermalLift(sc.terrain, st, sc.terrain.floorAt(st.x, st.z, st.jy), this.def.tree === 'birds' || you.buffs.includes('soaring') || this.clock < this.soarPredUntil);
     stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy), this.soaring(you));
@@ -1098,7 +1109,7 @@ export class Arena {
     if (dtMs > 0.5 && !(you?.noMove)) this.pending.push({ s: this.seq, dt: dtMs / 1000, dx: c.dx, dz: c.dz, sprint: c.sprint, crouch: c.crouch, jump: c.jump });
     else if (dtMs > 0.5) this.pending.push({ s: this.seq, dt: 0, dx: 0, dz: 0, sprint: false, crouch: false, jump: false });
     if (this.pending.length > 40) this.pending.shift();
-    this.d.net.send({ t: 'min', s: this.seq, dt: Math.round(dtMs * 10) / 10, x: Math.round(c.dx * 100) / 100, z: Math.round(c.dz * 100) / 100, yaw: Math.round(aim * 1000) / 1000, sp: c.sprint ? 1 : 0, cr: c.crouch ? 1 : 0, at: at ? 1 : 0, j: c.jump ? 1 : 0 });
+    this.d.net.send({ t: 'min', s: this.seq, dt: Math.round(dtMs * 10) / 10, x: Math.round(c.dx * 100) / 100, z: Math.round(c.dz * 100) / 100, yaw: Math.round(aim * 1000) / 1000, sp: c.sprint ? 1 : 0, cr: c.crouch ? 1 : 0, at: at ? 1 : 0, j: c.jump ? 1 : 0, pt: Math.round(this.camPitch * 100) / 100 });
     this.acc = 0;
     this.lastSend = performance.now();
     this.lastYawSent = this.camYaw;

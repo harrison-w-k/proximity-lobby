@@ -44,3 +44,33 @@ assert.ok(b.stunUntil > m.time - 0.5, 'and stuns it');
 assert.ok(a.hp >= a.maxHp - 1e-6, 'the bird itself lands unhurt');
 assert.ok(a.slamAt! > m.time, 'then it has to wait');
 console.log('slam tests passed');
+
+// elytra: pitch down to build speed, pull up to climb, and no crash damage on landing
+{
+  const { glideTick, GLIDE_MIN } = await import('./move');
+  const s = { jv: 0, gs: 0 };
+  for (let i = 0; i < 60; i++) glideTick(s, 1.2, 1 / 30);
+  assert.ok(s.gs > 28, `a dive builds speed (${s.gs.toFixed(1)} m/s)`);
+  assert.ok(s.jv < -15, 'and drops fast');
+  for (let i = 0; i < 12; i++) glideTick(s, -0.3, 1 / 30);
+  assert.ok(s.jv > 0, 'pulling up from a dive climbs');
+  for (let i = 0; i < 300; i++) glideTick(s, -0.3, 1 / 30);
+  assert.ok(s.gs >= GLIDE_MIN && s.gs < 12, 'and a long climb runs out of speed');
+
+  const g = new Match(6, [{ id: 'a', name: 'A', animal: 'hawk', team: 0, bot: false }], { send: () => {} });
+  g.time = 120;
+  const h = g.byId.get('a')!;
+  h.lastInputAt = Infinity;
+  g.mobs.length = 0;
+  const sp = g.terrain.randomLand(g.rnd, 80, 30);
+  h.x = sp.x;
+  h.z = sp.z;
+  h.jy = g.terrain.floorAt(h.x, h.z, 0) + 60;
+  h.jv = -1;
+  h.input.pitch = 1.3; // a steep dive
+  const hp = h.hp;
+  for (let i = 0; i < 30 * 15 && h.jy > g.terrain.floorAt(h.x, h.z, 0) + 0.01; i++) g.tick();
+  for (let i = 0; i < 5; i++) g.tick();
+  assert.ok(h.hp >= hp, 'a glider lands from a long dive without crash damage');
+}
+console.log('elytra tests passed');

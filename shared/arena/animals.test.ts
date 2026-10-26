@@ -22,7 +22,7 @@ for (const t of TREES) {
 // every bird can soar, and it has a long cooldown
 for (const b of ANIMALS.filter((a) => a.tree === 'birds')) {
   const soar = [b.skill, b.skill2].find((s) => s?.fx?.k === 'soar');
-  assert.ok(soar && (soar.cd ?? 0) >= 30, `${b.name} can soar, with a long cooldown`);
+  assert.ok(soar && (soar.cd ?? 0) >= 10, `${b.name} can soar, with a cooldown`);
 }
 assert.equal(ANIMALS.filter((a) => a.tree !== 'birds' && [a.skill, a.skill2].some((s) => s?.fx?.k === 'soar')).length, 0, 'only birds soar');
 
