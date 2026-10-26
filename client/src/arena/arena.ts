@@ -140,6 +140,8 @@ export class Arena {
   private zoneSince = 0;
   private ended = false;
   private lastVoice = 0;
+  private soundAt = new Map<string, number>(); // when each animal last made a sound you heard
+  private soundFlags = new Map<string, number>();
   private lavaSfx = 0;
   private camPos = new THREE.Vector3();
   private lookAt = new THREE.Vector3();
@@ -1049,6 +1051,7 @@ export class Arena {
       this.hud.setLowHp(you.role === 0 && you.hp / you.maxHp < 0.3);
       this.pings = this.pings.filter((p) => p.until > this.clock);
       this.hud.drawMap({ x: this.pos.x, z: this.pos.z, yaw: this.camYaw }, g, this.blips(you));
+      if (you.role === 0) this.hearSounds(you);
       if (this.clock - this.lastVoice > 0.1) {
         this.lastVoice = this.clock;
         this.updateVoice(you);
@@ -1255,6 +1258,54 @@ export class Arena {
     const pouch = you.inv.find((i) => i?.k === 'water');
     if (water && (!pouch || pouch.n < 2)) return '[V] Fill your water pouch';
     return '';
+  }
+
+  /**
+   * Hearing: enemies make noise by sprinting, walking, fighting and dashing, and your senses decide how far you
+   * hear. Each sound shows as a tick on the ring around the crosshair, so a good ear can track what it cannot see.
+   */
+  private hearSounds(you: YouState) {
+    const sc = this.scene;
+    if (!sc) return;
+    const hearing = 16 + you.sense * 0.55; // metres a loud sound carries to you
+    for (const v of sc.allFighters()) {
+      if (v.self || v.team === this.myTeam || v.role !== 0 || (v.flags & FL.hidden && !(v.flags & FL.atk))) continue;
+      const dx = v.x - this.pos.x;
+      const dz = v.z - this.pos.z;
+      const d = Math.hypot(dx, dz);
+      const fl = v.flags;
+      const was = this.soundFlags.get(v.id) ?? 0;
+      this.soundFlags.set(v.id, fl);
+      // how far this sound carries, and how often it repeats
+      let carry = 0;
+      let every = 0.5;
+      let loud = false;
+      if ((fl & FL.atk) && !(was & FL.atk)) {
+        carry = 1;
+        loud = true;
+        every = 0;
+      } else if (fl & FL.dash) {
+        carry = 0.8;
+        every = 0.4;
+      } else if (fl & FL.sprint) {
+        carry = 0.75;
+        every = 0.32;
+      } else if ((fl & FL.moving) && !(fl & FL.crouch)) {
+        carry = 0.4;
+        every = 0.55;
+      } else if (fl & FL.moving) {
+        carry = 0.12; // a crouch is nearly silent
+        every = 0.8;
+      }
+      if (carry <= 0 || d > hearing * carry || d < 0.5) continue;
+      if (this.clock - (this.soundAt.get(v.id) ?? -9) < every) continue;
+      let rel = Math.atan2(dx, dz) - this.camYaw;
+      while (rel > Math.PI) rel -= Math.PI * 2;
+      while (rel < -Math.PI) rel += Math.PI * 2;
+      if (Math.abs(rel) < 0.5 && d < 20) continue; // right in front of you: you can see it
+      this.soundAt.set(v.id, this.clock);
+      this.hud.soundTick(rel, 1 - d / (hearing * carry), loud);
+    }
   }
 
   private blips(you: YouState) {

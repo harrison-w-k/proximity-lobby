@@ -699,7 +699,7 @@ export function derive(def: AnimalDef, alloc: Stats, mods: Required<Mods>): Deri
     dmg: (5 + 0.45 * p('atk')) * size.dmg,
     speed: (4.2 + 0.16 * (def.stats.spd / Math.pow(STAGE_BUDGET[def.stage - 1] / 100, 0.75) + alloc.spd)) * size.speed * (1 + mods.speed),
     maxSta: 40 + 3 * p('sta'),
-    sense: (25 + 1.8 * p('sen')) * (1 + mods.senses),
+    sense: (25 + 1.8 * p('sen')) * (1 + Math.max(-0.3, Math.min(0.6, mods.senses))), // capped so stacking passives cannot see the whole map
     radius: size.radius,
     reach: size.reach * (1 + mods.reach),
   };

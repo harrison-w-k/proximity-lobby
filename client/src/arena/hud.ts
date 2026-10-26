@@ -187,6 +187,10 @@ const CSS = `
 .br-levelring.go { animation: brring .9s ease-out; }
 @keyframes brring { 0% { opacity: 1; transform: scale(.4); } 100% { opacity: 0; transform: scale(14); } }
 .br-reticle.hit .dot { background: #fff; transform: scale(2.2); box-shadow: 0 0 10px #fff; }
+.br-reticle .snd { position: absolute; left: -3px; top: -3px; width: 6px; height: 6px; pointer-events: none; }
+.br-reticle .snd i { position: absolute; left: -17px; top: -92px; width: 40px; height: 12px; border-top: 4px solid #fff; border-radius: 50% 50% 0 0 / 100% 100% 0 0; opacity: 0; animation: brsnd 1.1s ease-out forwards; filter: drop-shadow(0 0 3px rgba(0,0,0,.8)); }
+.br-reticle .snd i.loud { border-top-color: #ff9a82; border-top-width: 5px; }
+@keyframes brsnd { 0% { opacity: .95; } 70% { opacity: .6; } 100% { opacity: 0; } }
 .br-reticle .x { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; opacity: 0; pointer-events: none; }
 .br-reticle .x::before, .br-reticle .x::after { content: ''; position: absolute; left: 12px; top: -2px; width: 4px; height: 32px; background: #fff; border: 1px solid var(--ink); border-radius: 2px; }
 .br-reticle .x::before { transform: rotate(45deg); } .br-reticle .x::after { transform: rotate(-45deg); }
@@ -308,7 +312,7 @@ export class Hud {
   private lavaVig = el('div', 'br-lavavig');
   private blind = el('div', 'br-blind');
   private panel = el('div', 'br-panel wood');
-  private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="x"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
+  private reticle = el('div', 'br-reticle', '<div class="ring"></div><div class="snd"></div><div class="x"></div><div class="dot"></div><div class="br-pips"><i></i><i></i><i class="heavy"></i></div><div class="br-guardtag"></div>');
   private callouts = el('div', 'br-callout');
   private streakEl = el('div', 'br-streak', '<b></b><span></span>');
   private zoneEl = el('div', 'br-zone', '<i></i><div><span></span><small></small></div>');
@@ -915,6 +919,24 @@ export class Hud {
     e.classList.remove(cls);
     void e.offsetWidth;
     e.classList.add(cls);
+  }
+
+  /**
+   * A sound you can hear: a tick on a ring around the crosshair, pointing the way it came from
+   * (`rel` is radians off straight ahead, positive to the left). Closer sounds draw wider; attacks draw red.
+   */
+  soundTick(rel: number, near: number, loud: boolean) {
+    const box = this.reticle.querySelector('.snd') as HTMLElement;
+    if (box.childElementCount > 14) return;
+    const t = document.createElement('i');
+    if (loud) t.className = 'loud';
+    const w = Math.round(22 + near * 34);
+    t.style.width = `${w}px`;
+    t.style.left = `${3 - w / 2}px`;
+    t.style.transformOrigin = `${w / 2}px 95px`; // pivot on the crosshair
+    t.style.transform = `rotate(${(-rel * 180) / Math.PI}deg)`;
+    box.append(t);
+    window.setTimeout(() => t.remove(), 1150);
   }
 
   /** Your blow connected: a quick X on the crosshair (red for a heavy one). */

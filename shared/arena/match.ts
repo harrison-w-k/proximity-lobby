@@ -2530,7 +2530,7 @@ export class Match {
         if (d > 170) continue;
         const friend = o.team === me.team;
         const hidden = o.subUntil > this.time || o.reedUntil > this.time || (this.terrain.inBush(o.x, o.z) && !o.moving);
-        if (hidden && !friend && d > Math.max(8, sense * 0.2)) continue;
+        if (hidden && !friend && d > Math.max(8, sense * 0.3)) continue;
         f.push([o.id, r1(o.x), r1(o.z), Math.round(o.yaw * 100) / 100, Math.round((o.hp / o.maxHp) * 100), o.level, this.flags(o) | (hidden ? FL.hidden : 0), Math.round(o.jy * 100) / 100, Math.max(0, Math.round(o.hp)), o.maxHp, Math.round(o.shield)]);
       }
       if (focus !== me) f.push([focus.id, r1(focus.x), r1(focus.z), Math.round(focus.yaw * 100) / 100, Math.round((focus.hp / focus.maxHp) * 100), focus.level, this.flags(focus), Math.round(focus.jy * 100) / 100, Math.max(0, Math.round(focus.hp)), focus.maxHp, Math.round(focus.shield)]);
