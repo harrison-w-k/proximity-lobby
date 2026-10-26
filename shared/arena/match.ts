@@ -22,6 +22,10 @@ import { BOUNCE_LAUNCH, Biome, GEYSER_LAUNCH, VENT_DAMAGE, MAP_RADIUS, Terrain, 
 import { botThink } from './bots';
 
 export const TICK_HZ = 30;
+const SLAM_COOLDOWN = 9; // s
+const SLAM_SPEED = 34; // m/s straight down
+const SLAM_RADIUS = 5.5; // m
+const SLAM_DAMAGE = 2.4; // times the bird's bite
 export const DT = 1 / TICK_HZ;
 const MAX_QUEUED_STEPS = 120; // about 4 s of movement steps: a stall is replayed, not dropped
 const CATCHUP_MAX = 1.5; // s of extra movement a player may bank to catch up after a stall
@@ -155,6 +159,9 @@ export interface Fighter extends Body {
   land?: number; // how fast the last landing was (m/s), for fall damage
   geyserKey?: number; // the last eruption that launched it
   ventKey?: number; // the last fire-vent blast that burned it
+  slamming?: boolean; // a stage 2+ bird diving onto the ground
+  slamAt?: number; // the slam is ready again at this time
+  slamUntil?: number;
   bounceAt?: number;
   softUntil?: number; // a soft landing (after a geyser) takes no fall damage until then
   jv: number;
@@ -1016,6 +1023,7 @@ export class Match {
   /** Start the next swing of the combo. The damage lands after the wind-up, so it can be read and answered. */
   private basicAttack(f: Fighter) {
     if (this.time < f.atkAt || f.swing || f.stunUntil > this.time || f.whiffUntil > this.time || f.grab || f.chan || f.guarding) return;
+    if (this.startSlam(f)) return;
     const seq = comboOf(f.def.id);
     const combo = this.time - f.comboAt < COMBO_RESET ? (f.combo + 1) % seq.length : 0;
     const gap = this.time - f.atkAt;
@@ -1038,6 +1046,46 @@ export class Match {
     const reach = f.dv.reach * c.reach * (f.blindUntil > this.time ? 0.5 : 1);
     this.emit({ k: 'swing', id: f.id, c: combo, w: wind, h: c.heavy, r: reach, a: c.arc, x: f.x, z: f.z, yaw: f.yaw, s: c.kind, rc: c.rec }, f.x, f.z);
     this.noise(f.x, f.z, 16 * (f.def.size === 'large' ? 1.5 : f.def.size === 'small' ? 0.6 : 1) * (1 + f.mods.noise));
+  }
+
+  /**
+   * A bird of the second stage or later, gliding well above the ground, folds its wings and dives when it attacks:
+   * it lands as a slam that hits everything round it hard.
+   */
+  private startSlam(f: Fighter): boolean {
+    if (f.def.tree !== 'birds' || f.def.stage < 2 || f.slamming || this.time < (f.slamAt ?? 0)) return false;
+    if (!this.gliding(f) || f.jy - this.terrain.floorAt(f.x, f.z, f.jy) < 2.5) return false;
+    f.slamming = true;
+    f.slamUntil = this.time + 3;
+    f.slamAt = this.time + SLAM_COOLDOWN;
+    f.soarUntil = 0;
+    f.jv = -SLAM_SPEED;
+    f.lastCombat = this.time;
+    f.atkFlash = 0.4;
+    this.emit({ k: 'slam', id: f.id, x: f.x, z: f.z, r: 0 }, f.x, f.z);
+    return true;
+  }
+
+  /** The dive ends: a blast round the bird that bruises, shoves and stuns. */
+  private resolveSlam(f: Fighter) {
+    f.slamming = false;
+    f.softUntil = this.time + 1; // it meant to land like that
+    const r = SLAM_RADIUS + f.r;
+    const bs = this.bodies(f.x, f.z, r, (b) => b !== f && this.canHit(f, b));
+    for (const b of bs) {
+      const d = dist(b, f);
+      const falloff = 1 - Math.min(0.4, Math.max(0, d - b.r) / r); // the centre takes the most
+      this.hurt(b, f.dv.dmg * SLAM_DAMAGE * this.dmgMult(f, b) * falloff, f, { kind: 'slam', heavy: true });
+      if (this.lastResult !== 'hit' || b.hp <= 0) continue;
+      if (b.kind === 'f') (b as Fighter).stunUntil = Math.max((b as Fighter).stunUntil, this.time + 0.6);
+      else (b as Mob).stunUntil = Math.max((b as Mob).stunUntil, this.time + 0.8);
+      const dx = b.x - f.x;
+      const dz = b.z - f.z;
+      const l = Math.hypot(dx, dz) || 1;
+      stepPos(this.terrain, b, dx / l, dz / l, 2.5, b.r, MAP_BOUND);
+    }
+    this.emit({ k: 'slam', id: f.id, x: f.x, z: f.z, r }, f.x, f.z);
+    this.noise(f.x, f.z, 45);
   }
 
   /** An instant basic attack on one animal: what a dash turns into when it runs into something. */
@@ -2131,6 +2179,7 @@ export class Match {
     f.roarFlash = Math.max(0, f.roarFlash - dt);
     if (f.hp <= 0) return;
     this.featureTick(f, dt);
+    if (f.slamming && (this.time > (f.slamUntil ?? 0) || f.stunUntil > this.time)) f.slamming = false; // a dive that never lands, or a bird knocked out of it
 
     // statuses
     const stunned = f.stunUntil > t;
@@ -2302,7 +2351,7 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
-      thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), f.def.tree === 'birds' || f.soarUntil > this.time);
+      thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), !f.slamming && (f.def.tree === 'birds' || f.soarUntil > this.time));
       stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), this.gliding(f));
       if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
         f.soarUntil = 0;
@@ -2315,7 +2364,7 @@ export class Match {
     const soaring = this.gliding(f);
     if (soaring && f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.05) sp *= SOAR_SPEED; // gliding is quick
     stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy, slopeFor(f.def));
-    thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), f.def.tree === 'birds' || f.soarUntil > this.time);
+    thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), !f.slamming && (f.def.tree === 'birds' || f.soarUntil > this.time));
     stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), soaring);
     if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
       f.soarUntil = 0;
@@ -2327,6 +2376,7 @@ export class Match {
 
   /** Wings out: a soar in progress, or a bird dropping from higher than a jump. */
   private gliding(f: Fighter) {
+    if (f.slamming) return false; // wings folded: a dive
     return f.soarUntil > this.time || glideFall(f.def.tree === 'birds', f.jy, f.jv, this.terrain.floorAt(f.x, f.z, f.jy));
   }
 
@@ -2335,6 +2385,7 @@ export class Match {
     const c = this.terrain.collide(f.x, f.z, f.r, f.jy); // landing on a rock keeps you on it
     f.x = c.x;
     f.z = c.z;
+    if (f.slamming) this.resolveSlam(f);
     // a hard landing hurts (water, and a bird's slow glide, do not)
     const v = f.land ?? 0;
     f.land = 0;
@@ -2535,6 +2586,7 @@ export class Match {
     if (f.reedUntil > t) out.push('hidden in reeds');
     if (f.glideUntil > t) out.push('gliding');
     if (f.soarUntil > t) out.push('soaring');
+    if (f.slamming) out.push('slamming');
     if (f.mudUntil > t) out.push('mud coat');
     if (f.muskUntil > t) out.push('musk');
     return out;

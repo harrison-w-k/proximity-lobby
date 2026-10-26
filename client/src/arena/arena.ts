@@ -97,6 +97,7 @@ export class Arena {
   /** After pressing a soar key, we glide at once instead of waiting for the server to say so. */
   private soarPredUntil = 0;
   private soaring = (you: YouState) => {
+    if (you.buffs.includes('slamming')) return false;
     if (you.buffs.includes('soaring') || this.clock < this.soarPredUntil) return true;
     const t = this.scene?.terrain;
     return !!t && glideFall(this.def.tree === 'birds', this.pos.jy, this.pos.jv, t.floorAt(this.pos.x, this.pos.z, this.pos.jy)); // dropping off a ledge
@@ -519,6 +520,13 @@ export class Arena {
         }
         break;
       }
+      case 'slam':
+        if (e.r > 0) {
+          this.scene?.ringFx(e.x, e.z, e.r, 0xffd9a0, 0.5);
+          this.scene?.burst(e.x, this.scene.groundY(e.x, e.z) + 0.4, e.z, 0xd2c299, 18, 5, 0.6);
+          if (e.id === this.myId) this.hud.callout('SLAM!', '#ffd9a0');
+        }
+        break;
       case 'bounce': {
         const ft = this.scene?.terrain.features.find((q) => q.kind === 'mushroom' && Math.hypot(q.x - e.x, q.z - e.z) < 1);
         if (ft) this.scene?.bounceFx(ft.id);

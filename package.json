@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "tsx --env-file-if-exists=client/.env.local server/index.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p worker/tsconfig.json",
-    "test": "tsx shared/lobby.test.ts && tsx shared/arena/terrain.test.ts && tsx shared/arena/spawn.test.ts && tsx shared/arena/animals.test.ts && tsx shared/arena/predict.test.ts && tsx shared/arena/combat.test.ts && tsx shared/arena/soar.test.ts && tsx shared/arena/combos.test.ts && tsx shared/arena/netcode.test.ts && tsx shared/arena/campus.test.ts && tsx shared/arena/island.test.ts && tsx shared/arena/slope.test.ts && tsx shared/arena/features.test.ts && tsx shared/arena/match.test.ts",
+    "test": "tsx shared/lobby.test.ts && tsx shared/arena/terrain.test.ts && tsx shared/arena/spawn.test.ts && tsx shared/arena/animals.test.ts && tsx shared/arena/predict.test.ts && tsx shared/arena/combat.test.ts && tsx shared/arena/soar.test.ts && tsx shared/arena/combos.test.ts && tsx shared/arena/netcode.test.ts && tsx shared/arena/campus.test.ts && tsx shared/arena/island.test.ts && tsx shared/arena/slope.test.ts && tsx shared/arena/features.test.ts && tsx shared/arena/slam.test.ts && tsx shared/arena/match.test.ts",
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run build && wrangler deploy"
   },

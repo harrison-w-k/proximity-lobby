@@ -188,7 +188,7 @@ export function thermalLift(t: Terrain, s: { x: number; z: number; jy: number; j
   if (l > 0) s.jv = Math.max(s.jv, l);
 }
 
-/** A landing faster than this (about a 3.5 m drop) hurts. */
-export const FALL_SAFE = 13;
-/** The share of max health a landing at `v` m/s takes: nothing when safe, a quarter at about 6 m, most of it from a very tall cliff. */
-export const fallDamage = (v: number) => (v <= FALL_SAFE ? 0 : Math.min(0.85, 0.065 * (v - FALL_SAFE)));
+/** A landing faster than this (about a 7 m drop) hurts. */
+export const FALL_SAFE = 18.5;
+/** The share of max health a landing at `v` m/s takes: nothing when safe, about a tenth from 10 m, a quarter from 15 m, and at most 60%. */
+export const fallDamage = (v: number) => (v <= FALL_SAFE ? 0 : Math.min(0.6, 0.03 * (v - FALL_SAFE)));

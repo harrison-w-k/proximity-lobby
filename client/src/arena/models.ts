@@ -5,7 +5,7 @@ import { toonMat } from './toon';
 import { BUG_KINDS, REAL_FISH, makeBugRig, makeRealFishRig } from './creatures';
 import { REAL_QUAD, buildRealQuad } from './realquad';
 import { MAMMAL, buildMammal } from './mammals';
-import { LIZARD, buildLizardR } from './reptiles';
+import { REPTILE, buildReptile } from './reptiles';
 import { REAL_BIRD, buildRealBird, wingPose, type BirdParts } from './birds';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMAL_BY_ID, SIZE } from '../../../shared/arena/animals';
@@ -426,7 +426,7 @@ class QuadRig implements Rig {
     this.shadowR = Math.max(b.spec.w * 0.8, b.spec.len * 0.5);
     this.shadow.scale.set(this.shadowR * s, this.shadowR * 1.15 * s, 1);
     this.root.add(this.shadow);
-    if (REAL_QUAD.has(b.spec.id ?? '') || MAMMAL.has(b.spec.id ?? '') || REAL_BIRD.has(b.spec.id ?? '')) {
+    if (REAL_QUAD.has(b.spec.id ?? '') || MAMMAL.has(b.spec.id ?? '') || REAL_BIRD.has(b.spec.id ?? '') || REPTILE.has(b.spec.id ?? '')) {
       // realistic models carry their colour in the vertices: one lit material for the whole animal (birds show both faces of a wing)
       const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, side: REAL_BIRD.has(b.spec.id ?? '') ? THREE.DoubleSide : THREE.FrontSide });
       b.root.traverse((o) => {
@@ -1124,35 +1124,6 @@ PS.panda = {
   },
 };
 
-// reptiles: venom and armor
-PS.gecko = {
-  len: 0.9, w: 0.28, h: 0.16, legLen: 0.14, legT: 0.07, fur: 0x8aa84a, belly: 0xe2e8b0, paw: 0x6a8a30, crawl: true, scale: 0.6,
-  head: { s: 0.42, snout: 0.12, snoutC: 0x9ab85a }, ears: 'none', tail: { len: 0.9, t: 0.1, up: 0 }, eye: 0xffd23f,
-  extras: spotted(0xe8c040, 10, 0.26, 0.8, 0.05),
-};
-PS.monitor = { ...SPECS.croc, fur: 0x6a7048, belly: 0xc2c090, paw: 0x4a5030, scale: 0.55, head: { s: 0.34, snout: 0.45, snoutH: 0.2, snoutC: 0x7a8052, drop: 0.08 }, extras: undefined, tail: { len: 1.3, t: 0.2, up: 0 } };
-PS.snapping_turtle = { ...SPECS.turtle, fur: 0x5a6a3a, scale: 0.85 };
-PS.komodo = { ...SPECS.croc, fur: 0x6e5f4a, belly: 0xc8b890, paw: 0x4a3e2e, scale: 0.7, head: { s: 0.4, snout: 0.5, snoutH: 0.24, snoutC: 0x7e6e56, drop: 0.1 }, extras: undefined, tail: { len: 1.5, t: 0.26, up: 0 } };
-PS.viper = {
-  len: 1.1, w: 0.16, h: 0.16, legLen: 0.03, legT: 0.02, fur: 0x8a7a3a, belly: 0xe8e0b0, paw: 0x8a7a3a, crawl: true, scale: 0.7,
-  head: { s: 0.22, snout: 0.06, snoutC: 0x8a7a3a, drop: -0.05 }, ears: 'none', tail: { len: 1.0, t: 0.1, up: 0 }, eye: 0xe0b020,
-};
-PS.python = {
-  len: 3.6, w: 0.3, h: 0.3, legLen: 0.05, legT: 0.03, fur: 0x8a6a3a, belly: 0xe8dcb4, paw: 0x8a6a3a, crawl: true, scale: 0.85,
-  head: { s: 0.26, snout: 0.08, snoutC: 0x8a6a3a, drop: -0.05 }, ears: 'none', tail: { len: 2.0, t: 0.14, up: 0 }, eye: 0xd8b040,
-};
-PS.sea_turtle = { ...SPECS.turtle, fur: 0x6a8a58, belly: 0xe2dca8, paw: 0x4a6a40, scale: 1.2, len: 1.1, w: 0.85, h: 0.26, legLen: 0.14 };
-PS.cobra = {
-  len: 2.2, w: 0.2, h: 0.2, legLen: 0.04, legT: 0.02, fur: 0x6a5a2a, belly: 0xe2d8a0, paw: 0x6a5a2a, crawl: true, scale: 0.75,
-  head: { s: 0.24, snout: 0.08, snoutC: 0x6a5a2a, drop: -0.1 }, ears: 'none', tail: { len: 1.6, t: 0.12, up: 0 }, eye: 0xd23030,
-  extras: (torso, head) => {
-    head.add(ball(0.42, 0.3, 0.12, 0x6a5a2a, 0, -0.1, -0.1)); // the hood
-    torso.add(box(0.1, 0.1, 1.9, 0xe2d8a0, 0, -0.06, 0));
-  },
-};
-PS.croc = { ...SPECS.croc, scale: 1.0 };
-PS.tortoise = { ...SPECS.turtle, fur: 0x9a8a5a, belly: 0xd2c68e, paw: 0x7a6a40, scale: 1.7, legLen: 0.32 };
-
 // bugs and arachnids, scaled up to stay readable
 PS.ant = {
   len: 0.9, w: 0.28, h: 0.22, legLen: 0.22, legT: 0.05, fur: 0x2a1a14, belly: 0x3a2a20, paw: 0x1c1210, crawl: true, scale: 0.8,
@@ -1218,7 +1189,7 @@ const FISH_FORMS: Record<string, { spec: FishSpec; scale: number }> = {
 
 /** An articulated model for something a player controls. */
 // vertical slit pupils: the cats, foxes and most reptiles
-for (const id of ['house_cat', 'bobcat', 'lynx', 'cheetah', 'panther', 'tiger', 'lion', 'fox', 'gecko', 'monitor', 'komodo', 'cobra', 'croc']) if (PS[id]) PS[id].slit = true;
+for (const id of ['house_cat', 'bobcat', 'lynx', 'cheetah', 'panther', 'tiger', 'lion', 'fox']) if (PS[id]) PS[id].slit = true;
 
 export function makePlayerRig(animal: string): Rig {
   const def0 = ANIMAL_BY_ID.get(animal);
@@ -1232,7 +1203,7 @@ export function makePlayerRig(animal: string): Rig {
     return new BirdPlayerRig(bb, bdef ? SIZE[bdef.size].radius : 0.5, bb.bird);
   }
   const spec = PS[animal] ?? PS.house_cat;
-  const b = LIZARD.has(animal) ? buildLizardR({ ...spec, id: animal }, animal) : MAMMAL.has(animal) ? buildMammal({ ...spec, id: animal }, animal) : REAL_QUAD.has(animal) ? buildRealQuad({ ...spec, id: animal }, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
+  const b = REPTILE.has(animal) ? buildReptile({ ...spec, id: animal }, animal) : MAMMAL.has(animal) ? buildMammal({ ...spec, id: animal }, animal) : REAL_QUAD.has(animal) ? buildRealQuad({ ...spec, id: animal }, hashStr(animal), animal) : buildQuad(spec, hashStr(animal));
   const def = ANIMAL_BY_ID.get(animal);
   const radius = def ? SIZE[def.size].radius : 0.5;
   return new QuadRig(b, radius);

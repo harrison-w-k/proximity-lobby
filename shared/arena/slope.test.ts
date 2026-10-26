@@ -40,5 +40,7 @@ assert.ok(p.jy > 0, 'walking down a face steeper than the rule leaves the ground
 for (let i = 0; i < 300; i++) stepVertical(p, 1 / 30, 0);
 assert.equal(p.jy, 0, 'and comes back down');
 assert.equal(fallDamage(FALL_SAFE), 0);
-assert.ok(fallDamage(17) > 0.2 && fallDamage(17) < 0.3 && fallDamage(40) <= 0.85);
+assert.equal(fallDamage(17), 0, 'a 6 m drop is free');
+assert.ok(fallDamage(22) > 0.08 && fallDamage(22) < 0.12, 'about 10 m costs a tenth');
+assert.ok(fallDamage(27) > 0.2 && fallDamage(27) < 0.3 && fallDamage(60) <= 0.6);
 console.log('slope tests passed');
