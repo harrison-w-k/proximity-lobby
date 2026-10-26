@@ -9,7 +9,7 @@ import {
   MOBS, TIER_SHARE, mobDef,
   mobIndex, type MobDef,
 } from './mobs';
-import { ISLAND_BOUND, JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, glideFall, medium, standY, stepPos, stepVertical, type Bound } from './move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, MAP_BOUND, SOAR_SPEED, fallDamage, glideFall, medium, slopeFor, standY, stepPos, stepVertical, thermalLift, type Bound } from './move';
 import {
   FL, ROLE_CODE, type ClientMatchMsg, type Global, type InvItem, type ItemKind, type MatchEvent, type Role, type RosterEntry,
   type ServerMatchMsg, type YouState,
@@ -18,7 +18,7 @@ import { classSkill } from './animals';
 import { COMBO, COMBO_RESET, comboOf, heavyMask, DASH_COOLDOWN, DASH_SPEED, DASH_TIME, PARRY_HIT_CD, PARRY_MISS_CD, PARRY_MISS_STUN, PARRY_STUN, PARRY_WINDOW } from './combat';
 import { mulberry32 } from './rng';
 import { SPAWN_BY_ID, type SpawnId } from './spawn';
-import { Biome, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
+import { BOUNCE_LAUNCH, Biome, GEYSER_LAUNCH, VENT_DAMAGE, MAP_RADIUS, Terrain, WATER_Y, geyserAt } from './terrain';
 import { botThink } from './bots';
 
 export const TICK_HZ = 30;
@@ -152,6 +152,11 @@ export interface Fighter extends Body {
   whiffUntil: number; // fumbling after a parry that caught nothing: can walk, nothing else
   counterUntil: number;
   jy: number;
+  land?: number; // how fast the last landing was (m/s), for fall damage
+  geyserKey?: number; // the last eruption that launched it
+  ventKey?: number; // the last fire-vent blast that burned it
+  bounceAt?: number;
+  softUntil?: number; // a soft landing (after a geyser) takes no fall damage until then
   jv: number;
   atkAt: number;
   buffs: Buff[];
@@ -2083,6 +2088,41 @@ export class Match {
 
   // --- fighters -----------------------------------------------------------------------------------
 
+  /** The map's own mechanics: geysers throw you into the air, hot springs mend you. */
+  private featureTick(f: Fighter, dt: number) {
+    if (f.role !== 'alive' || f.grab) return;
+    for (const ft of this.terrain.features) {
+      const d = Math.hypot(ft.x - f.x, ft.z - f.z);
+      if (ft.kind === 'geyser') {
+        if (d > ft.r + f.r * 0.5) continue;
+        const g = geyserAt(ft, this.time);
+        const key = ft.id * 1e6 + g.n;
+        if (g.state !== 2 || f.geyserKey === key) continue;
+        f.geyserKey = key;
+        f.jv = GEYSER_LAUNCH;
+        f.softUntil = this.time + 6; // the steam cushions the landing
+        f.chan = null;
+        this.emit({ k: 'geyser', id: f.id, x: ft.x, z: ft.z }, ft.x, ft.z);
+      } else if (ft.kind === 'mushroom') {
+        // springy caps: land on one (or hop onto it) and it throws you back up
+        if (d > ft.r || f.jy > 1 || this.time < (f.bounceAt ?? 0) || (f.jv > 0.5 && f.jy > 0.05)) continue;
+        f.bounceAt = this.time + 0.45;
+        f.jv = BOUNCE_LAUNCH;
+        f.softUntil = this.time + 4;
+        this.emit({ k: 'bounce', id: f.id, x: ft.x, z: ft.z }, ft.x, ft.z);
+      } else if (ft.kind === 'vent') {
+        if (d > ft.r || f.jy > 2.5) continue;
+        const g = geyserAt(ft, this.time);
+        const key = ft.id * 1e6 + g.n;
+        if (g.state !== 2 || f.ventKey === key) continue;
+        f.ventKey = key;
+        this.hurt(f, f.maxHp * VENT_DAMAGE, null, { kind: 'burn', noReflect: true });
+      } else if (ft.kind === 'spring' && d < ft.r && f.hp < f.maxHp && this.time - f.lastCombat > 3) {
+        f.hp = Math.min(f.maxHp, f.hp + f.maxHp * 0.04 * dt); // a few seconds of rest in the warm water mends a lot
+      }
+    }
+  }
+
   private updateFighter(f: Fighter) {
     const dt = DT;
     const t = this.time;
@@ -2090,6 +2130,7 @@ export class Match {
     f.atkFlash = Math.max(0, f.atkFlash - dt);
     f.roarFlash = Math.max(0, f.roarFlash - dt);
     if (f.hp <= 0) return;
+    this.featureTick(f, dt);
 
     // statuses
     const stunned = f.stunUntil > t;
@@ -2169,7 +2210,7 @@ export class Match {
       if (t > d.until) {
         f.dash = undefined;
       } else {
-        stepPos(this.terrain, f, d.dx, d.dz, d.speed * dt, f.r, bound);
+        stepPos(this.terrain, f, d.dx, d.dz, d.speed * dt, f.r, bound, f.jy, slopeFor(f.def));
         const bs = this.bodies(f.x, f.z, d.aoe ? d.aoe : f.r + 0.4, (b) => b !== f && this.canHit(f, b)).sort((a, b) => dist(a, f) - dist(b, f));
         if (bs.length) {
           // a dash stops dead on the first animal it hits, and becomes a basic attack on it
@@ -2261,6 +2302,7 @@ export class Match {
     if (f.chan && k > 0.25) f.chan = null; // walking away cancels harvesting and eating
     if (blocked || f.chan || !moving) {
       if (!blocked && !moving && (f.input.at || !f.bot)) f.yaw += clampTurn(angDiff(f.input.yaw, f.yaw), 14 * dt);
+      thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), f.def.tree === 'birds' || f.soarUntil > this.time);
       stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), this.gliding(f));
       if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
         f.soarUntil = 0;
@@ -2272,7 +2314,8 @@ export class Match {
     f.sprinting = sprinting;
     const soaring = this.gliding(f);
     if (soaring && f.jy > this.terrain.floorAt(f.x, f.z, f.jy) + 0.05) sp *= SOAR_SPEED; // gliding is quick
-    stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy);
+    stepPos(this.terrain, f, dx, dz, sp * dt * Math.min(1, k), f.r, bound, f.jy, slopeFor(f.def));
+    thermalLift(this.terrain, f, this.terrain.floorAt(f.x, f.z, f.jy), f.def.tree === 'birds' || f.soarUntil > this.time);
     stepVertical(f, dt, this.terrain.floorAt(f.x, f.z, f.jy), soaring);
     if (wasAir && f.jy <= this.terrain.floorAt(f.x, f.z, f.jy) + 0.001) {
       f.soarUntil = 0;
@@ -2292,6 +2335,15 @@ export class Match {
     const c = this.terrain.collide(f.x, f.z, f.r, f.jy); // landing on a rock keeps you on it
     f.x = c.x;
     f.z = c.z;
+    // a hard landing hurts (water, and a bird's slow glide, do not)
+    const v = f.land ?? 0;
+    f.land = 0;
+    const dmg = this.terrain.isWater(f.x, f.z) || this.time < (f.softUntil ?? 0) ? 0 : fallDamage(v) * f.maxHp;
+    if (dmg > 0 && f.role === 'alive') {
+      this.hurt(f, dmg, null, { kind: 'fall', noReflect: true });
+      f.stunUntil = Math.max(f.stunUntil, this.time + Math.min(0.8, dmg / f.maxHp * 2));
+      this.emit({ k: 'thud', id: f.id, x: f.x, z: f.z, n: Math.round(v) }, f.x, f.z);
+    }
   }
 
   // --- hunted mark -----------------------------------------------------------------------------

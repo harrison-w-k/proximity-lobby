@@ -40,8 +40,38 @@ export interface SpawnPoint {
   z: number;
 }
 
+/** Things on the map that act on whoever stands in or over them. */
+export type FeatureKind = 'geyser' | 'thermal' | 'spring' | 'mushroom' | 'tar' | 'vent';
+export interface Feature {
+  id: number;
+  kind: FeatureKind;
+  x: number;
+  z: number;
+  r: number; // metres
+  period: number; // geysers: seconds between eruptions
+  phase: number;
+}
+export const GEYSER_WARN = 2.6; // s of rumbling and steam before it blows
+export const GEYSER_BLAST = 1.6; // s it spends erupting
+export const GEYSER_LAUNCH = 18; // m/s straight up: about 6.5 m
+export const BOUNCE_LAUNCH = 14; // m/s off a bounce mushroom
+export const VENT_DAMAGE = 0.14; // share of max health a fire vent's blast burns
+export const THERMAL_LIFT = 3.4; // m/s a glider is carried up
+export const THERMAL_CEILING = 34; // m above the ground the updraft carries to
+/** Where a geyser is in its cycle at `time`: 0 quiet, 1 warning, 2 erupting. `n` counts eruptions so one launches you once. */
+export function geyserAt(f: Feature, time: number): { state: 0 | 1 | 2; n: number; t: number } {
+  const u = time + f.phase;
+  const n = Math.floor(u / f.period);
+  const c = u - n * f.period;
+  const blast = f.period - GEYSER_BLAST;
+  if (c >= blast) return { state: 2, n, t: (c - blast) / GEYSER_BLAST };
+  if (c >= blast - GEYSER_WARN) return { state: 1, n, t: (c - (blast - GEYSER_WARN)) / GEYSER_WARN };
+  return { state: 0, n, t: 0 };
+}
+
 export class Terrain {
   readonly seed: number;
+  features: Feature[] = [];
   private h = new Float32Array(GRID * GRID);
   private b = new Uint8Array(GRID * GRID);
   private grass = new Uint8Array(GRID * GRID); // 1 = long grass (slows you)
@@ -69,7 +99,56 @@ export class Terrain {
     }
     this.attempt = attempt;
     this.place(this.seed + attempt * 7919);
+    this.placeFeatures(this.seed + attempt * 7919);
     this.pickSpawns(this.seed + attempt * 7919);
+  }
+
+  /** Geysers, updrafts and hot springs, scattered so every part of the map has something to use. */
+  private placeFeatures(seed: number) {
+    const rnd = mulberry32(seed ^ 0x6e7a);
+    const R = MAP_RADIUS - 30;
+    const want: { kind: FeatureKind; n: number; gap: number; r: number; ok: (x: number, z: number, h: number, b: Biome) => boolean }[] = [
+      { kind: 'geyser', n: 14, gap: 75, r: 2.4, ok: (_x, _z, h, b) => h > WATER_Y + 0.8 && (b === Biome.Highlands || b === Biome.Grassland || rnd() < 0.15) },
+      { kind: 'thermal', n: 10, gap: 95, r: 9, ok: (_x, _z, h, b) => h > WATER_Y + 0.6 && b !== Biome.Wetlands },
+      { kind: 'mushroom', n: 18, gap: 50, r: 1.7, ok: (_x, _z, h, b) => h > WATER_Y + 0.5 && (b === Biome.Forest || b === Biome.Grassland) },
+      { kind: 'tar', n: 8, gap: 90, r: 4.5, ok: (_x, _z, h, b) => h > WATER_Y + 0.3 && (b === Biome.Wetlands || b === Biome.Highlands) },
+      { kind: 'vent', n: 8, gap: 100, r: 2.6, ok: (_x, _z, h, b) => h > WATER_Y + 0.8 && b === Biome.Highlands },
+      { kind: 'spring', n: 8, gap: 85, r: 3.4, ok: (_x, _z, h, b) => h > WATER_Y + 0.05 && h < WATER_Y + 1.4 && (b === Biome.Wetlands || b === Biome.Forest) },
+    ];
+    for (const w of want) {
+      let made = 0;
+      for (let t = 0; t < 30000 && made < w.n; t++) {
+        const a = rnd() * Math.PI * 2;
+        const rr = Math.sqrt(rnd()) * R;
+        const x = Math.cos(a) * rr;
+        const z = Math.sin(a) * rr;
+        if (Math.hypot(x, z) < 35) continue; // keep the den quiet
+        const h = this.heightAt(x, z);
+        if (!w.ok(x, z, h, this.biomeAt(x, z))) continue;
+        // flat enough to stand on, and clear of trees and rocks
+        const slope = Math.hypot(this.heightAt(x + 2, z) - this.heightAt(x - 2, z), this.heightAt(x, z + 2) - this.heightAt(x, z - 2)) / 4;
+        if (slope > (w.kind === 'thermal' ? 0.6 : 0.3) || this.collide(x, z, w.kind === 'thermal' ? 2 : w.r + 1).hit) continue; // an updraft is only air: it can sit over trees
+        if (this.features.some((f) => f.kind === w.kind && Math.hypot(f.x - x, f.z - z) < w.gap)) continue;
+        this.features.push({ id: this.features.length, kind: w.kind, x, z, r: w.r, period: 11 + Math.floor(rnd() * 8), phase: rnd() * 30 });
+        made++;
+      }
+    }
+  }
+
+  /** Is this spot in a tar pit (slow and sticky)? */
+  tarAt(x: number, z: number): boolean {
+    for (const f of this.features) if (f.kind === 'tar' && Math.hypot(f.x - x, f.z - z) < f.r) return true;
+    return false;
+  }
+
+  /** The updraft (m/s) carrying a glider at this spot, if it is over a thermal. */
+  liftAt(x: number, z: number): number {
+    for (const f of this.features) {
+      if (f.kind !== 'thermal') continue;
+      const d = Math.hypot(f.x - x, f.z - z);
+      if (d < f.r) return THERMAL_LIFT * (1 - (d / f.r) ** 2 * 0.6);
+    }
+    return 0;
   }
 
   private idx(gx: number, gz: number) {

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { ANIMAL_BY_ID, SIZE, SKILL_BY_ID, type AnimalDef, type StatKey, STAT_KEYS } from '../../../shared/arena/animals';
 import { MOB_IDS } from '../../../shared/arena/mobs';
 import { COMBO, COMBO_RESET, PARRY_WINDOW, comboOf, type StrikeKind } from '../../../shared/arena/combat';
-import { ISLAND_BOUND, JUMP_COST, JUMP_V, SOAR_SPEED, glideFall, medium, stepPos, stepVertical, MAP_BOUND, type Bound } from '../../../shared/arena/move';
+import { ISLAND_BOUND, JUMP_COST, JUMP_V, SOAR_SPEED, glideFall, medium, slopeFor, stepPos, stepVertical, thermalLift, MAP_BOUND, type Bound } from '../../../shared/arena/move';
 import { FL, type Global, type MatchEvent, type QueueInfo, type RosterEntry, type ServerMatchMsg, type YouState } from '../../../shared/arena/proto';
 import { WATER_Y } from '../../../shared/arena/terrain';
 import { VOICE_MAX, VOICE_REF, type ServerMsg } from '../../../shared/protocol';
@@ -519,6 +519,11 @@ export class Arena {
         }
         break;
       }
+      case 'bounce': {
+        const ft = this.scene?.terrain.features.find((q) => q.kind === 'mushroom' && Math.hypot(q.x - e.x, q.z - e.z) < 1);
+        if (ft) this.scene?.bounceFx(ft.id);
+        break;
+      }
       case 'shield':
         sc.floater(e.x, sc.groundY(e.x, e.z) + 2.6, e.z, '🛡 Overhealth', '#ffd23f', 0.9);
         sc.burst(e.x, sc.groundY(e.x, e.z) + 1, e.z, 0xffd23f, 12, 2.5, 0.6);
@@ -933,7 +938,8 @@ export class Arena {
   private simStep(st: { x: number; z: number; jy: number; jv: number }, c: { dx: number; dz: number; sprint: boolean; crouch: boolean; jump: boolean }, dt: number, you: YouState) {
     const sc = this.scene!;
     if (c.jump && st.jy <= sc.terrain.floorAt(st.x, st.z, st.jy) + 0.001 && st.jv <= 0.001 && !you.noMove && you.sta >= JUMP_COST && !sc.terrain.isDeep(st.x, st.z)) st.jv = JUMP_V;
-    if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy);
+    if (!you.noMove) stepPos(sc.terrain, st, c.dx, c.dz, this.stepDist(you, c.dx, c.dz, c.sprint, c.crouch) * dt, this.radius(), this.boundFor(st.x, st.z), st.jy, slopeFor(this.def));
+    thermalLift(sc.terrain, st, sc.terrain.floorAt(st.x, st.z, st.jy), this.def.tree === 'birds' || you.buffs.includes('soaring') || this.clock < this.soarPredUntil);
     stepVertical(st, dt, sc.terrain.floorAt(st.x, st.z, st.jy), this.soaring(you));
   }
 

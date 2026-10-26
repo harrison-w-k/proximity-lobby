@@ -1,5 +1,5 @@
 // Movement rules shared by the server (authoritative) and the client (prediction).
-import { DEEP_Y, MAP_RADIUS, Terrain, WATER_Y } from './terrain';
+import { DEEP_Y, MAP_RADIUS, THERMAL_CEILING, Terrain, WATER_Y } from './terrain';
 
 export interface Bound {
   cx: number;
@@ -26,6 +26,7 @@ export function medium(t: Terrain, x: number, z: number, aquatic: boolean, water
   if (h < WATER_Y - 0.1) {
     return { mul: aquatic ? 1.15 + waterSpeed * 0.7 : 0.72 + waterSpeed * 0.3, swim: false, shallow: true, noSprint: false };
   }
+  if (t.tarAt(x, z)) return { mul: 0.45, swim: false, shallow: false, noSprint: true }; // a tar pit drags at every step
   return { mul: t.tallGrass(x, z) ? 0.86 : 1, swim: false, shallow: false, noSprint: false };
 }
 
@@ -34,13 +35,49 @@ export function standY(t: Terrain, x: number, z: number): number {
   return Math.max(t.heightAt(x, z), WATER_Y - 0.45);
 }
 
-const MAX_SLOPE = 1.5; // rise per metre you can walk up
+/**
+ * How an animal copes with steep ground (all in rise per metre of run; 1 is a 45 degree slope).
+ * Past `ease` it slows down, at `limit` it cannot go up at all, and a drop steeper than `detach` throws it off the
+ * ground so it falls (or glides, for a bird) instead of hugging the slope.
+ */
+export interface Slope {
+  ease: number;
+  limit: number;
+  detach: number;
+}
+
+const SLOPE_BY_SIZE = { small: 1.05, medium: 0.9, large: 0.75 } as const;
+/** Climbers: bugs, geckos and the more agile animals can go up what others cannot. */
+const CLIMB: Record<string, number> = {
+  ant: 3.2, spider: 3.2, tarantula: 3.0, black_widow: 3.2, scorpion: 2.6, deathstalker: 2.8, bombardier: 2.8, beetle: 2.4, hercules: 2.0, emperor_scorpion: 2.0,
+  gecko: 3.2, monitor: 1.7, komodo: 1.4, cobra: 1.2, viper: 1.25, python: 1.1, croc: 0.7, tortoise: 0.55, snapping_turtle: 0.6, sea_turtle: 0.5,
+  house_cat: 1.8, ocelot: 1.6, leopard: 1.7, snow_leopard: 1.7, panther: 1.5, lynx: 1.5, bobcat: 1.5, cheetah: 1.0, lion: 0.95, tiger: 0.85,
+  weasel: 1.5, fisher: 1.6, wolverine: 1.5, tayra: 1.6, badger: 0.85, honey_badger: 1.1, raccoon: 1.5, black_bear: 1.0, sun_bear: 1.0, moon_bear: 1.0, panda: 0.85,
+  mudskipper: 1.2,
+};
+const slopes = new Map<string, Slope>();
+export const DEFAULT_SLOPE: Slope = { ease: 0.35, limit: 0.9, detach: 1.05 };
+
+export function slopeFor(def: { id: string; tree: string; size: string }): Slope {
+  let s = slopes.get(def.id);
+  if (!s) {
+    const limit = CLIMB[def.id] ?? (def.tree === 'fish' ? 0.45 : (SLOPE_BY_SIZE as Record<string, number>)[def.size] ?? 0.9);
+    const clings = limit >= 1.4; // a real climber grips the rock and never drops off it
+    s = {
+      ease: 0.35 + Math.max(0, limit - 0.9) * 0.3,
+      limit,
+      detach: clings ? 99 : def.tree === 'birds' ? 0.7 : limit + 0.15, // birds spring off a ledge and glide
+    };
+    slopes.set(def.id, s);
+  }
+  return s;
+}
 
 /**
  * Move a circle `dist` metres along (dx, dz), sliding along trees, rocks and cliffs.
  * Writes the result into `p`. Returns true if it moved at all.
  */
-export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz: number, dist: number, radius: number, bound: Bound = MAP_BOUND, feet = 0): boolean {
+export function stepPos(t: Terrain, p: { x: number; z: number; jy?: number; jv?: number; land?: number }, dx: number, dz: number, dist: number, radius: number, bound: Bound = MAP_BOUND, feet = 0, rule: Slope = DEFAULT_SLOPE): boolean {
   const len = Math.hypot(dx, dz);
   if (len < 1e-6 || dist <= 0) return false;
   const ux = dx / len;
@@ -51,8 +88,21 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
     const c = t.collide(nx, nz, radius, feet);
     nx = c.x;
     nz = c.z;
-    const rise = t.heightAt(nx, nz) - t.heightAt(p.x, p.z);
-    if (rise > MAX_SLOPE * Math.max(0.05, Math.hypot(nx - p.x, nz - p.z)) + 0.05) return false;
+    const h0 = t.heightAt(p.x, p.z);
+    let rise = t.heightAt(nx, nz) - h0;
+    const hor0 = Math.max(0.05, Math.hypot(nx - p.x, nz - p.z));
+    const low = feet < 0.4; // off the ground (a jump, a glide) you are not climbing
+    if (low && rise > rule.limit * hor0 + 0.05) return false; // too steep to go up
+    if (low && rise > 0) {
+      // climbing is slow work: the steeper it gets, the shorter each step
+      const g = rise / hor0;
+      if (g > rule.ease) {
+        const k = 1 - 0.65 * Math.min(1, (g - rule.ease) / Math.max(0.1, rule.limit - rule.ease));
+        nx = p.x + (nx - p.x) * k;
+        nz = p.z + (nz - p.z) * k;
+        rise = t.heightAt(nx, nz) - h0;
+      }
+    }
     // stay inside the bound
     const bx = nx - bound.cx;
     const bz = nz - bound.cz;
@@ -61,9 +111,29 @@ export function stepPos(t: Terrain, p: { x: number; z: number }, dx: number, dz:
       nx = bound.cx + (bx / bd) * bound.r;
       nz = bound.cz + (bz / bd) * bound.r;
     }
-    const moved = Math.hypot(nx - p.x, nz - p.z) > 1e-4;
+    const hor = Math.hypot(nx - p.x, nz - p.z);
+    const moved = hor > 1e-4;
     p.x = nx;
     p.z = nz;
+    if (p.jy !== undefined && moved) {
+      // the ground moves under you: attached to it on a slope you can hold, but a drop that is too steep leaves you
+      // in the air (to fall, or glide), and while airborne you keep your height whatever the ground does below
+      const dh = t.heightAt(nx, nz) - h0;
+      const floor = t.floorAt(nx, nz, p.jy);
+      const grounded = p.jy <= floor + 0.001 && (p.jv ?? 0) <= 0.001;
+      if (grounded) {
+        if (-dh > rule.detach * hor && hor > 0.02) {
+          p.jy = floor - dh;
+          p.jv = Math.min(p.jv ?? 0, 0);
+        }
+      } else {
+        p.jy -= dh;
+        if (p.jy < floor) {
+          if ((p.jv ?? 0) < 0) p.land = -(p.jv ?? 0); // ran into rising ground while falling
+          p.jy = floor;
+        }
+      }
+    }
     return moved;
   };
   // sub-step so a fast dash cannot skip through a tree
@@ -94,8 +164,9 @@ export const glideFall = (bird: boolean, jy: number, jv: number, floor: number) 
  * Advance the vertical motion of a jump. `jy` is the height above the ground, `floor` the top of the rock you are over
  * (0 on the bare ground): you stand on it, land on it, and fall when you walk off it.
  */
-export function stepVertical(s: { jy: number; jv: number }, dt: number, floor = 0, glide = false) {
+export function stepVertical(s: { jy: number; jv: number; land?: number }, dt: number, floor = 0, glide = false) {
   if (s.jy <= floor + 1e-3 && s.jv <= 0) {
+    if (s.jv < -1) s.land = -s.jv; // how hard it came down, for fall damage
     s.jy = floor;
     s.jv = 0;
     return;
@@ -104,7 +175,20 @@ export function stepVertical(s: { jy: number; jv: number }, dt: number, floor = 
   if (glide && s.jv < -SOAR_FALL) s.jv = -SOAR_FALL; // gliding: wings out, so the fall is slow
   s.jy += s.jv * dt;
   if (s.jy <= floor && s.jv <= 0) {
+    if (s.jv < -1) s.land = -s.jv;
     s.jy = floor;
     s.jv = 0;
   }
 }
+
+/** Over an updraft a glider is carried up (the lift is re-applied each tick, since gravity pulls it back). */
+export function thermalLift(t: Terrain, s: { x: number; z: number; jy: number; jv: number }, floor: number, able: boolean) {
+  if (!able || s.jy < floor + 0.3 || s.jy - floor > THERMAL_CEILING) return;
+  const l = t.liftAt(s.x, s.z);
+  if (l > 0) s.jv = Math.max(s.jv, l);
+}
+
+/** A landing faster than this (about a 3.5 m drop) hurts. */
+export const FALL_SAFE = 13;
+/** The share of max health a landing at `v` m/s takes: nothing when safe, a quarter at about 6 m, most of it from a very tall cliff. */
+export const fallDamage = (v: number) => (v <= FALL_SAFE ? 0 : Math.min(0.85, 0.065 * (v - FALL_SAFE)));

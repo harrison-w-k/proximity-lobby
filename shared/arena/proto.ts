@@ -145,6 +145,9 @@ export type MatchEvent =
   | { k: 'lure'; x: number; z: number }
   | { k: 'soar'; id: string; x: number; z: number }
   | { k: 'shield'; id: string; x: number; z: number } // overhealth gained
+  | { k: 'geyser'; id: string; x: number; z: number } // thrown up by a geyser
+  | { k: 'bounce'; id: string; x: number; z: number }
+  | { k: 'thud'; id: string; x: number; z: number; n: number } // a hard landing: n is the impact speed
 
 // flag bits in snapshots
 export const FL = {

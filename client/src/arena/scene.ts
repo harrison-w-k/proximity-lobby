@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { toonMat } from './toon';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, type Res } from '../../../shared/arena/terrain';
+import { Biome, MAP_RADIUS, Terrain, WATER_Y, CELL, geyserAt, type Feature, type Res } from '../../../shared/arena/terrain';
 import { FL } from '../../../shared/arena/proto';
 import { STRIKE_TIME, poseFor, telegraphFor, type Cue, type Telegraph } from './anim';
 import { makeMobRig, makePlayerRig, type Rig, type RigState } from './models';
@@ -156,6 +156,7 @@ export class ArenaScene {
     this.buildWalls();
     if (island) this.ring.value = 1e5; // far beyond the sea: no lava on the terrain
     this.buildVegetation();
+    this.buildFeatures();
   }
 
   // --- static world ----------------------------------------------------------------------------
@@ -427,6 +428,153 @@ varying vec3 vWP;`)
         );
     };
     return m;
+  }
+
+  // --- geysers, updrafts, hot springs ----------------------------------------------------------------
+
+  private feats: { f: Feature; g: THREE.Group; col?: THREE.Mesh; rings?: THREE.Mesh[]; puffAt: number }[] = [];
+
+  private buildFeatures() {
+    for (const f of this.terrain.features) {
+      const g = new THREE.Group();
+      g.position.set(f.x, this.groundY(f.x, f.z), f.z);
+      const e: (typeof this.feats)[number] = { f, g, puffAt: 0 };
+      if (f.kind === 'geyser') {
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(f.r * 1.1, f.r * 1.55, 0.55, 10), toonMat({ color: 0x8d8678, flatShading: true }));
+        rim.position.y = 0.2;
+        const vent = new THREE.Mesh(new THREE.CircleGeometry(f.r * 0.75, 10), new THREE.MeshBasicMaterial({ color: 0x2c2620 }));
+        vent.rotation.x = -Math.PI / 2;
+        vent.position.y = 0.5;
+        const col = new THREE.Mesh(
+          new THREE.CylinderGeometry(f.r * 0.5, f.r * 0.85, 1, 12, 1, true),
+          new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+        );
+        col.visible = false;
+        g.add(rim, vent, col);
+        e.col = col;
+      } else if (f.kind === 'mushroom') {
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 1.0, 8), toonMat({ color: 0xf1e6cf, flatShading: true }));
+        stem.position.y = 0.5;
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(f.r, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2), toonMat({ color: 0xd8473a, flatShading: true }));
+        cap.position.y = 0.95;
+        cap.scale.y = 0.55;
+        g.add(stem, cap);
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2;
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.17, 6, 4), new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
+          dot.position.set(Math.cos(a) * f.r * 0.6, 0.95 + f.r * 0.3, Math.sin(a) * f.r * 0.6);
+          g.add(dot);
+        }
+        e.col = cap;
+      } else if (f.kind === 'tar') {
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(f.r, 24), new THREE.MeshBasicMaterial({ color: 0x15110f }));
+        pool.rotation.x = -Math.PI / 2;
+        pool.position.y = 0.06;
+        g.add(pool);
+      } else if (f.kind === 'vent') {
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(f.r * 1.0, f.r * 1.5, 0.5, 9), toonMat({ color: 0x4a3a34, flatShading: true }));
+        rim.position.y = 0.2;
+        const glow = new THREE.Mesh(new THREE.CircleGeometry(f.r * 0.7, 9), new THREE.MeshBasicMaterial({ color: 0xff6a1a }));
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.y = 0.48;
+        const col = new THREE.Mesh(
+          new THREE.CylinderGeometry(f.r * 0.5, f.r * 0.9, 1, 10, 1, true),
+          new THREE.MeshBasicMaterial({ color: 0xff7b24, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+        );
+        col.visible = false;
+        g.add(rim, glow, col);
+        e.col = col;
+      } else if (f.kind === 'thermal') {
+        e.rings = [];
+        for (let i = 0; i < 4; i++) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(f.r * 0.8, 0.14, 5, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false }));
+          ring.rotation.x = Math.PI / 2;
+          g.add(ring);
+          e.rings.push(ring);
+        }
+        g.position.y += 0.1;
+      } else {
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(f.r, 22), new THREE.MeshBasicMaterial({ color: 0x5fe3d2, transparent: true, opacity: 0.85 }));
+        pool.rotation.x = -Math.PI / 2;
+        pool.position.y = 0.07;
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(f.r, 0.28, 6, 24), toonMat({ color: 0x9a8f78, flatShading: true }));
+        rim.rotation.x = Math.PI / 2;
+        rim.position.y = 0.1;
+        g.add(pool, rim);
+      }
+      this.scene.add(g);
+      this.feats.push(e);
+    }
+  }
+
+  /** A mushroom was just bounced on: squash its cap and puff some spores. */
+  bounceFx(id: number) {
+    const e = this.feats.find((q) => q.f.id === id);
+    if (!e) return;
+    e.puffAt = this.clock + 0.35;
+    this.burst(e.f.x, e.g.position.y + 1, e.f.z, 0xfff0d0, 8, 2.4, 0.6);
+  }
+
+  private updateFeatures(dt: number, time: number) {
+    const cx = this.camera.position.x;
+    const cz = this.camera.position.z;
+    for (const e of this.feats) {
+      const { f, g } = e;
+      const near = Math.hypot(f.x - cx, f.z - cz) < 110;
+      g.visible = near || f.kind === 'thermal' ? Math.hypot(f.x - cx, f.z - cz) < 260 : false;
+      if (!g.visible) continue;
+      const y = g.position.y;
+      if (f.kind === 'geyser' && e.col) {
+        const st = geyserAt(f, time);
+        e.col.visible = st.state === 2;
+        if (st.state === 2) {
+          const rise = Math.min(1, st.t * 5) * (1 - Math.max(0, st.t - 0.75) * 3); // shoots up, then falls away
+          const h = 9 * Math.max(0.1, rise);
+          e.col.scale.set(1 + st.t * 0.4, h, 1 + st.t * 0.4);
+          e.col.position.y = 0.5 + h / 2;
+          (e.col.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - st.t * 0.5);
+          if (near && this.clock > e.puffAt) {
+            e.puffAt = this.clock + 0.07;
+            this.burst(f.x, y + 0.6 + h * Math.random(), f.z, 0xf2fbff, 3, 2.2, 0.7);
+          }
+        } else if (near && this.clock > e.puffAt) {
+          // quiet it wisps; before a blast it rumbles and spits steam, faster as it nears
+          e.puffAt = this.clock + (st.state === 1 ? 0.5 - st.t * 0.38 : 1.8);
+          this.burst(f.x, y + 0.7, f.z, 0xe6f1f5, st.state === 1 ? 4 : 2, st.state === 1 ? 2.6 : 1.1, 0.6);
+        }
+      } else if (f.kind === 'vent' && e.col) {
+        const st = geyserAt(f, time);
+        e.col.visible = st.state === 2;
+        if (st.state === 2) {
+          const h = 5 * Math.min(1, st.t * 6 + 0.2);
+          e.col.scale.set(1, h, 1);
+          e.col.position.y = 0.5 + h / 2;
+          (e.col.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - st.t * 0.6);
+        }
+        if (near && this.clock > e.puffAt) {
+          e.puffAt = this.clock + (st.state === 1 ? 0.15 : st.state === 2 ? 0.05 : 0.9);
+          this.burst(f.x, y + 0.7, f.z, st.state === 0 ? 0x5a4a44 : 0xff8a2a, st.state === 2 ? 4 : 2, st.state === 2 ? 3.5 : 1.4, 0.6);
+        }
+      } else if (f.kind === 'tar' && near && this.clock > e.puffAt) {
+        e.puffAt = this.clock + 0.7 + Math.random() * 0.8;
+        this.burst(f.x + (Math.random() - 0.5) * f.r * 1.4, y + 0.1, f.z + (Math.random() - 0.5) * f.r * 1.4, 0x2a2420, 2, 0.9, 0.7);
+      } else if (f.kind === 'mushroom' && e.col) {
+        // the cap squashes down and springs back after a bounce (driven by the 'bounce' event)
+        const sq = Math.max(0, (e.puffAt - this.clock) / 0.35);
+        e.col.scale.y = 0.55 * (1 - 0.5 * sq);
+      } else if (f.kind === 'thermal' && e.rings) {
+        for (const [i, r] of e.rings.entries()) {
+          const u = (this.clock * 0.16 + i / e.rings.length) % 1;
+          r.position.y = u * 24 + 0.5;
+          r.scale.setScalar(1 - u * 0.35);
+          r.rotation.z += dt * (0.6 + i * 0.2);
+          (r.material as THREE.MeshBasicMaterial).opacity = 0.25 * Math.sin(u * Math.PI);
+        }
+      } else if (f.kind === 'spring' && near && this.clock > e.puffAt) {
+        e.puffAt = this.clock + 0.9 + Math.random() * 0.6;
+        this.burst(f.x + (Math.random() - 0.5) * f.r, y + 0.2, f.z + (Math.random() - 0.5) * f.r, 0xe6f7f4, 2, 0.8, 1.1);
+      }
+    }
   }
 
   private buildVegetation() {
@@ -1421,6 +1569,7 @@ varying vec3 vWP;`)
     this.waterTex.offset.y += dt * 0.007;
     (this.water.material as THREE.MeshPhongMaterial).opacity = 0.7;
     this.refreshNodes(matchTime);
+    this.updateFeatures(dt, matchTime);
     const now = this.clock;
 
     for (const v of this.fighters.values()) {
