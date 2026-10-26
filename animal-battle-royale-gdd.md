@@ -287,6 +287,10 @@ Pick a starter, then evolve into any stage 2 branch from level 7 and any final f
 
 Not placed yet: Wild Boar and Porcupine from the earlier roster, and flying animals after v1.
 
+## Traits
+
+Evolution decides which animal you are; **traits** decide how that animal has grown. A trait is a body part (legs, fins, lungs, teeth, claws, pincers, a stinger, a plant-digesting stomach) that you grow during a match. It changes both your build and your model. The full design, catalogue, data model, balance rules and implementation plan are in [docs/trait-system.md](docs/trait-system.md).
+
 ## Harvesting and inventory
 
 Food, water and loot turn the map into a supply puzzle, and a small inventory stops anyone from hoarding. All numbers here are first drafts to test.
